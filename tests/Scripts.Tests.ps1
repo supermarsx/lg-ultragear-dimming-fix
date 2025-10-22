@@ -44,6 +44,6 @@ Describe 'readme.md' {
     $path = Join-Path $PSScriptRoot '..' 'readme.md'
     Test-Path $path | Should -BeTrue
     $first = (Get-Content -LiteralPath $path -TotalCount 1)
-    $first | Should -Match '\*\*lg ultragear auto-dimming fix\*\*'
+    $first | Should -Match '^# lg ultragear auto-dimming fix'
   }
 }

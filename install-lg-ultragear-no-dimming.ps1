@@ -147,7 +147,15 @@ process {
 
   if ($InstallOnly) {
     Write-Host "ℹ️  install-only mode: skipping association and defaults" -ForegroundColor Cyan
-    if (-not $NoPrompt) { try { Write-Host ""; Write-Host "Press Enter to exit..." -ForegroundColor DarkGray; [void][System.Console]::ReadLine() } catch {} }
+    if (-not $NoPrompt) {
+      try {
+        Write-Host ""
+        Write-Host "Press Enter to exit..." -ForegroundColor DarkGray
+        [void][System.Console]::ReadLine()
+      } catch {
+        Write-Verbose "InstallOnly prompt skipped (no interactive console)."
+      }
+    }
     return
   }
 
@@ -175,7 +183,15 @@ process {
 
   if ($Probe) {
     Write-Host "ℹ️  probe mode: no changes will be made" -ForegroundColor Cyan
-    if (-not $NoPrompt) { try { Write-Host ""; Write-Host "Press Enter to exit..." -ForegroundColor DarkGray; [void][System.Console]::ReadLine() } catch {} }
+    if (-not $NoPrompt) {
+      try {
+        Write-Host ""
+        Write-Host "Press Enter to exit..." -ForegroundColor DarkGray
+        [void][System.Console]::ReadLine()
+      } catch {
+        Write-Verbose "Probe prompt skipped (no interactive console)."
+      }
+    }
     return
   }
 
@@ -240,8 +256,11 @@ process {
 
   if (-not $NoPrompt) {
     try {
-      Write-Host ""; Write-Host "Press Enter to exit..." -ForegroundColor DarkGray
+      Write-Host ""
+      Write-Host "Press Enter to exit..." -ForegroundColor DarkGray
       [void][System.Console]::ReadLine()
-    } catch {}
+    } catch {
+      Write-Verbose "Final prompt skipped (no interactive console)."
+    }
   }
 }

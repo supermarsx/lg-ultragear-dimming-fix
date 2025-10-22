@@ -1,0 +1,41 @@
+name: format
+
+on:
+  push:
+    branches: [ main, master, '**' ]
+  pull_request:
+    branches: [ '**' ]
+
+jobs:
+  format-check:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Trust PowerShell Gallery
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name 'PSGallery' -InstallationPolicy Trusted
+
+      - name: Install PSScriptAnalyzer (formatter)
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop
+
+      - name: Check formatting
+        shell: pwsh
+        run: |
+          $changed = @()
+          $files = Get-ChildItem -Recurse -Include *.ps1 | Select-Object -ExpandProperty FullName
+          foreach ($f in $files) {
+            $original = Get-Content -LiteralPath $f -Raw
+            $formatted = Invoke-Formatter -ScriptDefinition $original -Settings CodeFormattingOTBS
+            if ($formatted -ne $original) { $changed += $f }
+          }
+          if ($changed.Count -gt 0) {
+            Write-Host "The following files need formatting:" -ForegroundColor Red
+            $changed | ForEach-Object { Write-Host " - $_" }
+            throw "Formatting check failed. Run Invoke-Formatter locally."
+          }
+
