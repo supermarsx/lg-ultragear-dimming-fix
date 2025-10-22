@@ -21,7 +21,7 @@
 - a tailored color profile reduces the effective range windows drives the display through, preventing the firmware condition that triggers dimming.
 - software-only mitigation: nothing on the monitor is flashed or permanently changed; you can revert at any time.
 
-limitations of other approaches
+**limitations of other approaches**
 - disabling power-saving, abl or similar osd options often does not fully disable dimming on ultragear models.
 - changing windows/gpu settings (disabling adaptive brightness, cabc, toggling hdr, etc.) commonly fails to stop the firmware-level behavior.
 - firmware updates would be ideal, but many screens either have no user-feasible updates or the update tools are not publicly available. the profile-based approach works immediately without firmware changes.
@@ -39,24 +39,24 @@ note: the previous generic reference installer was removed after this tailored s
 
 ## quick start
 
-option a - one-click batch (recommended)
+**option a - one-click batch (recommended)**
 - double-click `install-full-auto.bat` (or run from command prompt). it will:
   - request admin (uac),
   - run powershell with `-executionpolicy bypass` (no permanent policy change),
   - call the installer with defaults.
   - at the end, it will prompt: "press enter to exit...".
 
-option b - powershell (manual)
+**option b - powershell (manual)**
 - open powershell in the repo folder, then run:
   - `set-executionpolicy -scope process -executionpolicy bypass -force`
   - `./install-lg-ultragear-no-dimming.ps1 -verbose`
   - the installer auto-elevates if needed and, by default, prompts: "press enter to exit...". add `-noprompt` to skip.
   - tip: you can probe first with `./install-lg-ultragear-no-dimming.ps1 -probe` to see detected and matched monitors.
 
-option c - single executable (no powershell needed)
+**option c - single executable (no powershell needed)**
 - download `install-lg-ultragear-no-dimming.exe` from the releases page and run it (uac prompt will appear). it behaves like the powershell script and will prompt to press enter at the end.
 
-what happens
+**what happens**
 - the profile is copied (or refreshed in-place) into `%windir%\system32\spool\drivers\color`.
 - displays with friendly name containing "lg ultragear" are discovered via wmi.
 - the profile is associated with each matched display and set as default.
@@ -67,15 +67,15 @@ what happens
 
 if you prefer not to run any scripts, you can apply the profile manually using the built‑in color management tool.
 
-pre‑requisites
+**pre‑requisites**
 - get the `lg-ultragear-full-cal.icm` file from this repo (clone or download the zip).
 
-optional: copy to the system color store (admin)
+**optional: copy to the system color store (admin)**
 - open file explorer as administrator.
 - navigate to `%windir%\system32\spool\drivers\color`.
 - copy `lg-ultragear-full-cal.icm` into that folder. (you can also keep the file anywhere; the ui lets you browse.)
 
-associate the profile with your lg ultragear
+**associate the profile with your lg ultragear**
 - press `win + r`, type `colorcpl`, press enter.
 - go to the “devices” tab.
 - from the display dropdown, select your lg ultragear monitor. if you have multiple displays, ensure you select the correct one (use windows settings → system → display → “identify” to confirm which is which).
@@ -86,11 +86,11 @@ associate the profile with your lg ultragear
 - select `lg-ultragear-full-cal.icm` and click “set as default profile”.
 - repeat for any other lg ultragear displays you want to fix.
 
-optional: set system‑wide default (all users)
+**optional: set system‑wide default (all users)**
 - in `colorcpl`, click “change system defaults…”.
 - repeat the same steps under the “devices” tab for the target display(s).
 
-finish and verify
+**finish and verify**
 - close the dialogs. some apps pick up changes immediately; others may need a restart or sign‑out/in.
 - to verify, open `colorcpl` again and confirm the profile is the default for your lg ultragear.
 
@@ -108,10 +108,10 @@ finish and verify
  - probe only (no changes, list monitors and matches): `./install-lg-ultragear-no-dimming.ps1 -probe`
  - dry run (simulate actions; same as -WhatIf): `./install-lg-ultragear-no-dimming.ps1 -dryrun`
 
-console output
+**console output**
 - the installer prints clear, colored progress with emojis (e.g., probing displays, installing profile, associating per display), lists all detected monitors, and highlights which ones match the friendly-name filter (default: "lg ultragear").
 
-idempotency
+**idempotency**
 - if the profile file is already present in the system color store, the installer compares hashes and overwrites only when content differs; no duplicate files are created.
 - associations and "set default" operations are safe to repeat; the script aims to leave a single effective default profile per device.
 
