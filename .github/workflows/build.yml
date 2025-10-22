@@ -30,7 +30,7 @@ jobs:
           $in  = 'install-lg-ultragear-no-dimming.ps1'
           $out = 'dist\install-lg-ultragear-no-dimming.exe'
           if (Test-Path $in) {
-            Invoke-ps2exe -inputFile $in -outputFile $out -x64 -noConsole:$false -title 'LG UltraGear No-Dimming Installer' -description 'Automated installer for LG UltraGear no-dimming ICC profile.'
+            Invoke-ps2exe -inputFile $in -outputFile $out -x64 -noConsole:$false -title 'LG UltraGear No-Dimming Installer' -description 'Automated installer for LG UltraGear no-dimming ICC profile.' -embedFiles 'lg-ultragear-full-cal.icm'
           } else {
             throw "Missing $in"
           }
@@ -58,4 +58,3 @@ jobs:
           path: |
             dist/lg-ultragear-dimming-fix.zip
             dist/install-lg-ultragear-no-dimming.exe
-
