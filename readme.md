@@ -3,6 +3,7 @@
 [![stars](https://img.shields.io/github/stars/supermarsx/lg-ultragear-dimming-fix?style=flat&color=ffd700)](https://github.com/supermarsx/lg-ultragear-dimming-fix/stargazers)
 [![watchers](https://img.shields.io/github/watchers/supermarsx/lg-ultragear-dimming-fix?style=flat)](https://github.com/supermarsx/lg-ultragear-dimming-fix/watchers)
 [![forks](https://img.shields.io/github/forks/supermarsx/lg-ultragear-dimming-fix?style=flat)](https://github.com/supermarsx/lg-ultragear-dimming-fix/forks)
+[![issues](https://img.shields.io/github/issues/supermarsx/lg-ultragear-dimming-fix?style=flat)](https://github.com/supermarsx/lg-ultragear-dimming-fix/issues)
 [![downloads](https://img.shields.io/github/downloads/supermarsx/lg-ultragear-dimming-fix/total?style=flat)](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases)
 [![built with](https://img.shields.io/badge/built%20with-powershell-5391FE)](#)
 [![made for](https://img.shields.io/badge/made%20for-windows-0078D6)](#)
