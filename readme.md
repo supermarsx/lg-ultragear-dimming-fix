@@ -34,8 +34,6 @@
 - `install-full-auto.bat` - one-click bridge: auto-elevates, uses a temporary execution policy bypass, and runs the installer end-to-end.
 - release artifacts - packaged zip and a single-file executable built from the installer for easy distribution.
 
-note: the previous generic reference installer was removed after this tailored script was added.
-
 
 ## quick start
 
