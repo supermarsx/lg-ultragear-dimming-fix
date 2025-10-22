@@ -1,4 +1,4 @@
-**lg ultragear auto-dimming fix**
+# lg ultragear auto-dimming fix
 
 - purpose: stop lg ultragear gaming monitors from dimming under static or semi-static content by constraining the panel's effective luminance range.
 - method: apply and set a custom icc/icm color profile that limits the tone response so the monitor's firmware auto-dimming heuristic doesn't trigger.
