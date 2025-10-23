@@ -11,33 +11,32 @@ param()
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-function Tag([string]$Tag,[string]$Color,[string]$Message,[switch]$NoNewline){
-  Write-Host $Tag -ForegroundColor $Color -NoNewline
-  if($NoNewline){ Write-Host ("  {0}" -f $Message) -NoNewline } else { Write-Host ("  {0}" -f $Message) }
+function Tag([string]$Tag, [string]$Color, [string]$Message, [switch]$NoNewline) {
+    Write-Host $Tag -ForegroundColor $Color -NoNewline
+    if ($NoNewline) { Write-Host ("  {0}" -f $Message) -NoNewline } else { Write-Host ("  {0}" -f $Message) }
 }
 
-[CmdletBinding(SupportsShouldProcess=$true)]
-function Remove-Safe([string]$Path){
-  if(Test-Path -LiteralPath $Path){
-    try {
-      if($PSCmdlet.ShouldProcess($Path, 'Remove')){
-        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
-        Tag '[DEL ]' Magenta ("removed: {0}" -f $Path)
-      }
+[CmdletBinding(SupportsShouldProcess = $true)]
+function Remove-Safe([string]$Path) {
+    if (Test-Path -LiteralPath $Path) {
+        try {
+            if ($PSCmdlet.ShouldProcess($Path, 'Remove')) {
+                Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+                Tag '[DEL ]' Magenta ("removed: {0}" -f $Path)
+            }
+        } catch { Tag '[ERROR]' Red ("failed to remove '{0}': {1}" -f $Path, $_.Exception.Message) }
     }
-    catch { Tag '[ERROR]' Red ("failed to remove '{0}': {1}" -f $Path, $_.Exception.Message) }
-  }
 }
 
 Tag '[STRT]' Cyan 'cleaning artifacts'
 
 # Common folders
-$folders = @('dist','TestResults','coverage','.coverage')
-foreach($f in $folders){ Remove-Safe $f }
+$folders = @('dist', 'TestResults', 'coverage', '.coverage')
+foreach ($f in $folders) { Remove-Safe $f }
 
 # Common files
-$files = @('*.trx','*.testlog','*.coverage','*.log','*.nupkg')
-foreach($pat in $files){ Get-ChildItem -Recurse -File -Filter $pat -ErrorAction SilentlyContinue | ForEach-Object { Remove-Safe $_.FullName } }
+$files = @('*.trx', '*.testlog', '*.coverage', '*.log', '*.nupkg')
+foreach ($pat in $files) { Get-ChildItem -Recurse -File -Filter $pat -ErrorAction SilentlyContinue | ForEach-Object { Remove-Safe $_.FullName } }
 
 Tag '[DONE]' Cyan 'clean finished'
 exit 0

@@ -1,4 +1,4 @@
-Param(
+param(
     [switch]$Fix
 )
 
@@ -14,13 +14,17 @@ function Ensure-Analyzer {
 }
 
 function Format-Repo {
-    Param([switch]$Apply)
+    param([switch]$Apply)
     $changed = @()
     $files = Get-ChildItem -Recurse -Include *.ps1 -File |
         Where-Object { $_.FullName -notmatch "\\\.git\\|\\dist\\" }
     foreach ($f in $files) {
         $original = Get-Content -LiteralPath $f.FullName -Raw
-        $formatted = Invoke-Formatter -ScriptDefinition $original -Settings CodeFormattingOTBS
+        # Normalize line endings to LF to keep Invoke-Formatter happy
+        $originalLf = $original -replace "\r\n|\r", "`n"
+        $formattedLf = Invoke-Formatter -ScriptDefinition $originalLf -Settings CodeFormattingOTBS
+        # Convert back to CRLF for files on Windows
+        $formatted = $formattedLf -replace "`n", "`r`n"
         if ($formatted -ne $original) {
             $changed += $f.FullName
             if ($Apply) {
@@ -28,7 +32,7 @@ function Format-Repo {
             }
         }
     }
-    return ,$changed
+    return , $changed
 }
 
 Ensure-Analyzer
@@ -41,8 +45,6 @@ if ($changed.Count -gt 0) {
     }
     $changed | ForEach-Object { Write-Host " - $_" }
     if (-not $Fix) { throw "Formatting check failed. Run scripts/format-check.ps1 -Fix." }
-}
-else {
+} else {
     Write-Host "[ OK ] Formatting clean" -ForegroundColor Green
 }
-
