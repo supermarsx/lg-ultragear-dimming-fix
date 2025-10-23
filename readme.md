@@ -9,6 +9,9 @@
 [![made for](https://img.shields.io/badge/made%20for-windows-0078D6)](#)
 [![license](https://img.shields.io/github/license/supermarsx/lg-ultragear-dimming-fix?style=flat)](license.md)
 
+[![download-latest](https://img.shields.io/github/downloads/supermarsx/lg-ultragear-dimming-fix/latest/total?style=flat&color=2ea44f&label=Download%20Latest)](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases/latest)
+[![download-exe](https://img.shields.io/github/downloads/supermarsx/lg-ultragear-dimming-fix/install-lg-ultragear-no-dimming.exe?style=flat&label=Download%20EXE%20(x64))](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases/latest/download/install-lg-ultragear-no-dimming.exe)
+
 
 
 - purpose: stop lg ultragear gaming monitors from dimming under static or semi-static content by constraining the panel's effective luminance range.

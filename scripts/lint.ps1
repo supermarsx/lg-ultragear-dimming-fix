@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 
 function Ensure-Analyzer {
     if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer)) {
-        try { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue } catch {}
+        try { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue } catch { Write-Verbose 'Ignoring PSGallery repository setup error.' }
         Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop
     }
     Import-Module PSScriptAnalyzer -ErrorAction Stop | Out-Null
