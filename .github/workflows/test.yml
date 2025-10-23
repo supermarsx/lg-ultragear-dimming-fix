@@ -9,6 +9,9 @@ on:
 jobs:
   test:
     runs-on: windows-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,4 +31,3 @@ jobs:
         run: |
           Import-Module Pester -MinimumVersion 5.0.0 -Force
           Invoke-Pester -CI
-
