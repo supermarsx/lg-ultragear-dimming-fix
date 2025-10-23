@@ -226,19 +226,18 @@ begin {
         Write-InfoMessage "relaunching with Administrator privileges..."
 
         $scriptPath = if ($script:InvocationPath) { $script:InvocationPath } else { $MyInvocation.MyCommand.Path }
-        $argsList = New-Object System.Collections.Generic.List
-        $argsList.AddRange([string[]]@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath))
+        $argsList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath)
 
         foreach ($kv in $PSBoundParameters.GetEnumerator()) {
             $name = '-' + $kv.Key
             $val = $kv.Value
             if ($val -is [System.Management.Automation.SwitchParameter]) {
-                if ([bool]$val) { $argsList.Add($name) }
+                if ([bool]$val) { $argsList += $name }
             } elseif ($val -is [bool]) {
-                if ($val) { $argsList.Add($name) }
+                if ($val) { $argsList += $name }
             } else {
-                $argsList.Add($name)
-                $argsList.Add($val)
+                $argsList += $name
+                $argsList += $val
             }
         }
 
@@ -250,7 +249,7 @@ begin {
             $env:SystemRoot
         }
 
-        Start-Process -FilePath powershell.exe -ArgumentList $argsList.ToArray() -Verb RunAs -WorkingDirectory $workingDir | Out-Null
+        Start-Process -FilePath powershell.exe -ArgumentList $argsList -Verb RunAs -WorkingDirectory $workingDir | Out-Null
         exit
     }
 
@@ -273,22 +272,22 @@ begin {
 
             Write-ActionMessage "re-hosting under Windows Terminal"
             $scriptPath = if ($script:InvocationPath) { $script:InvocationPath } else { $MyInvocation.MyCommand.Path }
-            $psArgs = New-Object System.Collections.Generic.List
+            $psArgs = @()
             foreach ($kv in $PSBoundParameters.GetEnumerator()) {
                 $name = '-' + $kv.Key
                 if ($kv.Key -eq 'SkipWindowsTerminal') { continue }
                 $val = $kv.Value
                 if ($val -is [System.Management.Automation.SwitchParameter]) {
-                    if ([bool]$val) { $psArgs.Add($name) }
+                    if ([bool]$val) { $psArgs += $name }
                 } elseif ($val -is [bool]) {
-                    if ($val) { $psArgs.Add($name) }
+                    if ($val) { $psArgs += $name }
                 } else {
-                    $psArgs.Add($name)
-                    $psArgs.Add($val)
+                    $psArgs += $name
+                    $psArgs += $val
                 }
             }
             # Prevent loop by adding -SkipWindowsTerminal on re-invocation
-            $psArgs.Add('-SkipWindowsTerminal')
+            $psArgs += '-SkipWindowsTerminal'
 
             $workingDir = if ($script:OriginalWorkingDirectory -and (Test-Path -LiteralPath $script:OriginalWorkingDirectory)) {
                 $script:OriginalWorkingDirectory
@@ -302,9 +301,12 @@ begin {
             # Use a descriptive title and a themed tab color (DodgerBlue).
             # Execute the script and then exit 0 to avoid WT's graceful hold screen.
             # Build -Command string via concatenation to avoid composite-format issues
-            $psArgString = (($psArgs | ForEach-Object { if ($_ -match '\s') { "'" + ($_.Replace("'", "''")) + "'" } else { $_ } }) -join ' ')
-            $quotedScriptPath = "'" + ($scriptPath.Replace("'", "''")) + "'"
-            $suffix = if (::IsNullOrWhiteSpace($psArgString)) { '' } else { ' ' + $psArgString }
+            $psArgString = (($psArgs | ForEach-Object {
+                        $s = [string]$_
+                        if ($s -match '\s') { "'" + (($s -replace "'", "''")) + "'" } else { $s }
+                    }) -join ' ')
+            $quotedScriptPath = "'" + (([string]$scriptPath -replace "'", "''")) + "'"
+            $suffix = if ([string]::IsNullOrWhiteSpace($psArgString)) { '' } else { ' ' + $psArgString }
             $cmdCore = "& { & " + $quotedScriptPath + $suffix + " }"
             # Quote the -Command payload so wt/pwsh treat it as a single argument
             $cmdArg = '"' + ($cmdCore -replace '"', '\"') + '"'
