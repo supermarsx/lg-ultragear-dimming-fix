@@ -313,7 +313,7 @@ begin {
             $psArgString = (($psArgs | ForEach-Object { if ($_ -match '\s') { "'" + ($_.Replace("'", "''")) + "'" } else { $_ } }) -join ' ')
             $quotedScriptPath = "'" + ($scriptPath.Replace("'", "''")) + "'"
             $suffix = if ([string]::IsNullOrWhiteSpace($psArgString)) { '' } else { ' ' + $psArgString }
-            $cmdCore = "& { & " + $quotedScriptPath + $suffix + " } ; exit 0"
+            $cmdCore = "& { & " + $quotedScriptPath + $suffix + " }"
             # Quote the -Command payload so wt/pwsh treat it as a single argument
             $cmdArg = '"' + ($cmdCore -replace '"', '\"') + '"'
             $wtArgs = @(
