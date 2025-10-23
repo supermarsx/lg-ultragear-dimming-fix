@@ -16,9 +16,15 @@ function Tag([string]$Tag,[string]$Color,[string]$Message,[switch]$NoNewline){
   if($NoNewline){ Write-Host ("  {0}" -f $Message) -NoNewline } else { Write-Host ("  {0}" -f $Message) }
 }
 
+[CmdletBinding(SupportsShouldProcess=$true)]
 function Remove-Safe([string]$Path){
   if(Test-Path -LiteralPath $Path){
-    try { Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop; Tag '[DEL ]' Magenta ("removed: {0}" -f $Path) }
+    try {
+      if($PSCmdlet.ShouldProcess($Path, 'Remove')){
+        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+        Tag '[DEL ]' Magenta ("removed: {0}" -f $Path)
+      }
+    }
     catch { Tag '[ERROR]' Red ("failed to remove '{0}': {1}" -f $Path, $_.Exception.Message) }
   }
 }
@@ -35,4 +41,3 @@ foreach($pat in $files){ Get-ChildItem -Recurse -File -Filter $pat -ErrorAction 
 
 Tag '[DONE]' Cyan 'clean finished'
 exit 0
-

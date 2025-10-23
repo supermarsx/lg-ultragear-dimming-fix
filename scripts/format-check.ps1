@@ -7,13 +7,13 @@ $ErrorActionPreference = 'Stop'
 
 function Ensure-Analyzer {
     if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer)) {
-        try { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue } catch {}
+        try { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue } catch { Write-Verbose 'Ignoring PSGallery repository setup error.' }
         Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop
     }
     Import-Module PSScriptAnalyzer -ErrorAction Stop | Out-Null
 }
 
-function Format-RepoFiles {
+function Format-Repo {
     Param([switch]$Apply)
     $changed = @()
     $files = Get-ChildItem -Recurse -Include *.ps1 -File |
@@ -32,7 +32,7 @@ function Format-RepoFiles {
 }
 
 Ensure-Analyzer
-$changed = Format-RepoFiles -Apply:$Fix.IsPresent
+$changed = Format-Repo -Apply:$Fix.IsPresent
 if ($changed.Count -gt 0) {
     if ($Fix) {
         Write-Host "[ OK ] Applied formatting to:" -ForegroundColor Green

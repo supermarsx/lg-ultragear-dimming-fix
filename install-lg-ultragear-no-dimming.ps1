@@ -48,6 +48,10 @@ param(
 )
 
 begin {
+    # Hint to static analysis: parameters are intentionally used across nested scopes
+    $null = $ProfilePath, $MonitorNameMatch, $PerUser, $NoSetDefault, $SkipHdrAssociation, $NoPrompt, $InstallOnly, $Probe, $SkipElevation, $SkipWindowsTerminal, $KeepTemp, $SkipHashCheck
+    # Mark parameters as referenced for static analyzers
+
     # Record the launch context so relative paths stay consistent after re-invocation.
     $script:InvocationPath = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Path }
     $script:InvocationDirectory = if ($script:InvocationPath) { Split-Path -Path $script:InvocationPath -Parent } else { $null }
@@ -70,7 +74,7 @@ begin {
         $raw.BackgroundColor = 'Black'
         $raw.ForegroundColor = 'White'
         try { $raw.WindowTitle = $scriptName } catch { [Console]::Title = $scriptName }
-        try { Clear-Host } catch {}
+        try { Clear-Host } catch { Write-NoteMessage "Clear-Host skipped (no interactive host)." }
     }
     catch {
         Write-Host "[NOTE] console color/title not set: $($_.Exception.Message)" -ForegroundColor White
@@ -380,7 +384,7 @@ begin {
                     try { $stream.WriteTo($fileStream) } finally { $fileStream.Dispose() }
                 }
                 finally { $stream.Dispose() }
-                Write-NoteMessage ("extracted embedded profile resource to '{0}'" -f $destination)
+                Write-CreateMessage ("extracted embedded profile resource to '{0}'" -f $destination)
                 try {
                     $size = (Get-Item -LiteralPath $destination).Length
                     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $destination).Hash
@@ -418,7 +422,7 @@ begin {
                     }
                 }
                 [IO.File]::WriteAllBytes($destination, $bytes) | Out-Null
-                Write-NoteMessage ("wrote embedded Base64 profile to '{0}'" -f $destination)
+                Write-CreateMessage ("wrote embedded Base64 profile to '{0}'" -f $destination)
                 try {
                     $size = $bytes.Length
                     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $destination).Hash
@@ -439,7 +443,7 @@ begin {
                     try {
                         if (Test-Path -LiteralPath $cand) {
                             Copy-Item -LiteralPath $cand -Destination $destination -Force -ErrorAction Stop
-                            Write-NoteMessage ("copied profile from fallback asset '{0}'" -f $cand)
+                            Write-CreateMessage ("copied profile from fallback asset '{0}'" -f $cand)
                             try {
                                 $size = (Get-Item -LiteralPath $destination).Length
                                 $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $destination).Hash
@@ -464,7 +468,7 @@ begin {
             try {
                 if (Test-Path -LiteralPath $cand) {
                     Copy-Item -LiteralPath $cand -Destination $destination -Force -ErrorAction Stop
-                    Write-NoteMessage ("copied profile from fallback asset '{0}'" -f $cand)
+                    Write-CreateMessage ("copied profile from fallback asset '{0}'" -f $cand)
                     try {
                         $size = (Get-Item -LiteralPath $destination).Length
                         $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $destination).Hash
@@ -667,8 +671,9 @@ public static class Win32SendMessage {
 }
 "@
     Add-PInvokeType -Name 'Win32SendMessage.SendMessageTimeout' -Code $srcSendMessage
-
     function Invoke-Main {
+        [CmdletBinding(SupportsShouldProcess=$true)]
+        param()
         <#
     .SYNOPSIS
       Main workflow: prepare profile, install, associate, refresh.
@@ -845,7 +850,6 @@ public static class Win32SendMessage {
         }
         finally {
             Write-ActionMessage "wrapping up"
-            Write-DoneMessage "terminated"
             # Delete materialized temp profile (and its unique folder) if applicable
             try {
                 if ($KeepTemp.IsPresent) {
@@ -873,6 +877,8 @@ public static class Win32SendMessage {
             catch {
                 Write-NoteMessage ("temp cleanup skipped: {0}" -f $_.Exception.Message)
             }
+            # Emit done as the last status line
+            Write-DoneMessage "terminated"
             Show-ExitPrompt
         }
     }

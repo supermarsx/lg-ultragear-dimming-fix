@@ -7,14 +7,19 @@ $ErrorActionPreference = 'Stop'
 
 function Ensure-Packager {
     if (-not (Get-Module -ListAvailable -Name ps2exe)) {
-        try { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue } catch {}
+        try { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue } catch { Write-Verbose 'Ignoring PSGallery repository setup error.' }
         Install-Module ps2exe -Scope CurrentUser -Force -ErrorAction Stop
     }
     Import-Module ps2exe -ErrorAction Stop | Out-Null
 }
 
+[CmdletBinding(SupportsShouldProcess=$true)]
 function New-CleanDir([string]$Path) {
-    if (-not (Test-Path -LiteralPath $Path)) { New-Item -ItemType Directory -Path $Path -Force | Out-Null }
+    if (-not (Test-Path -LiteralPath $Path)) {
+        if ($PSCmdlet.ShouldProcess($Path,'Create directory')) {
+            New-Item -ItemType Directory -Path $Path -Force | Out-Null
+        }
+    }
 }
 
 Ensure-Packager
@@ -45,4 +50,3 @@ Compress-Archive -Path $items -DestinationPath $zip -CompressionLevel Optimal
 Write-Host "[ OK ] Build artifacts:" -ForegroundColor Green
 Write-Host " - $exeOut"
 Write-Host " - $zip"
-
