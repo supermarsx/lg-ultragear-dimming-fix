@@ -226,6 +226,8 @@ begin {
         Write-InfoMessage "relaunching with Administrator privileges..."
 
         $scriptPath = if ($script:InvocationPath) { $script:InvocationPath } else { $MyInvocation.MyCommand.Path }
+        if (-not $scriptPath) { $scriptPath = $PSCommandPath }
+        if (-not $scriptPath) { throw 'Unable to resolve script path for elevation relaunch.' }
         $argsList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath)
 
         foreach ($kv in $PSBoundParameters.GetEnumerator()) {
@@ -237,7 +239,7 @@ begin {
                 if ($val) { $argsList += $name }
             } else {
                 $argsList += $name
-                $argsList += $val
+                if ($null -ne $val -and $val -ne '') { $argsList += $val }
             }
         }
 
@@ -249,6 +251,8 @@ begin {
             $env:SystemRoot
         }
 
+        # Sanitize: remove null/empty and ensure string[]
+        $argsList = @($argsList | Where-Object { $_ -ne $null -and $_ -ne '' } | ForEach-Object { [string]$_ })
         Start-Process -FilePath powershell.exe -ArgumentList $argsList -Verb RunAs -WorkingDirectory $workingDir | Out-Null
         exit
     }
