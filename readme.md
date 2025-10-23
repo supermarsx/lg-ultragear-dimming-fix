@@ -1,13 +1,13 @@
 # lg ultragear auto-dimming fix
 
-[![stars](https://img.shields.io/github/stars/supermarsx/lg-ultragear-dimming-fix?style=flat&color=ffd700)](https://github.com/supermarsx/lg-ultragear-dimming-fix/stargazers)
-[![watchers](https://img.shields.io/github/watchers/supermarsx/lg-ultragear-dimming-fix?style=flat)](https://github.com/supermarsx/lg-ultragear-dimming-fix/watchers)
-[![forks](https://img.shields.io/github/forks/supermarsx/lg-ultragear-dimming-fix?style=flat)](https://github.com/supermarsx/lg-ultragear-dimming-fix/forks)
-[![issues](https://img.shields.io/github/issues/supermarsx/lg-ultragear-dimming-fix?style=flat)](https://github.com/supermarsx/lg-ultragear-dimming-fix/issues)
-[![downloads](https://img.shields.io/github/downloads/supermarsx/lg-ultragear-dimming-fix/total?style=flat)](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases)
-[![built with](https://img.shields.io/badge/built%20with-powershell-5391FE)](#)
-[![made for](https://img.shields.io/badge/made%20for-windows-0078D6)](#)
-[![license](https://img.shields.io/github/license/supermarsx/lg-ultragear-dimming-fix?style=flat)](license.md)
+[![stars](https://img.shields.io/github/stars/supermarsx/lg-ultragear-dimming-fix?style=flat-square&color=ffd700)](https://github.com/supermarsx/lg-ultragear-dimming-fix/stargazers)
+[![watchers](https://img.shields.io/github/watchers/supermarsx/lg-ultragear-dimming-fix?style=flat-square)](https://github.com/supermarsx/lg-ultragear-dimming-fix/watchers)
+[![forks](https://img.shields.io/github/forks/supermarsx/lg-ultragear-dimming-fix?style=flat-square)](https://github.com/supermarsx/lg-ultragear-dimming-fix/forks)
+[![issues](https://img.shields.io/github/issues/supermarsx/lg-ultragear-dimming-fix?style=flat-square)](https://github.com/supermarsx/lg-ultragear-dimming-fix/issues)
+[![downloads](https://img.shields.io/github/downloads/supermarsx/lg-ultragear-dimming-fix/total?style=flat-square)](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases)
+[![built with](https://img.shields.io/badge/built%20with-powershell-5391FE?style=flat-square)](#)
+[![made for](https://img.shields.io/badge/made%20for-windows-0078D6?style=flat-square)](#)
+[![license](https://img.shields.io/github/license/supermarsx/lg-ultragear-dimming-fix?style=flat-square)](license.md)
 
 [![download-latest](https://img.shields.io/badge/Download-Latest%20Release-2ea44f?style=for-the-badge&logo=github)](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases/latest)
 [![download-binary](https://img.shields.io/badge/Download-EXE%20(x64)-2ea44f?style=for-the-badge&logo=windows)](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases/latest/download/install-lg-ultragear-no-dimming.exe)
