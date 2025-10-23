@@ -29,9 +29,9 @@
 
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [string]$ProfilePath = '.\\lg-ultragear-full-cal.icm',
-    [string]$MonitorNameMatch = 'LG ULTRAGEAR',
-    [string]$EmbedFromPath,
+    $ProfilePath = '.\\lg-ultragear-full-cal.icm',
+    $MonitorNameMatch = 'LG ULTRAGEAR',
+    $EmbedFromPath,
     [switch]$PerUser,
     [switch]$NoSetDefault,
     [switch]$SkipHdrAssociation,
@@ -130,52 +130,52 @@ begin {
     }
 
     # Logging helpers with colorized tags only; message text is default color
-    function Write-InfoMessage([string]$Message, [switch]$NoNewline) {
+    function Write-InfoMessage($Message, [switch]$NoNewline) {
         Write-Host $script:SymbolInfo -ForegroundColor Yellow -NoNewline
         if ($NoNewline) { Write-Host ("  {0}" -f $Message) -NoNewline } else { Write-Host ("  {0}" -f $Message) }
     }
-    function Write-ActionMessage([string]$Message, [switch]$NoNewline) {
+    function Write-ActionMessage($Message, [switch]$NoNewline) {
         Write-Host $script:SymbolAction -ForegroundColor Magenta -NoNewline
         if ($NoNewline) { Write-Host ("  {0}" -f $Message) -NoNewline } else { Write-Host ("  {0}" -f $Message) }
     }
-    function Write-SuccessMessage([string]$Message, [switch]$NoNewline) {
+    function Write-SuccessMessage($Message, [switch]$NoNewline) {
         Write-Host $script:SymbolSuccess -ForegroundColor Green -NoNewline
         if ($NoNewline) { Write-Host ("  {0}" -f $Message) -NoNewline } else { Write-Host ("  {0}" -f $Message) }
     }
-    function Write-WarnMessage([string]$Message, [switch]$NoNewline) {
+    function Write-WarnMessage($Message, [switch]$NoNewline) {
         Write-Host $script:SymbolWarning -ForegroundColor Yellow -NoNewline
         if ($NoNewline) { Write-Host ("  {0}" -f $Message) -NoNewline } else { Write-Host ("  {0}" -f $Message) }
     }
-    function Write-NoteMessage([string]$Message, [switch]$NoNewline) {
+    function Write-NoteMessage($Message, [switch]$NoNewline) {
         Write-Host $script:SymbolNote -ForegroundColor Gray -NoNewline
         if ($NoNewline) { Write-Host ("  {0}" -f $Message) -NoNewline } else { Write-Host ("  {0}" -f $Message) }
     }
-    function Write-SkipMessage([string]$Message, [switch]$NoNewline) {
+    function Write-SkipMessage($Message, [switch]$NoNewline) {
         Write-Host $script:SymbolSkip -ForegroundColor DarkYellow -NoNewline
         if ($NoNewline) { Write-Host ("  {0}" -f $Message) -NoNewline } else { Write-Host ("  {0}" -f $Message) }
     }
 
     # Delete marker
-    function Write-DeleteMessage([string]$Message, [switch]$NoNewline) {
+    function Write-DeleteMessage($Message, [switch]$NoNewline) {
         # light pink => Magenta
         Write-Host $script:SymbolDelete -ForegroundColor Magenta -NoNewline
         if ($NoNewline) { Write-Host ("  {0}" -f $Message) -NoNewline } else { Write-Host ("  {0}" -f $Message) }
     }
 
     # Done marker
-    function Write-DoneMessage([string]$Message, [switch]$NoNewline) {
+    function Write-DoneMessage($Message, [switch]$NoNewline) {
         Write-Host $script:SymbolDone -ForegroundColor Cyan -NoNewline
         if ($NoNewline) { Write-Host ("  {0}" -f $Message) -NoNewline } else { Write-Host ("  {0}" -f $Message) }
     }
 
     # Create marker (CRT) in orange
-    function Write-CreateMessage([string]$Message, [switch]$NoNewline) {
+    function Write-CreateMessage($Message, [switch]$NoNewline) {
         Write-Host $script:SymbolCreate -ForegroundColor DarkYellow -NoNewline
         if ($NoNewline) { Write-Host ("  {0}" -f $Message) -NoNewline } else { Write-Host ("  {0}" -f $Message) }
     }
 
     # Init message: use STRT tag colored light blue (Cyan)
-    function Write-InitMessage([string]$Message, [switch]$NoNewline) {
+    function Write-InitMessage($Message, [switch]$NoNewline) {
         Write-Host $script:SymbolStart -ForegroundColor Cyan -NoNewline
         if ($NoNewline) { Write-Host ("  {0}" -f $Message) -NoNewline } else { Write-Host ("  {0}" -f $Message) }
     }
@@ -194,7 +194,7 @@ begin {
     #>
         param(
             [Parameter(Mandatory)] [System.Management.Automation.ErrorRecord] $ErrorRecord,
-            [string] $Context
+             $Context
         )
         try {
             $msg = if ($ErrorRecord.Exception) { $ErrorRecord.Exception.Message } else { $ErrorRecord.ToString() }
@@ -226,7 +226,7 @@ begin {
         Write-InfoMessage "relaunching with Administrator privileges..."
 
         $scriptPath = if ($script:InvocationPath) { $script:InvocationPath } else { $MyInvocation.MyCommand.Path }
-        $argsList = New-Object System.Collections.Generic.List[string]
+        $argsList = New-Object System.Collections.Generic.List
         $argsList.AddRange([string[]]@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath))
 
         foreach ($kv in $PSBoundParameters.GetEnumerator()) {
@@ -238,7 +238,7 @@ begin {
                 if ($val) { $argsList.Add($name) }
             } else {
                 $argsList.Add($name)
-                $argsList.Add([string]$val)
+                $argsList.Add($val)
             }
         }
 
@@ -273,7 +273,7 @@ begin {
 
             Write-ActionMessage "re-hosting under Windows Terminal"
             $scriptPath = if ($script:InvocationPath) { $script:InvocationPath } else { $MyInvocation.MyCommand.Path }
-            $psArgs = New-Object System.Collections.Generic.List[string]
+            $psArgs = New-Object System.Collections.Generic.List
             foreach ($kv in $PSBoundParameters.GetEnumerator()) {
                 $name = '-' + $kv.Key
                 if ($kv.Key -eq 'SkipWindowsTerminal') { continue }
@@ -284,7 +284,7 @@ begin {
                     if ($val) { $psArgs.Add($name) }
                 } else {
                     $psArgs.Add($name)
-                    $psArgs.Add([string]$val)
+                    $psArgs.Add($val)
                 }
             }
             # Prevent loop by adding -SkipWindowsTerminal on re-invocation
@@ -304,7 +304,7 @@ begin {
             # Build -Command string via concatenation to avoid composite-format issues
             $psArgString = (($psArgs | ForEach-Object { if ($_ -match '\s') { "'" + ($_.Replace("'", "''")) + "'" } else { $_ } }) -join ' ')
             $quotedScriptPath = "'" + ($scriptPath.Replace("'", "''")) + "'"
-            $suffix = if ([string]::IsNullOrWhiteSpace($psArgString)) { '' } else { ' ' + $psArgString }
+            $suffix = if (::IsNullOrWhiteSpace($psArgString)) { '' } else { ' ' + $psArgString }
             $cmdCore = "& { & " + $quotedScriptPath + $suffix + " }"
             # Quote the -Command payload so wt/pwsh treat it as a single argument
             $cmdArg = '"' + ($cmdCore -replace '"', '\"') + '"'
@@ -330,7 +330,7 @@ begin {
     .PARAMETER ProfileName
       File name to materialize (e.g., lg-ultragear-full-cal.icm).
     #>
-        param([string]$ProfileName)
+        param($ProfileName)
 
         if (-not $ProfileName) { return $null }
         Write-ActionMessage ("materializing embedded profile '{0}'" -f $ProfileName)
@@ -468,7 +468,7 @@ begin {
     .PARAMETER InputPath
       Path or file name to resolve.
     #>
-        param([string]$InputPath)
+        param($InputPath)
 
         if (-not $InputPath) { return $null }
         Write-ActionMessage ("resolving profile path for input '{0}'" -f $InputPath)
@@ -511,7 +511,7 @@ begin {
     #>
         param([int[]]$CodePoints)
 
-        if (-not $CodePoints) { return [string]::Empty }
+        if (-not $CodePoints) { return ::Empty }
 
         $builder = [System.Text.StringBuilder]::new()
         foreach ($codePoint in $CodePoints) {
@@ -582,7 +582,7 @@ begin {
     .PARAMETER Code
       C# definition to compile.
     #>
-        param([string]$Name, [string]$Code)
+        param($Name, $Code)
         try {
             Write-ActionMessage ("loading P/Invoke: {0}" -f $Name)
             Add-Type -TypeDefinition $Code -ErrorAction Stop
