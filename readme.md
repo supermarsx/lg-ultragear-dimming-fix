@@ -70,6 +70,14 @@
 **option c - single executable (no powershell needed)**
 - download `install-lg-ultragear-no-dimming.exe` from the releases page and run it (uac prompt will appear). it behaves like the powershell script and will prompt to press enter at the end.
 
+  note: when using the executable, open powershell as administrator and run it from your downloads folder so elevation works reliably:
+
+  ```powershell
+  # start powershell as administrator, then:
+  cd $env:USERPROFILE\Downloads
+  .\install-lg-ultragear-no-dimming.exe
+  ```
+
 **what happens**
 - the profile is copied (or refreshed in‑place) into `%WINDIR%\System32\spool\drivers\color`.
 - displays with friendly name containing "lg ultragear" are discovered via wmi.
