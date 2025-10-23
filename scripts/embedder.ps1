@@ -22,14 +22,14 @@ function Tag([string]$Tag, [string]$Color, [string]$Message, [switch]$NoNewline)
 try {
     $main = (Resolve-Path -LiteralPath $MainScriptPath -ErrorAction Stop).Path
     $icc = (Resolve-Path -LiteralPath $ProfilePath   -ErrorAction Stop).Path
-} catch { Tag '[ERROR]' Red $_.Exception.Message; exit 1 }
+} catch { Tag -Tag '[ERROR]' -Color Red -Message $_.Exception.Message; exit 1 }
 
 $bytes = [IO.File]::ReadAllBytes($icc)
 $b64 = [Convert]::ToBase64String($bytes)
 $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $icc).Hash
 $name = Split-Path -Leaf $icc
 
-Tag '[INFO]' Yellow ("source='{0}', bytes={1}, sha256={2}" -f $name, $bytes.Length, $hash)
+Tag -Tag '[INFO]' -Color Yellow -Message ("source='{0}', bytes={1}, sha256={2}" -f $name, $bytes.Length, $hash)
 
 $content = Get-Content -LiteralPath $main -Raw
 
@@ -58,11 +58,11 @@ $hash2hex = -join ($hash2 | ForEach-Object { $_.ToString('X2') })
 if ($hash2hex -ine $hash) { throw "Round-trip hash mismatch: expected $hash got $hash2hex" }
 
 if ($DryRun) {
-    Tag '[SKIP]' DarkYellow 'dry-run set; not writing file'
+    Tag -Tag '[SKIP]' -Color DarkYellow -Message 'dry-run set; not writing file'
 } else {
     Set-Content -LiteralPath $main -Value $content -NoNewline
-    Tag '[ OK ]' Green 'updated main script with embedded profile + hash'
+    Tag -Tag '[ OK ]' -Color Green -Message 'updated main script with embedded profile + hash'
 }
 
-Tag '[DONE]' Cyan 'embed verification ok'
+Tag -Tag '[DONE]' -Color Cyan -Message 'embed verification ok'
 exit 0

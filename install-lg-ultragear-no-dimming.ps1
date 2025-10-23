@@ -194,7 +194,7 @@ begin {
     #>
         param(
             [Parameter(Mandatory)] [System.Management.Automation.ErrorRecord] $ErrorRecord,
-             $Context
+            $Context
         )
         try {
             $msg = if ($ErrorRecord.Exception) { $ErrorRecord.Exception.Message } else { $ErrorRecord.ToString() }
