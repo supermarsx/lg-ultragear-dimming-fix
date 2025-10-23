@@ -1,4 +1,4 @@
-Param(
+param(
     [string]$OutputDir = "dist"
 )
 
@@ -13,10 +13,10 @@ function Ensure-Packager {
     Import-Module ps2exe -ErrorAction Stop | Out-Null
 }
 
-[CmdletBinding(SupportsShouldProcess=$true)]
+[CmdletBinding(SupportsShouldProcess = $true)]
 function New-CleanDir([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) {
-        if ($PSCmdlet.ShouldProcess($Path,'Create directory')) {
+        if ($PSCmdlet.ShouldProcess($Path, 'Create directory')) {
             New-Item -ItemType Directory -Path $Path -Force | Out-Null
         }
     }
@@ -25,8 +25,8 @@ function New-CleanDir([string]$Path) {
 Ensure-Packager
 New-CleanDir -Path $OutputDir
 
-$scriptIn  = 'install-lg-ultragear-no-dimming.ps1'
-$exeOut    = Join-Path $OutputDir 'install-lg-ultragear-no-dimming.exe'
+$scriptIn = 'install-lg-ultragear-no-dimming.ps1'
+$exeOut = Join-Path $OutputDir 'install-lg-ultragear-no-dimming.exe'
 
 if (-not (Test-Path -LiteralPath $scriptIn)) { throw "Missing input script: $scriptIn" }
 
