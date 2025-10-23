@@ -16,8 +16,9 @@ function Tag([string]$Tag, [string]$Color, [string]$Message, [switch]$NoNewline)
     if ($NoNewline) { Write-Host ("  {0}" -f $Message) -NoNewline } else { Write-Host ("  {0}" -f $Message) }
 }
 
-[CmdletBinding(SupportsShouldProcess = $true)]
-function Remove-Safe([string]$Path) {
+function Remove-Safe {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param([string]$Path)
     if (Test-Path -LiteralPath $Path) {
         try {
             if ($PSCmdlet.ShouldProcess($Path, 'Remove')) {

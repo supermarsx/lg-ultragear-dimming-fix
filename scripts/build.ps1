@@ -13,8 +13,9 @@ function Ensure-Packager {
     Import-Module ps2exe -ErrorAction Stop | Out-Null
 }
 
-[CmdletBinding(SupportsShouldProcess = $true)]
-function New-CleanDir([string]$Path) {
+function New-CleanDir {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) {
         if ($PSCmdlet.ShouldProcess($Path, 'Create directory')) {
             New-Item -ItemType Directory -Path $Path -Force | Out-Null
