@@ -61,7 +61,7 @@ Describe 'install-lg-ultragear-no-dimming.ps1 execution (mocked)' {
         while ($charBuffer.Count -lt 64) { $charBuffer += 0 }
 
         Mock -CommandName Get-CimInstance -ParameterFilter {
-            ($PSBoundParameters.ContainsKey('Class') -and $PSBoundParameters['Class'] -eq 'WmiMonitorID') -or 
+            ($PSBoundParameters.ContainsKey('Class') -and $PSBoundParameters['Class'] -eq 'WmiMonitorID') -or
             ($PSBoundParameters.ContainsKey('ClassName') -and $PSBoundParameters['ClassName'] -eq 'WmiMonitorID')
         } -MockWith {
             @(
