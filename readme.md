@@ -30,10 +30,14 @@
 
 ## what's in this repo
 
-- `lg-ultragear-full-cal.icm` - custom icc/icm profile that constrains luminance.
-- `install-lg-ultragear-no-dimming.ps1` - installer that finds "lg ultragear" displays, installs the profile, associates it, and sets it as default.
-- `install-full-auto.bat` - one-click bridge: auto-elevates, uses a temporary execution policy bypass, and runs the installer end-to-end.
-- release artifacts - packaged zip and a single-file executable built from the installer for easy distribution.
+- `lg-ultragear-full-cal.icm` — custom icc/icm profile that constrains luminance.
+- `install-lg-ultragear-no-dimming.ps1` — installer that finds "lg ultragear" displays, installs the profile, associates it, and sets it as default.
+- `install-full-auto.bat` — one‑click bridge: auto‑elevates, uses a temporary execution policy bypass, and runs the installer end‑to‑end.
+- release artifacts — packaged zip and a single‑file executable built from the installer for easy distribution.
+- `scripts/` — helper scripts:
+  - `scripts/local-ci.ps1` — run format, lint, test, build locally (skips steps if tools not installed)
+  - `scripts/clean.ps1` — clean common build/test artifacts (dist, logs, coverage, etc.)
+  - `scripts/embedder.ps1` — regenerate and embed the profile (Base64 + SHA256) into the installer
 
 
 ## quick start
@@ -47,16 +51,24 @@
 
 **option b - powershell (manual)**
 - open powershell in the repo folder, then run:
-  - `set-executionpolicy -scope process -executionpolicy bypass -force`
-  - `./install-lg-ultragear-no-dimming.ps1 -verbose`
-  - the installer auto-elevates if needed and, by default, prompts: "press enter to exit...". add `-noprompt` to skip.
-  - tip: you can probe first with `./install-lg-ultragear-no-dimming.ps1 -probe` to see detected and matched monitors.
+
+  ```powershell
+  Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+  ./install-lg-ultragear-no-dimming.ps1
+  ```
+
+  - the installer auto‑elevates if needed and, by default, prompts: "press enter to exit...". add `-NoPrompt` to skip.
+  - tip: you can probe first with:
+
+  ```powershell
+  ./install-lg-ultragear-no-dimming.ps1 -Probe
+  ```
 
 **option c - single executable (no powershell needed)**
 - download `install-lg-ultragear-no-dimming.exe` from the releases page and run it (uac prompt will appear). it behaves like the powershell script and will prompt to press enter at the end.
 
 **what happens**
-- the profile is copied (or refreshed in-place) into `%windir%\system32\spool\drivers\color`.
+- the profile is copied (or refreshed in‑place) into `%WINDIR%\System32\spool\drivers\color`.
 - displays with friendly name containing "lg ultragear" are discovered via wmi.
 - the profile is associated with each matched display and set as default.
 - system color settings are refreshed.
@@ -102,13 +114,48 @@ if you prefer not to run any scripts, you can apply the profile manually using t
 - also associate per-user: `./install-lg-ultragear-no-dimming.ps1 -peruser`
 - do not set as default: `./install-lg-ultragear-no-dimming.ps1 -nosetdefault`
 - skip hdr association: `./install-lg-ultragear-no-dimming.ps1 -skiphdrassociation`
-- verbose output: `./install-lg-ultragear-no-dimming.ps1 -verbose`
  - install only (no device association): `./install-lg-ultragear-no-dimming.ps1 -installonly`
  - probe only (no changes, list monitors and matches): `./install-lg-ultragear-no-dimming.ps1 -probe`
  - dry run (simulate actions; same as -WhatIf): `./install-lg-ultragear-no-dimming.ps1 -dryrun`
 
 **console output**
-- the installer prints clear, colored progress with emojis (e.g., probing displays, installing profile, associating per display), lists all detected monitors, and highlights which ones match the friendly-name filter (default: "lg ultragear").
+- the installer prints clear, colored progress with console-safe labels (e.g., [STEP], [INFO], [OK]), lists all detected monitors, and highlights which ones match the friendly-name filter (default: "lg ultragear").
+
+## cli arguments
+
+- `-ProfilePath <path>`: path to ICC/ICM file. Default: `./lg-ultragear-full-cal.icm`.
+- note: the installer uses the embedded profile at runtime; the `-ProfilePath` argument is kept for compatibility but is ignored during install/association.
+- `-MonitorNameMatch <string>`: substring to match monitor friendly names. Default: `LG ULTRAGEAR`.
+- `-PerUser`: also associate the profile in current-user scope.
+- `-NoSetDefault`: associate only; do not set as default.
+- `-SkipHdrAssociation`: skip the HDR/advanced-color association API.
+- `-InstallOnly`: install/copy the profile into the system store without associating.
+- `-Probe`: list detected and matched monitors; no changes.
+- `-DryRun`: simulate operations (equivalent to WhatIf for actions).
+- `-NoPrompt`: do not wait for Enter before exiting.
+- `-SkipElevation`: do not auto-elevate (useful for CI/testing).
+- `-Help` (aliases: `-h`, `-?`): show usage and exit.
+
+## dev scripts (local)
+
+**local dev helpers**
+
+```powershell
+# run all (format, lint, test, build)
+pwsh -File scripts/local-ci.ps1
+
+# treat linter warnings as errors
+pwsh -File scripts/local-ci.ps1 -Strict
+
+# clean artifacts
+pwsh -File scripts/clean.ps1
+
+# update embedded profile (base64 + sha256) inside the installer
+pwsh -File scripts/embedder.ps1 -ProfilePath .\lg-ultragear-full-cal.icm
+
+# or specify a different main script path
+pwsh -File scripts/embedder.ps1 -ProfilePath C:\path\to\your.icm -MainScriptPath .\install-lg-ultragear-no-dimming.ps1
+```
 
 **idempotency**
 - if the profile file is already present in the system color store, the installer compares hashes and overwrites only when content differs; no duplicate files are created.

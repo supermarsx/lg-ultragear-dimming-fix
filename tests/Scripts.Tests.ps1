@@ -26,6 +26,7 @@ Describe 'install-lg-ultragear-no-dimming.ps1' {
         $names | Should -Contain 'Probe'
         $names | Should -Contain 'DryRun'
         $names | Should -Contain 'SkipElevation'
+        $names | Should -Contain 'Help'
 
         $defaults = @{}
         foreach ($p in $paramBlock.Parameters) {
@@ -39,6 +40,11 @@ Describe 'install-lg-ultragear-no-dimming.ps1' {
 }
 
 Describe 'install-lg-ultragear-no-dimming.ps1 execution (mocked)' {
+    It 'prints help and exits without error' {
+        $repoRoot = [System.IO.Path]::GetFullPath((Join-Path -Path $PSScriptRoot -ChildPath '..'))
+        $scriptPath = Join-Path -Path $repoRoot -ChildPath 'install-lg-ultragear-no-dimming.ps1'
+        { & $scriptPath -Help -NoPrompt -SkipElevation } | Should -Not -Throw
+    }
     It 'completes a dry run with mocked monitor data' {
         if (-not $IsWindows) {
             Set-ItResult -Skipped -Because 'Execution test only runs on Windows hosts'
@@ -54,7 +60,10 @@ Describe 'install-lg-ultragear-no-dimming.ps1 execution (mocked)' {
         foreach ($ch in $monitorName.ToCharArray()) { $charBuffer += [int][char]$ch }
         while ($charBuffer.Count -lt 64) { $charBuffer += 0 }
 
-        Mock -CommandName Get-CimInstance -ParameterFilter { $Class -eq 'WmiMonitorID' } -MockWith {
+        Mock -CommandName Get-CimInstance -ParameterFilter {
+            ($PSBoundParameters.ContainsKey('Class') -and $PSBoundParameters['Class'] -eq 'WmiMonitorID') -or 
+            ($PSBoundParameters.ContainsKey('ClassName') -and $PSBoundParameters['ClassName'] -eq 'WmiMonitorID')
+        } -MockWith {
             @(
                 [pscustomobject]@{
                     InstanceName     = 'DISPLAY\LGULTRAGEAR\1&ABCDEF&0&UID1234'
@@ -63,7 +72,7 @@ Describe 'install-lg-ultragear-no-dimming.ps1 execution (mocked)' {
             )
         }
 
-        { & $scriptPath -ProfilePath $profilePath -MonitorNameMatch 'LG ULTRAGEAR' -DryRun -NoPrompt -SkipElevation } | Should -Not -Throw
+        { & $scriptPath -ProfilePath $profilePath -MonitorNameMatch 'LG ULTRAGEAR' -DryRun -Probe -NoPrompt -SkipElevation } | Should -Not -Throw
     }
 }
 
