@@ -129,6 +129,42 @@ begin {
         $script:PromptShown = $true
     }
 
+    # Determine if Get-FileHash is available (missing on some older/newer editions)
+    try {
+        $script:SupportsGetFileHash = [bool](Get-Command -Name Get-FileHash -ErrorAction Stop)
+    } catch {
+        $script:SupportsGetFileHash = $false
+    }
+
+    function Get-Sha256HashCompat {
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$LiteralPath
+        )
+
+        if ($script:SupportsGetFileHash) {
+            try {
+                return (Microsoft.PowerShell.Utility\Get-FileHash -Algorithm SHA256 -LiteralPath $LiteralPath).Hash
+            } catch {
+                throw
+            }
+        }
+
+        $fileStream = $null
+        $sha256 = $null
+        try {
+            $fileStream = [System.IO.File]::Open($LiteralPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+            $sha256 = [System.Security.Cryptography.SHA256]::Create()
+            $hashBytes = $sha256.ComputeHash($fileStream)
+            return ([System.BitConverter]::ToString($hashBytes) -replace '-', '').ToUpperInvariant()
+        } catch {
+            throw
+        } finally {
+            if ($null -ne $fileStream) { $fileStream.Dispose() }
+            if ($null -ne $sha256) { $sha256.Dispose() }
+        }
+    }
+
     # Logging helpers with colorized tags only; message text is default color
     function Write-InfoMessage($Message, [switch]$NoNewline) {
         Write-Host $script:SymbolInfo -ForegroundColor Yellow -NoNewline
@@ -378,7 +414,7 @@ begin {
                 Write-CreateMessage ("extracted embedded profile resource to '{0}'" -f $destination)
                 try {
                     $size = (Get-Item -LiteralPath $destination).Length
-                    $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $destination).Hash
+                    $hash = Get-Sha256HashCompat -LiteralPath $destination
                     Write-InfoMessage ("embedded profile size: {0} bytes" -f $size)
                     Write-InfoMessage ("embedded profile SHA256: {0}" -f $hash)
                     if (-not $SkipHashCheck -and ($hash.ToUpperInvariant() -ne $expectedHash)) { throw ("embedded profile hash mismatch after resource extract; expected {0}, got {1}" -f $expectedHash, $hash) }
@@ -412,7 +448,7 @@ begin {
                 Write-CreateMessage ("wrote embedded Base64 profile to '{0}'" -f $destination)
                 try {
                     $size = $bytes.Length
-                    $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $destination).Hash
+                    $hash = Get-Sha256HashCompat -LiteralPath $destination
                     Write-InfoMessage ("embedded profile size: {0} bytes" -f $size)
                     Write-InfoMessage ("embedded profile SHA256: {0}" -f $hash)
                     if (-not $SkipHashCheck -and ($hash.ToUpperInvariant() -ne $expectedHash)) { throw ("embedded profile hash mismatch after Base64 write; expected {0}, got {1}" -f $expectedHash, $hash) }
@@ -431,7 +467,7 @@ begin {
                             Write-CreateMessage ("copied profile from fallback asset '{0}'" -f $cand)
                             try {
                                 $size = (Get-Item -LiteralPath $destination).Length
-                                $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $destination).Hash
+                                $hash = Get-Sha256HashCompat -LiteralPath $destination
                                 Write-InfoMessage ("embedded profile size: {0} bytes" -f $size)
                                 Write-InfoMessage ("embedded profile SHA256: {0}" -f $hash)
                                 if (-not $SkipHashCheck -and ($hash.ToUpperInvariant() -ne $expectedHash)) { throw ("embedded profile hash mismatch after fallback asset copy; expected {0}, got {1}" -f $expectedHash, $hash) }
@@ -454,7 +490,7 @@ begin {
                     Write-CreateMessage ("copied profile from fallback asset '{0}'" -f $cand)
                     try {
                         $size = (Get-Item -LiteralPath $destination).Length
-                        $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $destination).Hash
+                        $hash = Get-Sha256HashCompat -LiteralPath $destination
                         Write-InfoMessage ("embedded profile size: {0} bytes" -f $size)
                         Write-InfoMessage ("embedded profile SHA256: {0}" -f $hash)
                         if (-not $SkipHashCheck -and ($hash.ToUpperInvariant() -ne $expectedHash)) { throw ("embedded profile hash mismatch after final fallback copy; expected {0}, got {1}" -f $expectedHash, $hash) }
@@ -674,13 +710,13 @@ public static class Win32SendMessage {
                 $dir = Split-Path -Parent $installedPath
                 if (-not (Test-Path -LiteralPath $dir)) { [IO.Directory]::CreateDirectory($dir) | Out-Null; Write-CreateMessage ("created folder: {0}" -f $dir) }
 
-                $srcHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $profileFull).Hash
+                $srcHash = Get-Sha256HashCompat -LiteralPath $profileFull
                 $srcSize = (Get-Item -LiteralPath $profileFull).Length
                 Write-InfoMessage ("source profile size: {0} bytes" -f $srcSize)
                 Write-InfoMessage ("source profile SHA256: {0}" -f $srcHash)
 
                 if (Test-Path -LiteralPath $installedPath) {
-                    $dstHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installedPath).Hash
+                    $dstHash = Get-Sha256HashCompat -LiteralPath $installedPath
                     if ($srcHash -ne $dstHash) {
                         Copy-Item -LiteralPath $profileFull -Destination $installedPath -Force
                         Write-SuccessMessage "profile updated at: $installedPath"
