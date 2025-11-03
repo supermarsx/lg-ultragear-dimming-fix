@@ -606,8 +606,6 @@ begin {
     # WCS default profile constants
     $CPT_ICC = 1  # COLORPROFILETYPE.CPT_ICC
     $CPS_DEV = 0  # COLORPROFILESUBTYPE.CPS_DEVICE
-    $COLOR_PROFILE_TYPE_SDR = 0  # COLORPROFILETYPE_STANDARD_DYNAMIC_RANGE
-    $COLOR_PROFILE_SUBTYPE_SDR = 0  # COLORPROFILESUBTYPE_STANDARD_DYNAMIC_RANGE
 
     Write-InitMessage "starting LG UltraGear no-dimming installer"
 
@@ -676,16 +674,6 @@ public static class WcsHdrAssoc {
 }
 "@
     Add-PInvokeType -Name 'WcsHdrAssoc.ColorProfileAddDisplayAssociation' -Code $srcHdrAssoc
-
-    $srcSdrAssoc = @"
-using System;
-using System.Runtime.InteropServices;
-public static class WcsSdrAssoc {
-  [DllImport("mscms.dll", CharSet=CharSet.Unicode, SetLastError=true, EntryPoint="ColorProfileSetDisplayDefaultAssociation")]
-  public static extern bool ColorProfileSetDisplayDefaultAssociation(string profile, string deviceName, uint scope, uint profileType, uint profileSubType, uint profileId);
-}
-"@
-    Add-PInvokeType -Name 'WcsSdrAssoc.ColorProfileSetDisplayDefaultAssociation' -Code $srcSdrAssoc
 
     $srcSendMessage = @"
 using System;
@@ -837,21 +825,9 @@ public static class Win32SendMessage {
                     }
                 }
 
-                try {
-                    if ($PSCmdlet.ShouldProcess($deviceName, "SDR/default association")) {
-                        [void][WcsSdrAssoc]::ColorProfileSetDisplayDefaultAssociation($installedPath, $deviceName, [uint32]$WCS_SCOPE_SYSTEM_WIDE, [uint32]$COLOR_PROFILE_TYPE_SDR, [uint32]$COLOR_PROFILE_SUBTYPE_SDR, 0)
-                        if ($PerUser.IsPresent) {
-                            [void][WcsSdrAssoc]::ColorProfileSetDisplayDefaultAssociation($installedPath, $deviceName, [uint32]$WCS_SCOPE_CURRENT_USER, [uint32]$COLOR_PROFILE_TYPE_SDR, [uint32]$COLOR_PROFILE_SUBTYPE_SDR, 0)
-                        }
-                        Write-SuccessMessage "SDR/default association ok"
-                    }
-                } catch {
-                    Write-NoteMessage "SDR association API not available; skipping."
-                }
-
                 if (-not $SkipHdrAssociation) {
                     try {
-                        # profileType 0 => SDR/ICC association. Safe on non-HDR paths.
+                        # profileType 0 => ICC. No error if SDR.
                         if ($PSCmdlet.ShouldProcess($deviceName, "HDR/advanced-color association")) {
                             [void][WcsHdrAssoc]::ColorProfileAddDisplayAssociation($installedPath, $deviceName, [uint32]$WCS_SCOPE_SYSTEM_WIDE, 0)
                             if ($PerUser.IsPresent) { [void][WcsHdrAssoc]::ColorProfileAddDisplayAssociation($installedPath, $deviceName, [uint32]$WCS_SCOPE_CURRENT_USER, 0) }
