@@ -82,6 +82,7 @@
 - the profile is copied (or refreshed in‑place) into `%WINDIR%\System32\spool\drivers\color`.
 - displays with friendly name containing "lg ultragear" are discovered via wmi.
 - the profile is associated with each matched display and set as default.
+- the sdr pipeline receives an explicit default association (hdr/advanced-color is also updated unless `-SkipHdrAssociation`).
 - system color settings are refreshed.
 
 
