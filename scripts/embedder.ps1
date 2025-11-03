@@ -14,6 +14,41 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+try {
+    $SupportsGetFileHash = [bool](Get-Command -Name Get-FileHash -ErrorAction Stop)
+} catch {
+    $SupportsGetFileHash = $false
+}
+
+function Get-Sha256HashCompat {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$LiteralPath
+    )
+
+    if ($SupportsGetFileHash) {
+        try {
+            return (Microsoft.PowerShell.Utility\Get-FileHash -Algorithm SHA256 -LiteralPath $LiteralPath).Hash
+        } catch {
+            throw
+        }
+    }
+
+    $fileStream = $null
+    $sha256 = $null
+    try {
+        $fileStream = [System.IO.File]::Open($LiteralPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        $hashBytes = $sha256.ComputeHash($fileStream)
+        return ([System.BitConverter]::ToString($hashBytes) -replace '-', '').ToUpperInvariant()
+    } catch {
+        throw
+    } finally {
+        if ($null -ne $fileStream) { $fileStream.Dispose() }
+        if ($null -ne $sha256) { $sha256.Dispose() }
+    }
+}
+
 function Tag([string]$Tag, [string]$Color, [string]$Message, [switch]$NoNewline) {
     Write-Host $Tag -ForegroundColor $Color -NoNewline
     if ($NoNewline) { Write-Host ("  {0}" -f $Message) -NoNewline } else { Write-Host ("  {0}" -f $Message) }
@@ -26,7 +61,7 @@ try {
 
 $bytes = [IO.File]::ReadAllBytes($icc)
 $b64 = [Convert]::ToBase64String($bytes)
-$hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $icc).Hash
+$hash = Get-Sha256HashCompat -LiteralPath $icc
 $name = Split-Path -Leaf $icc
 
 Tag -Tag '[INFO]' -Color Yellow -Message ("source='{0}', bytes={1}, sha256={2}" -f $name, $bytes.Length, $hash)
