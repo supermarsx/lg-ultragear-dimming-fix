@@ -35,6 +35,8 @@ param(
     [switch]$PerUser,
     [switch]$NoSetDefault,
     [switch]$SkipHdrAssociation,
+    [switch]$EnableGenericDefault,
+    [switch]$EnableHdrAssociation,
     [switch]$NoPrompt,
     [switch]$InstallOnly,
     [switch]$Probe,
@@ -822,19 +824,24 @@ public static class Win32SendMessage {
                     }
                 }
 
-                if (-not $NoSetDefault) {
-                    if ($PSCmdlet.ShouldProcess($deviceName, "Set as default profile")) {
+                # Control whether we call the legacy WcsSetDefaultColorProfile API.
+                # Default installer behavior: do NOT call it. It will only be invoked when
+                # -EnableGenericDefault is passed and -NoSetDefault is not present.
+                if ($EnableGenericDefault -and -not $NoSetDefault) {
+                    if ($PSCmdlet.ShouldProcess($deviceName, "Set as generic default profile (requested via -EnableGenericDefault)")) {
                         if (-not [WcsDefault]::WcsSetDefaultColorProfile([uint32]$WCS_SCOPE_SYSTEM_WIDE, $deviceName, $CPT_ICC, $CPS_DEV, 0, $installedPath)) {
                             $code = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-                            Write-WarnMessage ("set default (system) failed (Win32={0})" -f $code)
-                        } else { Write-SuccessMessage "set default (system) ok" }
+                            Write-WarnMessage ("set generic default (system) failed (Win32={0})" -f $code)
+                        } else { Write-SuccessMessage "set generic default (system) ok" }
                         if ($PerUser.IsPresent) {
                             if (-not [WcsDefault]::WcsSetDefaultColorProfile([uint32]$WCS_SCOPE_CURRENT_USER, $deviceName, $CPT_ICC, $CPS_DEV, 0, $installedPath)) {
                                 $code = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-                                Write-WarnMessage ("set default (user) failed (Win32={0})" -f $code)
-                            } else { Write-SuccessMessage "set default (user) ok" }
+                                Write-WarnMessage ("set generic default (user) failed (Win32={0})" -f $code)
+                            } else { Write-SuccessMessage "set generic default (user) ok" }
                         }
                     }
+                } else {
+                    if ($NoSetDefault) { Write-InfoMessage "NoSetDefault requested; skipping generic default profile operations" } else { Write-NoteMessage "Generic default profile not enabled; skipping. Use -EnableGenericDefault to allow." }
                 }
 
                 try {
@@ -849,10 +856,11 @@ public static class Win32SendMessage {
                     Write-NoteMessage "SDR association API not available; skipping."
                 }
 
-                if (-not $SkipHdrAssociation) {
+                # HDR/advanced-color association is opt-in. Default install will NOT touch HDR/advanced-color.
+                # Use -EnableHdrAssociation to explicitly add the profile to the advanced-color/HDR association.
+                if ($EnableHdrAssociation -and -not $SkipHdrAssociation) {
                     try {
-                        # profileType 0 => SDR/ICC association. Safe on non-HDR paths.
-                        if ($PSCmdlet.ShouldProcess($deviceName, "HDR/advanced-color association")) {
+                        if ($PSCmdlet.ShouldProcess($deviceName, "HDR/advanced-color association (requested via -EnableHdrAssociation)")) {
                             [void][WcsHdrAssoc]::ColorProfileAddDisplayAssociation($installedPath, $deviceName, [uint32]$WCS_SCOPE_SYSTEM_WIDE, 0)
                             if ($PerUser.IsPresent) { [void][WcsHdrAssoc]::ColorProfileAddDisplayAssociation($installedPath, $deviceName, [uint32]$WCS_SCOPE_CURRENT_USER, 0) }
                             Write-SuccessMessage "HDR/advanced-color association ok"
@@ -860,6 +868,8 @@ public static class Win32SendMessage {
                     } catch {
                         Write-NoteMessage "HDR association API not available; skipping."
                     }
+                } else {
+                    if ($SkipHdrAssociation) { Write-InfoMessage "SkipHdrAssociation requested; skipping HDR/advanced-color association" } else { Write-NoteMessage "HDR/advanced-color association not enabled; skipping. Use -EnableHdrAssociation to allow." }
                 }
             }
 
