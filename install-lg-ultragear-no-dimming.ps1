@@ -106,12 +106,20 @@ begin {
         Write-Host "  -SkipWindowsTerminal          Do not re-host under Windows Terminal"
         Write-Host "  -KeepTemp                     Keep temp materialized profile files for inspection"
         Write-Host "  -SkipHashCheck                Do not enforce SHA256 integrity on materialized profile"
+        Write-Host ""
+        Write-Host "Auto-Reapply Monitor Options:"
+        Write-Host "  -SkipMonitor                  Do not install auto-reapply monitor"
+        Write-Host "  -InstallMonitor               Only install auto-reapply monitor (no profile)"
+        Write-Host "  -UninstallMonitor             Remove auto-reapply monitor"
+        Write-Host "  -MonitorTaskName <name>       Custom task name (default: 'LG-UltraGear-ColorProfile-AutoReapply')"
+        Write-Host ""
         Write-Host "  -h | -?                       Show this help and exit"
         Write-Host ""; Write-Host "Examples:"
         Write-Host "  .\\install-lg-ultragear-no-dimming.ps1"
         Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -MonitorNameMatch 'LG ULTRAGEAR' -PerUser"
         Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -Probe -NoPrompt"
-        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -InstallOnly -ProfilePath .\\lg-ultragear-full-cal.icm"
+        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -SkipMonitor"
+        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -UninstallMonitor"
     }
 
     # Exit prompt helper to avoid premature window close on errors or completion
@@ -133,6 +141,95 @@ begin {
             Write-NoteMessage "Exit prompt skipped (no interactive console)."
         }
         $script:PromptShown = $true
+    }
+
+    # =========================================================================
+    # AUTO-REAPPLY MONITOR FUNCTIONS
+    # =========================================================================
+    function Install-AutoReapplyMonitor {
+        <#
+        .SYNOPSIS
+          Creates a scheduled task to auto-reapply color profile on display events.
+        #>
+        param(
+            [string]$TaskName,
+            [string]$InstallerPath,
+            [string]$MonitorMatch
+        )
+        
+        Write-ActionMessage "Installing auto-reapply monitor..."
+        
+        # Create the action script
+        $actionScript = @"
+# Auto-reapply LG UltraGear color profile
+`$ErrorActionPreference = 'SilentlyContinue'
+Start-Sleep -Seconds 2
+& '$InstallerPath' -NoSetDefault -NoPrompt -SkipElevation -SkipWindowsTerminal -SkipMonitor -MonitorNameMatch '$MonitorMatch' 2>`$null | Out-Null
+"@
+        
+        $actionScriptPath = "$env:ProgramData\LG-UltraGear-Monitor\reapply-profile.ps1"
+        $actionScriptDir = Split-Path -Path $actionScriptPath -Parent
+        
+        if (-not (Test-Path -LiteralPath $actionScriptDir)) {
+            New-Item -ItemType Directory -Path $actionScriptDir -Force | Out-Null
+        }
+        
+        Set-Content -Path $actionScriptPath -Value $actionScript -Force
+        Write-SuccessMessage "Created action script: $actionScriptPath"
+        
+        # Create scheduled task
+        $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$actionScriptPath`""
+        
+        # Trigger 1: Display device events
+        $trigger1 = New-ScheduledTaskTrigger -AtLogOn
+        $trigger1.CimInstanceProperties.Item('Enabled').Value = $true
+        $trigger1.CimInstanceProperties.Item('Subscription').Value = @"
+<QueryList>
+  <Query Id="0" Path="System">
+    <Select Path="System">*[System[Provider[@Name='Microsoft-Windows-Kernel-PnP'] and (EventID=20001 or EventID=20003)]]</Select>
+  </Query>
+</QueryList>
+"@
+        
+        # Trigger 2: User logon
+        $trigger2 = New-ScheduledTaskTrigger -AtLogOn
+        
+        # Trigger 3: Session unlock
+        $trigger3 = New-ScheduledTaskTrigger -AtLogOn
+        $trigger3.CimInstanceProperties.Item('Enabled').Value = $true
+        $trigger3.CimInstanceProperties.Item('StateChange').Value = 8
+        
+        $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 2)
+        
+        try { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue } catch {}
+        
+        Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger1, $trigger2, $trigger3 -Principal $principal -Settings $settings -Description "Automatically reapplies LG UltraGear color profile when display reconnects." | Out-Null
+        
+        Write-SuccessMessage "Auto-reapply monitor installed: $TaskName"
+        Write-InfoMessage "Profile will auto-reapply on: monitor reconnect, wake, logon, unlock"
+    }
+    
+    function Uninstall-AutoReapplyMonitor {
+        param([string]$TaskName)
+        
+        Write-ActionMessage "Removing auto-reapply monitor..."
+        try {
+            Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Stop
+            Write-SuccessMessage "Task '$TaskName' removed"
+            
+            $actionScriptPath = "$env:ProgramData\LG-UltraGear-Monitor\reapply-profile.ps1"
+            if (Test-Path $actionScriptPath) {
+                Remove-Item -Path (Split-Path $actionScriptPath -Parent) -Recurse -Force -ErrorAction SilentlyContinue
+                Write-SuccessMessage "Removed action script directory"
+            }
+        } catch {
+            if ($_.Exception.Message -match "No MSFT_ScheduledTask objects found") {
+                Write-NoteMessage "Task '$TaskName' not found (already removed)"
+            } else {
+                Write-WarnMessage "Failed to remove task: $($_.Exception.Message)"
+            }
+        }
     }
 
     # Determine if Get-FileHash is available (missing on some older/newer editions)
@@ -709,8 +806,21 @@ public static class Win32SendMessage {
     .SYNOPSIS
       Main workflow: prepare profile, install, associate, refresh.
     .NOTES
-      Honors -InstallOnly, -PerUser, -NoSetDefault, -Probe.
+      Honors -InstallOnly, -PerUser, -NoSetDefault, -Probe, -InstallMonitor, -UninstallMonitor.
     #>
+        # Handle monitor-only operations first
+        if ($UninstallMonitor) {
+            Uninstall-AutoReapplyMonitor -TaskName $MonitorTaskName
+            Show-ExitPrompt
+            return
+        }
+        
+        if ($InstallMonitor) {
+            Install-AutoReapplyMonitor -TaskName $MonitorTaskName -InstallerPath $script:InvocationPath -MonitorMatch $MonitorNameMatch
+            Show-ExitPrompt
+            return
+        }
+        
         try {
             Write-ActionMessage "preparing embedded profile"
             $profileName = $script:EmbeddedProfileName
@@ -885,6 +995,22 @@ public static class Win32SendMessage {
             [void][Win32SendMessage]::SendMessageTimeout($HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero, 'Color', $SMTO_ABORTIFHUNG, 2000, [ref]$res)
 
             Write-SuccessMessage "done. associated profile '$profileName' with all displays matching '$MonitorNameMatch'."
+            
+            # =========================================================================
+            # AUTO-REAPPLY MONITOR INSTALLATION
+            # =========================================================================
+            if (-not $SkipMonitor -and -not $Probe -and -not $InstallOnly -and -not $DryRun) {
+                Write-Host ""
+                Write-StepMessage "installing auto-reapply monitor"
+                try {
+                    Install-AutoReapplyMonitor -TaskName $MonitorTaskName -InstallerPath $script:InvocationPath -MonitorMatch $MonitorNameMatch
+                } catch {
+                    Write-WarnMessage "Auto-reapply monitor installation failed: $($_.Exception.Message)"
+                    Write-NoteMessage "Profile is installed but won't auto-reapply on reconnection"
+                }
+            } elseif ($SkipMonitor) {
+                Write-NoteMessage "Skipping auto-reapply monitor (-SkipMonitor specified)"
+            }
         } catch {
             Write-ErrorFull -ErrorRecord $_ -Context "Invoke-Main"
             exit 1
