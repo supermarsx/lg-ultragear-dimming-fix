@@ -1104,7 +1104,7 @@ try {
 
             $wtWorkingDir = if ($workingDir) { $workingDir } else { $env:SystemRoot }
             # Launch in a new window with specific size for TUI
-            Start-Process -FilePath $wt.Path -ArgumentList (@('-w', 'new', '--size', '100,45') + $wtArgs) -WorkingDirectory $wtWorkingDir | Out-Null
+            Start-Process -FilePath $wt.Path -ArgumentList (@('-w', 'new', '--size', '100,50') + $wtArgs) -WorkingDirectory $wtWorkingDir | Out-Null
             exit 0
         } catch {
             Write-ErrorFull -ErrorRecord $_ -Context 'Ensure-WindowsTerminal'
