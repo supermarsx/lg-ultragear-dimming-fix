@@ -55,7 +55,7 @@ BeforeAll {
     }
 
     # =========================================================================
-    # UNICODE SYMBOLS
+    # UNICODE SYMBOLS (using only BMP characters for compatibility)
     # =========================================================================
     $script:Symbols = @{
         Check      = [char]0x2713  # ✓
@@ -67,14 +67,14 @@ BeforeAll {
         Circle     = [char]0x25CF  # ●
         Square     = [char]0x25A0  # ■
         Triangle   = [char]0x25B2  # ▲
-        Lightning  = [char]0x26A1  # ⚡
+        Lightning  = [char]0x2726  # ✦ (sparkle, safer alternative)
         Gear       = [char]0x2699  # ⚙
-        Clock      = [char]0x23F0  # ⏰
-        Rocket     = [char]0x1F680 # 🚀
-        Package    = [char]0x1F4E6 # 📦
-        Wrench     = [char]0x1F527 # 🔧
-        Magnify    = [char]0x1F50D # 🔍
-        Shield     = [char]0x1F6E1 # 🛡️
+        Clock      = [char]0x25D4  # ◔ (clock-like)
+        Rocket     = [char]0x2B9E  # ⮞ (rightward arrow)
+        Package    = [char]0x25A1  # □
+        Wrench     = [char]0x2692  # ⚒
+        Magnify    = [char]0x2295  # ⊕
+        Shield     = [char]0x2660  # ♠
     }
 
     # =========================================================================
@@ -1639,10 +1639,10 @@ AfterAll {
     $Symbols = @{
         Check      = [char]0x2713  # ✓
         Star       = [char]0x2605  # ★
-        Trophy     = [char]0x1F3C6 # 🏆
-        Clock      = [char]0x23F0  # ⏰
-        Package    = [char]0x1F4E6 # 📦
-        Sparkles   = [char]0x2728  # ✨
+        Trophy     = [char]0x2654  # ♔ (crown/king - trophy-like)
+        Clock      = [char]0x25D4  # ◔
+        Package    = [char]0x25A1  # □
+        Sparkles   = [char]0x2726  # ✦
     }
 
     Write-Host ""
