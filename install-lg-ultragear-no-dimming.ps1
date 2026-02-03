@@ -55,6 +55,8 @@ param(
     [switch]$UninstallFull,
     [switch]$Reinstall,
     [switch]$Refresh,
+    # Internal: working directory passed during elevation (hidden from help)
+    [string]$_WorkDir,
     [Alias('h', '?')]
     [switch]$Help
 )
@@ -63,6 +65,11 @@ begin {
     # Hint to static analysis: parameters are intentionally used across nested scopes
     $null = $ProfilePath, $MonitorNameMatch, $PerUser, $NoSetDefault, $SkipHdrAssociation, $NoPrompt, $InstallOnly, $Probe, $SkipElevation, $SkipWindowsTerminal, $KeepTemp, $SkipHashCheck, $InstallMonitor, $UninstallMonitor, $SkipMonitor, $MonitorTaskName, $Interactive, $NonInteractive, $Uninstall, $UninstallFull, $Reinstall, $Refresh
     # Mark parameters as referenced for static analyzers
+
+    # Restore working directory if passed during elevation (UAC ignores -WorkingDirectory)
+    if ($_WorkDir -and (Test-Path -LiteralPath $_WorkDir -PathType Container)) {
+        Set-Location -LiteralPath $_WorkDir
+    }
 
     # Check if running with no arguments (interactive mode)
     $script:IsInteractive = $Interactive -or (($PSBoundParameters.Count -eq 0 -and -not $Help) -and -not $NonInteractive)
@@ -999,9 +1006,27 @@ try {
         $scriptPath = if ($script:InvocationPath) { $script:InvocationPath } else { $MyInvocation.MyCommand.Path }
         if (-not $scriptPath) { $scriptPath = $PSCommandPath }
         if (-not $scriptPath) { throw 'Unable to resolve script path for elevation relaunch.' }
+
+        # Determine working directory to pass (UAC ignores -WorkingDirectory, so pass via parameter)
+        $workingDir = if ($script:OriginalWorkingDirectory -and (Test-Path -LiteralPath $script:OriginalWorkingDirectory)) {
+            $script:OriginalWorkingDirectory
+        } elseif ($script:InvocationDirectory -and (Test-Path -LiteralPath $script:InvocationDirectory)) {
+            $script:InvocationDirectory
+        } else {
+            $null
+        }
+
         $argsList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath)
 
+        # Pass working directory as hidden parameter (UAC ignores -WorkingDirectory)
+        if ($workingDir) {
+            $argsList += '-_WorkDir'
+            $argsList += $workingDir
+        }
+
         foreach ($kv in $PSBoundParameters.GetEnumerator()) {
+            # Skip internal _WorkDir parameter
+            if ($kv.Key -eq '_WorkDir') { continue }
             $name = '-' + $kv.Key
             $val = $kv.Value
             if ($val -is [System.Management.Automation.SwitchParameter]) {
@@ -1014,17 +1039,9 @@ try {
             }
         }
 
-        $workingDir = if ($script:OriginalWorkingDirectory -and (Test-Path -LiteralPath $script:OriginalWorkingDirectory)) {
-            $script:OriginalWorkingDirectory
-        } elseif ($script:InvocationDirectory -and (Test-Path -LiteralPath $script:InvocationDirectory)) {
-            $script:InvocationDirectory
-        } else {
-            $env:SystemRoot
-        }
-
         # Sanitize: remove null/empty and ensure string[]
         $argsList = @($argsList | Where-Object { $_ -ne $null -and $_ -ne '' } | ForEach-Object { [string]$_ })
-        Start-Process -FilePath powershell.exe -ArgumentList $argsList -Verb RunAs -WorkingDirectory $workingDir | Out-Null
+        Start-Process -FilePath powershell.exe -ArgumentList $argsList -Verb RunAs | Out-Null
         exit
     }
 
@@ -1047,10 +1064,26 @@ try {
 
             Write-ActionMessage "re-hosting under Windows Terminal"
             $scriptPath = if ($script:InvocationPath) { $script:InvocationPath } else { $MyInvocation.MyCommand.Path }
+
+            $workingDir = if ($script:OriginalWorkingDirectory -and (Test-Path -LiteralPath $script:OriginalWorkingDirectory)) {
+                $script:OriginalWorkingDirectory
+            } elseif ($script:InvocationDirectory -and (Test-Path -LiteralPath $script:InvocationDirectory)) {
+                $script:InvocationDirectory
+            } else {
+                $null
+            }
+
             $psArgs = @()
+            # Pass working directory for subsequent elevation (UAC ignores -WorkingDirectory)
+            if ($workingDir) {
+                $psArgs += '-_WorkDir'
+                $psArgs += $workingDir
+            }
+
             foreach ($kv in $PSBoundParameters.GetEnumerator()) {
                 $name = '-' + $kv.Key
                 if ($kv.Key -eq 'SkipWindowsTerminal') { continue }
+                if ($kv.Key -eq '_WorkDir') { continue }
                 $val = $kv.Value
                 if ($val -is [System.Management.Automation.SwitchParameter]) {
                     if ([bool]$val) { $psArgs += $name }
@@ -1063,14 +1096,6 @@ try {
             }
             # Prevent loop by adding -SkipWindowsTerminal on re-invocation
             $psArgs += '-SkipWindowsTerminal'
-
-            $workingDir = if ($script:OriginalWorkingDirectory -and (Test-Path -LiteralPath $script:OriginalWorkingDirectory)) {
-                $script:OriginalWorkingDirectory
-            } elseif ($script:InvocationDirectory -and (Test-Path -LiteralPath $script:InvocationDirectory)) {
-                $script:InvocationDirectory
-            } else {
-                $env:SystemRoot
-            }
 
             # Build a wt command as an argument array so quoting is handled correctly.
             # Use a descriptive title and a themed tab color (DodgerBlue).
@@ -1090,7 +1115,8 @@ try {
                 '--', 'powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $cmdArg
             )
 
-            Start-Process -FilePath $wt.Path -ArgumentList $wtArgs -WorkingDirectory $workingDir | Out-Null
+            $wtWorkingDir = if ($workingDir) { $workingDir } else { $env:SystemRoot }
+            Start-Process -FilePath $wt.Path -ArgumentList $wtArgs -WorkingDirectory $wtWorkingDir | Out-Null
             exit 0
         } catch {
             Write-ErrorFull -ErrorRecord $_ -Context 'Ensure-WindowsTerminal'
