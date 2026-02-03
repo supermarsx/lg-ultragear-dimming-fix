@@ -6,15 +6,16 @@ on:
   pull_request:
     branches: ["**"]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # =========================================================================
   # LINT - PSScriptAnalyzer
   # =========================================================================
   lint:
     runs-on: windows-latest
-    concurrency:
-      group: lint-${{ github.ref }}
-      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,9 +39,6 @@ jobs:
   # =========================================================================
   format:
     runs-on: windows-latest
-    concurrency:
-      group: format-${{ github.ref }}
-      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -75,9 +73,6 @@ jobs:
   # =========================================================================
   test:
     runs-on: windows-latest
-    concurrency:
-      group: test-${{ github.ref }}
-      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -102,9 +97,6 @@ jobs:
   build:
     runs-on: windows-latest
     needs: [lint, format, test]
-    concurrency:
-      group: build-${{ github.ref }}
-      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -182,9 +174,6 @@ jobs:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     permissions:
       contents: write
-    concurrency:
-      group: release-${{ github.ref }}
-      cancel-in-progress: true
     steps:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
