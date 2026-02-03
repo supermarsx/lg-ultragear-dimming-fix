@@ -808,33 +808,38 @@ try {
         # Create scheduled task with optimized triggers
         $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$actionScriptPath`""
 
-        # Trigger 1: Display/Monitor device events only (Device Interface Class GUID for monitors)
-        $trigger1 = New-ScheduledTaskTrigger -AtLogOn
-        $trigger1.CimInstanceProperties.Item('Enabled').Value = $true
-        $trigger1.CimInstanceProperties.Item('Subscription').Value = @"
+        # Trigger 1: Display/Monitor device events (Kernel-PnP events for monitor connect/disconnect)
+        # Must use CIM class directly - New-ScheduledTaskTrigger only creates LogonTrigger, not EventTrigger
+        $eventTriggerClass = Get-CimClass -ClassName 'MSFT_TaskEventTrigger' -Namespace 'Root/Microsoft/Windows/TaskScheduler'
+        # Simple subscription - just catch PnP device events. The action script already checks for LG UltraGear.
+        $eventSubscription = @"
 <QueryList>
   <Query Id="0" Path="System">
-    <Select Path="System">
-      *[System[Provider[@Name='Microsoft-Windows-Kernel-PnP'] and (EventID=20001 or EventID=20003)]]
-      and
-      *[EventData[Data[@Name='DeviceInstanceId'] and (contains(Data, 'DISPLAY') or contains(Data, 'MONITOR'))]]
-    </Select>
+    <Select Path="System">*[System[Provider[@Name='Microsoft-Windows-Kernel-PnP'] and (EventID=20001 or EventID=20003)]]</Select>
   </Query>
 </QueryList>
 "@
+        $trigger1 = $eventTriggerClass | New-CimInstance -ClientOnly -Property @{
+            Enabled      = $true
+            Subscription = $eventSubscription
+        }
 
         # Trigger 2: User logon (one-time check at login)
         $trigger2 = New-ScheduledTaskTrigger -AtLogOn
 
-        # Trigger 3: Console connect (covers RDP, fast user switching, wake)
-        $trigger3 = New-ScheduledTaskTrigger -AtLogOn
-        $trigger3.CimInstanceProperties.Item('Enabled').Value = $true
-        $trigger3.CimInstanceProperties.Item('StateChange').Value = 7  # ConsoleConnect
+        # Trigger 3: Console connect (RDP, fast user switching, wake from sleep)
+        # Must use CIM class directly for SessionStateChangeTrigger
+        $sessionTriggerClass = Get-CimClass -ClassName 'MSFT_TaskSessionStateChangeTrigger' -Namespace 'Root/Microsoft/Windows/TaskScheduler'
+        $trigger3 = $sessionTriggerClass | New-CimInstance -ClientOnly -Property @{
+            Enabled     = $true
+            StateChange = [int]7  # ConsoleConnect
+        }
 
         # Trigger 4: Session unlock
-        $trigger4 = New-ScheduledTaskTrigger -AtLogOn
-        $trigger4.CimInstanceProperties.Item('Enabled').Value = $true
-        $trigger4.CimInstanceProperties.Item('StateChange').Value = 8  # SessionUnlock
+        $trigger4 = $sessionTriggerClass | New-CimInstance -ClientOnly -Property @{
+            Enabled     = $true
+            StateChange = [int]8  # SessionUnlock
+        }
 
         $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
         $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Seconds 30) -MultipleInstances IgnoreNew
@@ -1032,9 +1037,6 @@ try {
 
         # Sanitize: remove null/empty and ensure string[]
         $argsList = @($argsList | Where-Object { $_ -ne $null -and $_ -ne '' } | ForEach-Object { [string]$_ })
-        
-        Write-Host "DEBUG: Launching with args: $($argsList -join ' ')" -ForegroundColor Magenta
-        
         Start-Process -FilePath powershell.exe -ArgumentList $argsList -Verb RunAs | Out-Null
         exit
     }
@@ -1074,20 +1076,9 @@ try {
                 $psArgs += $workingDir
             }
 
-            foreach ($kv in $PSBoundParameters.GetEnumerator()) {
-                $name = '-' + $kv.Key
-                if ($kv.Key -eq 'SkipWindowsTerminal') { continue }
-                if ($kv.Key -eq '_WorkDir') { continue }
-                $val = $kv.Value
-                if ($val -is [System.Management.Automation.SwitchParameter]) {
-                    if ([bool]$val) { $psArgs += $name }
-                } elseif ($val -is [bool]) {
-                    if ($val) { $psArgs += $name }
-                } else {
-                    $psArgs += $name
-                    $psArgs += $val
-                }
-            }
+            # ALWAYS pass -Interactive to preserve TUI mode after re-hosting
+            $psArgs += '-Interactive'
+
             # Prevent loop by adding -SkipWindowsTerminal on re-invocation
             $psArgs += '-SkipWindowsTerminal'
 
