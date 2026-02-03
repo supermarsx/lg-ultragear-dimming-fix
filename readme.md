@@ -10,9 +10,9 @@
 [![license](https://img.shields.io/github/license/supermarsx/lg-ultragear-dimming-fix?style=flat-square)](license.md)
 
 [![download-latest](https://img.shields.io/badge/Download-Latest%20Release-2ea44f?style=for-the-badge&logo=github)](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases/latest)
-[![download-binary](https://img.shields.io/badge/Download-Complete%20Installer-2ea44f?style=for-the-badge&logo=windows)](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases/latest/download/install-complete.bat)
+[![download-binary](https://img.shields.io/badge/Download-One%20Click%20Installer-2ea44f?style=for-the-badge&logo=windows)](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases/latest/download/install.bat)
 
-> 💡 **Quick Start:** Download and run `install-complete.bat` for the easiest installation with persistent auto-reapply!
+> 💡 **Quick Start:** Download and run **`install.bat`** for the easiest installation with persistent auto-reapply!
 
 ## Fix LG UltraGear Monitor Auto-Dimming Problems
 
@@ -67,23 +67,25 @@ This dimming behavior is frustrating for gamers and professionals because:
 
 ## what's in this repo
 
-### Main Installation Files
-- **`install-complete.bat`** / **`install-complete.ps1`** — **⭐ RECOMMENDED** all-in-one installer (profile + auto-reapply monitor)
-- `lg-ultragear-full-cal.icm` — custom ICC/ICM profile that constrains luminance
-- `install-lg-ultragear-no-dimming.ps1` — core installer that finds "lg ultragear" displays and applies the profile
+### Core Files (Use These)
+- **`install.bat`** — ⭐ **RECOMMENDED** single-file installer (does everything in one click)
+- **`install-monitor.ps1`** — standalone auto-reapply monitor (self-contained, can uninstall with `-Uninstall`)
+- **`install-lg-ultragear-no-dimming.ps1`** — core profile installer (works standalone or called by other scripts)
+- **`check-monitor-status.ps1`** — diagnostic tool to verify everything is working
+- **`lg-ultragear-full-cal.icm`** — the color profile that fixes dimming
 
-### Auto-Reapply Components
-- `install-monitor-watcher.ps1` — creates a lightweight scheduled task that monitors display events and auto-reapplies the profile when needed
-- `check-monitor-status.ps1` — diagnostic tool to verify auto-reapply monitor is working correctly
-
-### Alternative Installers
-- `install-with-auto-reapply.bat` — older two-step installer (still works, but use install-complete.bat instead)
+### Legacy Installers (Optional)
+- `install-complete.bat` / `install-complete.ps1` — older two-script installer
+- `install-with-auto-reapply.bat` — older two-step installer
 - `install-full-auto.bat` — basic one-time installer (no auto-reapply)
 
-### Documentation & Build Tools
-- `AUTO-REAPPLY-GUIDE.md` — quick reference guide for the persistent auto-reapply solution
-- `INSTALLATION-GUIDE.md` — comprehensive guide to all installation options and file relationships
-- Release artifacts — packaged zip and a single‑file executable built from the installer for easy distribution
+### Documentation
+- `docs/AUTO-REAPPLY-GUIDE.md` — quick reference guide for auto-reapply
+- `docs/INSTALLATION-GUIDE.md` — comprehensive installation guide
+- `docs/SOLUTION-SUMMARY.md` — technical overview
+- Release artifacts — packaged zip and executables
+
+### Build Tools
 - `scripts/` — helper scripts:
   - `scripts/local-ci.ps1` — run format, lint, test, build locally (skips steps if tools not installed)
   - `scripts/clean.ps1` — clean common build/test artifacts (dist, logs, coverage, etc.)
@@ -92,42 +94,39 @@ This dimming behavior is frustrating for gamers and professionals because:
 
 ## quick start
 
-### ⚡ complete installation (recommended)
+### ⚡ one-click installation (recommended)
 
-**`install-complete.bat`** — simplest one-click installer:
-1. Installs the color profile fix
-2. Sets up automatic reapplication when monitor reconnects
-3. Everything in one script
+**`install.bat`** — The simplest installer. Just double-click!
 
-Just double-click `install-complete.bat` and you're done!
+Does everything automatically:
+1. ✅ Installs the color profile fix
+2. ✅ Sets up automatic reapplication on monitor reconnection
+3. ✅ Zero configuration needed
 
-**Why this is the best option:**
-- ✅ Solves persistent dimming permanently
-- ✅ Auto-reapplies after monitor reconnect, sleep/wake, driver updates
-- ✅ Zero performance impact (event-driven, no polling)
-- ✅ Runs as SYSTEM service for maximum reliability
-- ✅ Single file does everything
+**Why this works:**
+- Solves persistent dimming permanently
+- Auto-reapplies after monitor reconnect, sleep/wake, driver updates
+- Zero performance impact (event-driven, no polling)
+- Runs as SYSTEM service for maximum reliability
 
-**PowerShell alternative:**
+**Alternative PowerShell commands:**
 ```powershell
-.\install-complete.ps1
-```
+# Install profile only (no auto-reapply)
+.\install-lg-ultragear-no-dimming.ps1
 
-**Useful commands:**
-```powershell
-# Check status
-.\check-monitor-status.ps1
+# Install auto-reapply monitor separately
+.\install-monitor.ps1
 
 # Uninstall monitor
-.\install-complete.ps1 -UninstallMonitor
+.\install-monitor.ps1 -Uninstall
 
-# Install profile only (no auto-reapply)
-.\install-complete.ps1 -SkipMonitor
+# Check status
+.\check-monitor-status.ps1
 ```
 
 ---
 
-### alternative installers
+### alternative installers (legacy)
 
 **option a - one-click batch**
 - double-click `install-full-auto.bat` (or run from command prompt). it will:

@@ -45,13 +45,17 @@ param(
     [switch]$SkipWindowsTerminal,
     [switch]$KeepTemp,
     [switch]$SkipHashCheck,
+    [switch]$InstallMonitor,
+    [switch]$UninstallMonitor,
+    [switch]$SkipMonitor,
+    [string]$MonitorTaskName = "LG-UltraGear-ColorProfile-AutoReapply",
     [Alias('h', '?')]
     [switch]$Help
 )
 
 begin {
     # Hint to static analysis: parameters are intentionally used across nested scopes
-    $null = $ProfilePath, $MonitorNameMatch, $PerUser, $NoSetDefault, $SkipHdrAssociation, $NoPrompt, $InstallOnly, $Probe, $SkipElevation, $SkipWindowsTerminal, $KeepTemp, $SkipHashCheck
+    $null = $ProfilePath, $MonitorNameMatch, $PerUser, $NoSetDefault, $SkipHdrAssociation, $NoPrompt, $InstallOnly, $Probe, $SkipElevation, $SkipWindowsTerminal, $KeepTemp, $SkipHashCheck, $InstallMonitor, $UninstallMonitor, $SkipMonitor, $MonitorTaskName
     # Mark parameters as referenced for static analyzers
 
     # Record the launch context so relative paths stay consistent after re-invocation.
