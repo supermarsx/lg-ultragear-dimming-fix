@@ -778,18 +778,20 @@ try {
 Start-Sleep -Milliseconds 1500
 & '$InstallerPath' -NoSetDefault -NoPrompt -SkipElevation -SkipWindowsTerminal -SkipMonitor -MonitorNameMatch '$MonitorMatch' 2>`$null | Out-Null
 
-# Show toast notification (3 seconds)
+# Show toast notification
 try {
     [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
     [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
 
-    `$template = '<toast duration="short"><visual><binding template="ToastGeneric"><text>LG UltraGear</text><text>Color profile reapplied</text></binding></visual><audio silent="true"/></toast>'
+    `$template = '<toast duration="long"><visual><binding template="ToastGeneric"><text>LG UltraGear</text><text>Color profile reapplied</text></binding></visual></toast>'
 
     `$xml = [Windows.Data.Xml.Dom.XmlDocument]::new()
     `$xml.LoadXml(`$template)
     `$toast = [Windows.UI.Notifications.ToastNotification]::new(`$xml)
-    `$toast.ExpirationTime = [DateTimeOffset]::Now.AddSeconds(3)
-    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('LG UltraGear Monitor').Show(`$toast)
+
+    # Use PowerShell's registered AppUserModelId for reliable notifications
+    `$appId = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
+    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier(`$appId).Show(`$toast)
 } catch {
     # Notification failed silently - not critical
 }
