@@ -30,4 +30,4 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "Using PSScriptAnalyzer version:"; (Get-Module PSScriptAnalyzer -ListAvailable | Select-Object -First 1).Version
-          Invoke-ScriptAnalyzer -Path . -Recurse -EnableExit -Settings ./PSScriptAnalyzerSettings.psd1
+          Invoke-ScriptAnalyzer -Path . -Recurse -EnableExit -Settings ./scripts/PSScriptAnalyzerSettings.psd1

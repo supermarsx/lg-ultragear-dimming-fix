@@ -10,6 +10,6 @@ function Ensure-Analyzer {
 }
 
 Ensure-Analyzer
-Invoke-ScriptAnalyzer -Path (Get-Location).Path -Recurse -EnableExit -Settings ./PSScriptAnalyzerSettings.psd1
+Invoke-ScriptAnalyzer -Path (Get-Location).Path -Recurse -EnableExit -Settings ./scripts/PSScriptAnalyzerSettings.psd1
 Write-Host "[ OK ] Lint passed" -ForegroundColor Green
 

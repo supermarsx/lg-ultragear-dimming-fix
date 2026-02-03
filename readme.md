@@ -1,4 +1,4 @@
-# lg ultragear auto-dimming fix
+# LG UltraGear Auto-Dimming Fix | Stop Screen Dimming on Gaming Monitors
 
 [![stars](https://img.shields.io/github/stars/supermarsx/lg-ultragear-dimming-fix?style=flat-square&color=ffd700)](https://github.com/supermarsx/lg-ultragear-dimming-fix/stargazers)
 [![watchers](https://img.shields.io/github/watchers/supermarsx/lg-ultragear-dimming-fix?style=flat-square)](https://github.com/supermarsx/lg-ultragear-dimming-fix/watchers)
@@ -12,23 +12,55 @@
 [![download-latest](https://img.shields.io/badge/Download-Latest%20Release-2ea44f?style=for-the-badge&logo=github)](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases/latest)
 [![download-binary](https://img.shields.io/badge/Download-EXE%20(x64)-2ea44f?style=for-the-badge&logo=windows)](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases/latest/download/install-lg-ultragear-no-dimming.exe)
 
+## Fix LG UltraGear Monitor Auto-Dimming Problems
 
+The **lg-ultragear-dimming-fix** application helps you solve auto-dimming problems with LG UltraGear LCD monitors. If your screen dims unexpectedly while gaming or working, this tool can help maintain a consistent brightness level, enhancing your viewing experience.
 
-- purpose: stop lg ultragear gaming monitors from dimming under static or semi-static content by constraining the panel's effective luminance range.
-- method: apply and set a custom icc/icm color profile that limits the tone response so the monitor's firmware auto-dimming heuristic doesn't trigger.
-- platform: windows 10/11 using windows color system (wcs).
+### What This Tool Does
+
+- **Purpose**: Stop LG UltraGear gaming monitors from dimming under static or semi-static content by constraining the panel's effective luminance range.
+- **Method**: Apply and set a custom ICC/ICM color profile that limits the tone response so the monitor's firmware auto-dimming heuristic doesn't trigger.
+- **Platform**: Windows 10/11 using Windows Color System (WCS).
+- **Compatible Models**: Works with most LG UltraGear series monitors including 27GL850, 27GN950, 38GN950, 34GN850, and many others experiencing unexpected dimming.
+
+### Common Problems This Fixes
+
+- ✅ Screen dims when displaying bright or white content
+- ✅ Monitor brightness fluctuates during gaming sessions
+- ✅ Unexpected darkening with static images or productivity apps
+- ✅ ABL (Automatic Brightness Limiting) cannot be disabled in OSD
+- ✅ Brightness inconsistency affecting competitive gaming
+- ✅ Eye strain from constant brightness changes
 
 
 ## why this works
 
-- many ultragear models dim when average picture level stays high or content looks static.
-- a tailored color profile reduces the effective range windows drives the display through, preventing the firmware condition that triggers dimming.
-- software-only mitigation: nothing on the monitor is flashed or permanently changed; you can revert at any time.
+Many LG UltraGear models use firmware-level auto-dimming (ABL - Automatic Brightness Limiting) that activates when:
+- Average Picture Level (APL) stays high
+- Content appears static or semi-static
+- Bright colors dominate the screen
 
-**limitations of other approaches**
-- disabling power-saving, abl or similar osd options often does not fully disable dimming on ultragear models.
-- changing windows/gpu settings (disabling adaptive brightness, cabc, toggling hdr, etc.) commonly fails to stop the firmware-level behavior.
-- firmware updates would be ideal, but many screens either have no user-feasible updates or the update tools are not publicly available. the profile-based approach works immediately without firmware changes.
+This dimming behavior is frustrating for gamers and professionals because:
+- It reduces visibility in competitive gaming
+- Creates inconsistent viewing experience
+- Cannot be disabled through monitor OSD settings
+- Persists even with power-saving options disabled
+
+**Our solution** uses a custom ICC color profile that constrains the effective luminance range Windows sends to the display. By limiting the tone response curve, the monitor's firmware never reaches the threshold that triggers auto-dimming, maintaining consistent brightness.
+
+### Software-Only Fix - No Hardware Modifications
+
+- Nothing on the monitor is flashed or permanently changed
+- You can revert at any time by removing the color profile
+- Works immediately without firmware updates
+- Safe for your monitor warranty
+
+### Why Other Solutions Don't Work
+
+**❌ Disabling OSD power-saving options** - Often does not fully disable firmware-level dimming on UltraGear models  
+**❌ Windows/GPU settings changes** - Disabling adaptive brightness, CABC, or toggling HDR commonly fails to stop firmware behavior  
+**❌ Waiting for firmware updates** - Many screens either have no user-accessible updates, or LG hasn't released fixes  
+**✅ Color profile approach** - Works immediately with current firmware, no waiting required
 
 
 ## what's in this repo
@@ -36,6 +68,10 @@
 - `lg-ultragear-full-cal.icm` — custom icc/icm profile that constrains luminance.
 - `install-lg-ultragear-no-dimming.ps1` — installer that finds "lg ultragear" displays, installs the profile, associates it, and sets it as default.
 - `install-full-auto.bat` — one‑click bridge: auto‑elevates, uses a temporary execution policy bypass, and runs the installer end‑to‑end.
+- **`install-with-auto-reapply.bat`** — **recommended installer** that applies the fix AND sets up automatic reapplication on monitor reconnection.
+- **`install-monitor-watcher.ps1`** — creates a lightweight scheduled task that monitors display events and auto-reapplies the profile when needed.
+- **`check-monitor-status.ps1`** — diagnostic tool to verify auto-reapply monitor is working correctly.
+- `AUTO-REAPPLY-GUIDE.md` — quick reference guide for the persistent auto-reapply solution.
 - release artifacts — packaged zip and a single‑file executable built from the installer for easy distribution.
 - `scripts/` — helper scripts:
   - `scripts/local-ci.ps1` — run format, lint, test, build locally (skips steps if tools not installed)
@@ -45,12 +81,50 @@
 
 ## quick start
 
-**option a - one-click batch (recommended)**
+### ⚡ persistent fix with auto-reapply (recommended)
+
+**NEW: `install-with-auto-reapply.bat`** — one-click installer that:
+1. Installs the color profile fix
+2. Sets up automatic reapplication when monitor reconnects
+
+This solves the issue where the fix doesn't stay permanent after:
+- Monitor disconnect/reconnect
+- System sleep/wake
+- Display driver updates
+- Switching display inputs
+
+**How it works:**
+- Creates a lightweight Windows scheduled task
+- Uses event-driven triggers (no constant polling or background processes)
+- Zero performance impact - only activates on actual display events
+- Runs as SYSTEM service for maximum reliability
+
+**To install:** Double-click `install-with-auto-reapply.bat` or run in PowerShell:
+```powershell
+.\install-with-auto-reapply.bat
+```
+
+**To uninstall the monitor:**
+```powershell
+.\install-monitor-watcher.ps1 -Uninstall
+```
+
+**To check status:**
+```powershell
+.\check-monitor-status.ps1
+```
+
+---
+
+### basic installation (one-time apply)
+
+**option a - one-click batch**
 - double-click `install-full-auto.bat` (or run from command prompt). it will:
   - request admin (uac),
   - run powershell with `-executionpolicy bypass` (no permanent policy change),
   - call the installer with defaults.
   - at the end, it will prompt: "press enter to exit...".
+  - ⚠️ Note: This applies the fix once but won't auto-reapply on reconnection.
 
 **option b - powershell (manual)**
 - open powershell in the repo folder, then run:
@@ -179,6 +253,52 @@ pwsh -File scripts/embedder.ps1 -ProfilePath C:\path\to\your.icm -MainScriptPath
 - classic ui: press `win+r`, run `colorcpl` -> devices tab -> select your lg ultragear -> ensure `lg-ultragear-full-cal.icm` is present and set as default.
 - settings: system -> display -> advanced display -> pick the lg; verify behavior under hdr if applicable.
 - visual check: leave a bright, mostly static window; dimming should be gone or greatly reduced.
+
+## troubleshooting common lg ultragear dimming issues
+
+### The fix doesn't stay persistent (profile resets after reconnection)
+- **Solution:** Use `install-with-auto-reapply.bat` instead of the basic installer. This creates a scheduled task that automatically reapplies the profile when the monitor reconnects.
+- **Why this happens:** Windows sometimes resets color profiles on display device events (disconnect/reconnect, sleep/wake, driver updates)
+- **Check if auto-reapply is working:** Open Task Scheduler (`taskschd.msc`) → Task Scheduler Library → look for `LG-UltraGear-ColorProfile-AutoReapply`
+
+### Verify the monitor task is installed
+```powershell
+Get-ScheduledTask -TaskName "LG-UltraGear-ColorProfile-AutoReapply"
+```
+
+### Manually trigger the task to test
+```powershell
+Start-ScheduledTask -TaskName "LG-UltraGear-ColorProfile-AutoReapply"
+```
+
+### Check task history
+- Open Task Scheduler (`taskschd.msc`)
+- Navigate to the task
+- Click the "History" tab to see when it last ran
+
+### The profile is applied but dimming still occurs
+- Some LG UltraGear models have multiple dimming mechanisms
+- Try also disabling any "Energy Saving" or "Smart Energy Saving" options in the monitor's OSD menu
+- Ensure HDR is disabled in Windows settings if you're using SDR content
+
+### Screen dims only on certain colors or scenes
+- This is normal behavior with the profile - it prevents aggressive dimming but may not eliminate all dimming
+- Try adjusting monitor brightness and contrast settings in OSD
+- Some models have more aggressive ABL that requires additional tuning
+
+### Gaming performance concerns
+- This fix does NOT impact gaming performance or FPS
+- Works alongside G-SYNC, FreeSync, and other monitor features
+- No input lag or response time changes
+
+### To completely uninstall
+```powershell
+# Remove the auto-reapply monitor
+.\install-monitor-watcher.ps1 -Uninstall
+
+# Remove the color profile (manual)
+# Open colorcpl → Devices → select your monitor → remove the profile
+```
 
 
 ## rollback / revert
