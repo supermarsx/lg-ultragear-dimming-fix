@@ -1,3 +1,5 @@
+<img width="350" height="350" alt="lg-ultragear-dimming-fix" src="https://github.com/user-attachments/assets/4530aed6-d98c-423a-932b-defb3655cffe" />
+
 # LG UltraGear Auto-Dimming Fix | Stop Screen Dimming on Gaming Monitors
 
 [![stars](https://img.shields.io/github/stars/supermarsx/lg-ultragear-dimming-fix?style=flat-square&color=ffd700)](https://github.com/supermarsx/lg-ultragear-dimming-fix/stargazers)
