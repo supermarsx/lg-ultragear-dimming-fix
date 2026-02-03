@@ -1,6 +1,280 @@
 Set-StrictMode -Version Latest
 
+# =============================================================================
+# TEST SUITE INITIALIZATION
+# =============================================================================
+# LG UltraGear No-Dimming Fix - Comprehensive Test Suite
+# Generated: Dynamic at runtime
+# PowerShell Version: $($PSVersionTable.PSVersion)
+# =============================================================================
+
 BeforeAll {
+    # =========================================================================
+    # TEST SUITE HEADER
+    # =========================================================================
+    $script:TestStartTime = Get-Date
+    $script:TestSuiteName = 'LG UltraGear No-Dimming Fix'
+    $script:TestSuiteVersion = '2.0.0'
+
+    # =========================================================================
+    # COLOR SCHEME DEFINITIONS
+    # =========================================================================
+    $script:Colors = @{
+        # Primary colors
+        Banner          = 'Magenta'
+        BannerAccent    = 'DarkMagenta'
+        BannerText      = 'White'
+        
+        # Section colors
+        Section         = 'Cyan'
+        SectionAccent   = 'DarkCyan'
+        Separator       = 'DarkGray'
+        
+        # Status colors
+        Success         = 'Green'
+        Warning         = 'Yellow'
+        Error           = 'Red'
+        Info            = 'White'
+        Debug           = 'DarkGray'
+        Skip            = 'DarkYellow'
+        
+        # Log level colors
+        Timestamp       = 'DarkGray'
+        TagInit         = 'Blue'
+        TagCat          = 'Magenta'
+        TagSum          = 'Cyan'
+        TagTest         = 'Yellow'
+        TagPass         = 'Green'
+        TagFail         = 'Red'
+        TagWarn         = 'Yellow'
+        
+        # Misc
+        Highlight       = 'Cyan'
+        Muted           = 'DarkGray'
+        Number          = 'Yellow'
+    }
+
+    # =========================================================================
+    # UNICODE SYMBOLS
+    # =========================================================================
+    $script:Symbols = @{
+        Check      = [char]0x2713  # ✓
+        Cross      = [char]0x2717  # ✗
+        Bullet     = [char]0x2022  # •
+        Arrow      = [char]0x25B6  # ▶
+        Diamond    = [char]0x25C6  # ◆
+        Star       = [char]0x2605  # ★
+        Circle     = [char]0x25CF  # ●
+        Square     = [char]0x25A0  # ■
+        Triangle   = [char]0x25B2  # ▲
+        Lightning  = [char]0x26A1  # ⚡
+        Gear       = [char]0x2699  # ⚙
+        Clock      = [char]0x23F0  # ⏰
+        Rocket     = [char]0x1F680 # 🚀
+        Package    = [char]0x1F4E6 # 📦
+        Wrench     = [char]0x1F527 # 🔧
+        Magnify    = [char]0x1F50D # 🔍
+        Shield     = [char]0x1F6E1 # 🛡️
+    }
+
+    # =========================================================================
+    # LOGGING HELPER FUNCTIONS
+    # =========================================================================
+    
+    function Get-ElapsedTimestamp {
+        # Returns elapsed time since test start in format T+0.000s
+        $elapsed = (Get-Date) - $script:TestStartTime
+        $totalSeconds = $elapsed.TotalSeconds
+        return "T+{0,8:F3}s" -f $totalSeconds
+    }
+
+    function Write-ColorLine {
+        param(
+            [string]$Text,
+            [string]$Color = 'White',
+            [switch]$NoNewline
+        )
+        if ($NoNewline) {
+            Write-Host $Text -ForegroundColor $Color -NoNewline
+        } else {
+            Write-Host $Text -ForegroundColor $Color
+        }
+    }
+
+    function Write-TestHeader {
+        param([string]$Title, [string]$Subtitle = '')
+        $timestamp = Get-ElapsedTimestamp
+        Write-Host ""
+        Write-ColorLine ("=" * 80) $script:Colors.Section
+        Write-ColorLine "[$timestamp] " $script:Colors.Timestamp -NoNewline
+        Write-ColorLine "$($script:Symbols.Diamond) $Title" $script:Colors.Section
+        if ($Subtitle) {
+            Write-ColorLine "              $Subtitle" $script:Colors.Muted
+        }
+        Write-ColorLine ("=" * 80) $script:Colors.Section
+    }
+
+    function Write-TestSection {
+        param([string]$Section, [string]$Icon = '')
+        $timestamp = Get-ElapsedTimestamp
+        Write-Host ""
+        Write-ColorLine "+-----------------------------------------------------------------------------+" $script:Colors.SectionAccent
+        Write-ColorLine "| " $script:Colors.SectionAccent -NoNewline
+        Write-ColorLine "[$timestamp] " $script:Colors.Timestamp -NoNewline
+        if ($Icon) {
+            Write-ColorLine "$Icon " $script:Colors.Highlight -NoNewline
+        }
+        Write-ColorLine "$($script:Symbols.Arrow) " $script:Colors.Section -NoNewline
+        Write-ColorLine $Section.ToUpper().PadRight(46) $script:Colors.Section -NoNewline
+        Write-ColorLine "|" $script:Colors.SectionAccent
+        Write-ColorLine "+-----------------------------------------------------------------------------+" $script:Colors.SectionAccent
+    }
+
+    function Write-TestLog {
+        param(
+            [string]$Message, 
+            [ValidateSet('INFO', 'SUCCESS', 'WARN', 'ERROR', 'DEBUG', 'PASS', 'FAIL', 'SKIP')]
+            [string]$Level = 'INFO'
+        )
+        $timestamp = Get-ElapsedTimestamp
+        
+        $levelConfig = switch ($Level) {
+            'INFO'    { @{ Color = $script:Colors.Info;    Symbol = $script:Symbols.Bullet;   Tag = 'INFO' } }
+            'SUCCESS' { @{ Color = $script:Colors.Success; Symbol = $script:Symbols.Check;    Tag = ' OK ' } }
+            'WARN'    { @{ Color = $script:Colors.Warning; Symbol = $script:Symbols.Triangle; Tag = 'WARN' } }
+            'ERROR'   { @{ Color = $script:Colors.Error;   Symbol = $script:Symbols.Cross;    Tag = 'ERR!' } }
+            'DEBUG'   { @{ Color = $script:Colors.Debug;   Symbol = $script:Symbols.Gear;     Tag = 'DBG ' } }
+            'PASS'    { @{ Color = $script:Colors.Success; Symbol = $script:Symbols.Check;    Tag = 'PASS' } }
+            'FAIL'    { @{ Color = $script:Colors.Error;   Symbol = $script:Symbols.Cross;    Tag = 'FAIL' } }
+            'SKIP'    { @{ Color = $script:Colors.Skip;    Symbol = $script:Symbols.Arrow;    Tag = 'SKIP' } }
+            default   { @{ Color = $script:Colors.Info;    Symbol = $script:Symbols.Bullet;   Tag = 'INFO' } }
+        }
+        
+        Write-ColorLine "[$timestamp] " $script:Colors.Timestamp -NoNewline
+        Write-ColorLine "[$($levelConfig.Tag)]" $levelConfig.Color -NoNewline
+        Write-ColorLine " $($levelConfig.Symbol) " $levelConfig.Color -NoNewline
+        Write-ColorLine $Message $levelConfig.Color
+    }
+
+    function Write-TestInit {
+        param(
+            [string]$Component, 
+            [ValidateSet('OK', 'FAIL', 'WARN', 'SKIP', 'YES', 'NO', 'LOAD')]
+            [string]$Status = 'OK'
+        )
+        $timestamp = Get-ElapsedTimestamp
+        
+        $statusConfig = switch ($Status) {
+            'OK'   { @{ Color = $script:Colors.Success; Symbol = $script:Symbols.Check;  Text = ' OK ' } }
+            'FAIL' { @{ Color = $script:Colors.Error;   Symbol = $script:Symbols.Cross;  Text = 'FAIL' } }
+            'WARN' { @{ Color = $script:Colors.Warning; Symbol = $script:Symbols.Triangle; Text = 'WARN' } }
+            'SKIP' { @{ Color = $script:Colors.Skip;    Symbol = $script:Symbols.Arrow;  Text = 'SKIP' } }
+            'YES'  { @{ Color = $script:Colors.Success; Symbol = $script:Symbols.Check;  Text = 'YES ' } }
+            'NO'   { @{ Color = $script:Colors.Warning; Symbol = $script:Symbols.Cross;  Text = ' NO ' } }
+            'LOAD' { @{ Color = $script:Colors.Info;    Symbol = $script:Symbols.Gear;   Text = 'LOAD' } }
+            default { @{ Color = $script:Colors.Success; Symbol = $script:Symbols.Check; Text = ' OK ' } }
+        }
+        
+        Write-ColorLine "[$timestamp] " $script:Colors.Timestamp -NoNewline
+        Write-ColorLine "[" $script:Colors.TagInit -NoNewline
+        Write-ColorLine "INIT" $script:Colors.TagInit -NoNewline
+        Write-ColorLine "] " $script:Colors.TagInit -NoNewline
+        Write-ColorLine "$($script:Symbols.Gear) " $script:Colors.Muted -NoNewline
+        Write-ColorLine $Component.PadRight(40) $script:Colors.Info -NoNewline
+        Write-ColorLine "[" $statusConfig.Color -NoNewline
+        Write-ColorLine "$($statusConfig.Symbol) $($statusConfig.Text)" $statusConfig.Color -NoNewline
+        Write-ColorLine "]" $statusConfig.Color
+    }
+
+    function Write-TestCategory {
+        param([string]$Name, [int]$Count)
+        $timestamp = Get-ElapsedTimestamp
+        
+        Write-ColorLine "[$timestamp] " $script:Colors.Timestamp -NoNewline
+        Write-ColorLine "[" $script:Colors.TagCat -NoNewline
+        Write-ColorLine "CAT " $script:Colors.TagCat -NoNewline
+        Write-ColorLine "] " $script:Colors.TagCat -NoNewline
+        Write-ColorLine "$($script:Symbols.Square) " $script:Colors.Muted -NoNewline
+        Write-ColorLine $Name.PadRight(35) $script:Colors.Info -NoNewline
+        Write-ColorLine $Count.ToString().PadLeft(3) $script:Colors.Number -NoNewline
+        Write-ColorLine " tests" $script:Colors.Muted
+    }
+
+    function Write-TestSummary {
+        param([int]$Total)
+        $timestamp = Get-ElapsedTimestamp
+        
+        Write-Host ""
+        Write-ColorLine "[$timestamp] " $script:Colors.Timestamp -NoNewline
+        Write-ColorLine "[" $script:Colors.TagSum -NoNewline
+        Write-ColorLine "SUM " $script:Colors.TagSum -NoNewline
+        Write-ColorLine "] " $script:Colors.TagSum -NoNewline
+        Write-ColorLine "$($script:Symbols.Star) " $script:Colors.Highlight -NoNewline
+        Write-ColorLine "Total test cases: " $script:Colors.Info -NoNewline
+        Write-ColorLine $Total $script:Colors.Number
+    }
+
+    function Write-ProgressBar {
+        param([int]$Current, [int]$Total, [int]$Width = 40)
+        $percent = [Math]::Round(($Current / $Total) * 100)
+        $filled = [Math]::Round(($Current / $Total) * $Width)
+        $empty = $Width - $filled
+        
+        Write-ColorLine "[" $script:Colors.Muted -NoNewline
+        Write-ColorLine ("#" * $filled) $script:Colors.Success -NoNewline
+        Write-ColorLine ("-" * $empty) $script:Colors.Muted -NoNewline
+        Write-ColorLine "] " $script:Colors.Muted -NoNewline
+        Write-ColorLine "$percent%" $script:Colors.Number
+    }
+
+    # =========================================================================
+    # DISPLAY TEST SUITE BANNER
+    # =========================================================================
+    $bannerTimestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    Write-Host ""
+    Write-ColorLine "+==============================================================================+" $script:Colors.Banner
+    Write-ColorLine "|" $script:Colors.Banner -NoNewline
+    Write-ColorLine "                                                                              " $script:Colors.BannerText -NoNewline
+    Write-ColorLine "|" $script:Colors.Banner
+    Write-ColorLine "|" $script:Colors.Banner -NoNewline
+    Write-ColorLine "   $($script:Symbols.Lightning) LG ULTRAGEAR NO-DIMMING FIX - COMPREHENSIVE TEST SUITE $($script:Symbols.Lightning)          " $script:Colors.BannerText -NoNewline
+    Write-ColorLine "|" $script:Colors.Banner
+    Write-ColorLine "|" $script:Colors.Banner -NoNewline
+    Write-ColorLine "                                                                              " $script:Colors.BannerText -NoNewline
+    Write-ColorLine "|" $script:Colors.Banner
+    Write-ColorLine "+==============================================================================+" $script:Colors.Banner
+    Write-ColorLine "|  " $script:Colors.BannerAccent -NoNewline
+    Write-ColorLine "$($script:Symbols.Package) Version    : " $script:Colors.Muted -NoNewline
+    Write-ColorLine $script:TestSuiteVersion.PadRight(58) $script:Colors.Highlight -NoNewline
+    Write-ColorLine "|" $script:Colors.BannerAccent
+    Write-ColorLine "|  " $script:Colors.BannerAccent -NoNewline
+    Write-ColorLine "$($script:Symbols.Clock) Started    : " $script:Colors.Muted -NoNewline
+    Write-ColorLine $bannerTimestamp.PadRight(58) $script:Colors.Highlight -NoNewline
+    Write-ColorLine "|" $script:Colors.BannerAccent
+    Write-ColorLine "|  " $script:Colors.BannerAccent -NoNewline
+    Write-ColorLine "$($script:Symbols.Gear) PowerShell : " $script:Colors.Muted -NoNewline
+    Write-ColorLine $PSVersionTable.PSVersion.ToString().PadRight(58) $script:Colors.Highlight -NoNewline
+    Write-ColorLine "|" $script:Colors.BannerAccent
+    Write-ColorLine "|  " $script:Colors.BannerAccent -NoNewline
+    Write-ColorLine "$($script:Symbols.Diamond) Platform   : " $script:Colors.Muted -NoNewline
+    Write-ColorLine $PSVersionTable.Platform.ToString().PadRight(58) $script:Colors.Highlight -NoNewline
+    Write-ColorLine "|" $script:Colors.BannerAccent
+    Write-ColorLine "|  " $script:Colors.BannerAccent -NoNewline
+    Write-ColorLine "$($script:Symbols.Shield) OS         : " $script:Colors.Muted -NoNewline
+    Write-ColorLine $PSVersionTable.OS.Substring(0, [Math]::Min(58, $PSVersionTable.OS.Length)).PadRight(58) $script:Colors.Highlight -NoNewline
+    Write-ColorLine "|" $script:Colors.BannerAccent
+    Write-ColorLine "+==============================================================================+" $script:Colors.Banner
+    Write-Host ""
+
+    # =========================================================================
+    # INITIALIZATION SEQUENCE
+    # =========================================================================
+    Write-TestSection "INITIALIZATION SEQUENCE" "$($script:Symbols.Wrench)"
+
+    Write-TestInit "Loading test framework (Pester 5.x)" -Status 'LOAD'
+    Write-TestInit "Configuring strict mode"
+    Write-TestInit "Setting up test environment"
+
     # =============================================================================
     # HELPER FUNCTIONS (defined in BeforeAll for Pester 5.x scoping)
     # =============================================================================
@@ -8,11 +282,13 @@ BeforeAll {
         $repoRoot = [System.IO.Path]::GetFullPath((Join-Path -Path $PSScriptRoot -ChildPath '..'))
         return Join-Path -Path $repoRoot -ChildPath 'install-lg-ultragear-no-dimming.ps1'
     }
+    Write-TestInit "Registered helper: Get-ScriptPath"
 
     function Get-ScriptAST {
         $path = Get-ScriptPath
         return [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$null, [ref]$null)
     }
+    Write-TestInit "Registered helper: Get-ScriptAST"
 
     function Get-MockMonitorCharBuffer {
         param([string]$Name)
@@ -23,15 +299,83 @@ BeforeAll {
         while ($charBuffer.Count -lt 64) { $charBuffer += 0 }
         return [int[]]$charBuffer
     }
+    Write-TestInit "Registered helper: Get-MockMonitorCharBuffer"
 
     function Get-ScriptContent {
         return Get-Content -LiteralPath (Get-ScriptPath) -Raw
     }
+    Write-TestInit "Registered helper: Get-ScriptContent"
 
     # Pre-compute commonly used values
     $script:repoRoot = [System.IO.Path]::GetFullPath((Join-Path -Path $PSScriptRoot -ChildPath '..'))
     $script:scriptPath = Get-ScriptPath
     $script:profilePath = Join-Path -Path $script:repoRoot -ChildPath 'lg-ultragear-full-cal.icm'
+
+    Write-TestInit "Resolved repository root"
+    Write-TestInit "Resolved script path"
+    Write-TestInit "Resolved profile path"
+
+    # =========================================================================
+    # ENVIRONMENT VALIDATION
+    # =========================================================================
+    Write-TestSection "ENVIRONMENT VALIDATION" "$($script:Symbols.Magnify)"
+
+    $scriptExists = Test-Path -LiteralPath $script:scriptPath
+    Write-TestInit "Target script exists" -Status $(if ($scriptExists) { 'OK' } else { 'FAIL' })
+
+    $profileExists = Test-Path -LiteralPath $script:profilePath
+    Write-TestInit "ICC profile exists" -Status $(if ($profileExists) { 'OK' } else { 'WARN' })
+
+    $isWindowsPlatform = $PSVersionTable.Platform -eq 'Win32NT' -or $env:OS -eq 'Windows_NT'
+    Write-TestInit "Windows platform detected" -Status $(if ($isWindowsPlatform) { 'OK' } else { 'SKIP' })
+
+    $isAdminUser = & {
+        try {
+            $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+            $p = [Security.Principal.WindowsPrincipal]::new($id)
+            return $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+        } catch { return $false }
+    }
+    Write-TestInit "Administrator privileges" -Status $(if ($isAdminUser) { 'YES' } else { 'NO' })
+
+    # =========================================================================
+    # TEST CATEGORIES OVERVIEW
+    # =========================================================================
+    Write-TestSection "TEST CATEGORIES" "$($script:Symbols.Package)"
+    
+    $categories = @(
+        @{ Name = 'Script Syntax and Structure'; Count = 22 },
+        @{ Name = 'Help and Basic Execution'; Count = 3 },
+        @{ Name = 'Dry Run Mode'; Count = 4 },
+        @{ Name = 'WMI Monitor Detection'; Count = 37 },
+        @{ Name = 'Auto-Elevation Logic'; Count = 4 },
+        @{ Name = 'Scheduled Task Generation'; Count = 8 },
+        @{ Name = 'Profile Hash Verification'; Count = 4 },
+        @{ Name = 'TUI Functions'; Count = 10 },
+        @{ Name = 'Uninstall Operations'; Count = 6 },
+        @{ Name = 'Reinstall and Refresh'; Count = 3 },
+        @{ Name = 'Repository File Structure'; Count = 5 },
+        @{ Name = 'Integration Tests'; Count = 3 },
+        @{ Name = 'Error Handling'; Count = 2 },
+        @{ Name = 'Logging Functions'; Count = 14 }
+    )
+    
+    $totalTests = 0
+    foreach ($cat in $categories) {
+        $totalTests += $cat.Count
+        Write-TestCategory -Name $cat.Name -Count $cat.Count
+    }
+    
+    Write-TestSummary -Total $totalTests
+
+    # =========================================================================
+    # INITIALIZATION COMPLETE
+    # =========================================================================
+    $initDuration = ((Get-Date) - $script:TestStartTime).TotalMilliseconds
+    Write-TestSection "INITIALIZATION COMPLETE" "$($script:Symbols.Rocket)"
+    Write-TestLog "Test suite initialized in $([Math]::Round($initDuration, 2))ms" -Level 'SUCCESS'
+    Write-TestLog "Starting test execution..." -Level 'INFO'
+    Write-Host ""
 }
 
 # =============================================================================
@@ -1268,4 +1612,82 @@ Describe 'Logging Functions' {
             $script:scriptContent | Should -Match "SymbolDone.*\[DONE\]"
         }
     }
+}
+
+# =============================================================================
+# TEST SUITE COMPLETION
+# =============================================================================
+AfterAll {
+    $testEndTime = Get-Date
+    $totalDuration = ($testEndTime - $script:TestStartTime).TotalSeconds
+
+    # Format elapsed time
+    $elapsedFormatted = "T+{0,8:F3}s" -f $totalDuration
+
+    # Re-define colors for AfterAll scope
+    $Colors = @{
+        Banner          = 'Green'
+        BannerAccent    = 'DarkGreen'
+        BannerText      = 'White'
+        Highlight       = 'Cyan'
+        Muted           = 'DarkGray'
+        Timestamp       = 'DarkGray'
+        Success         = 'Green'
+        Info            = 'Gray'
+    }
+    
+    $Symbols = @{
+        Check      = [char]0x2713  # ✓
+        Star       = [char]0x2605  # ★
+        Trophy     = [char]0x1F3C6 # 🏆
+        Clock      = [char]0x23F0  # ⏰
+        Package    = [char]0x1F4E6 # 📦
+        Sparkles   = [char]0x2728  # ✨
+    }
+
+    Write-Host ""
+    Write-Host "+==============================================================================+" -ForegroundColor $Colors.Banner
+    Write-Host "|" -ForegroundColor $Colors.Banner -NoNewline
+    Write-Host "                                                                              " -ForegroundColor $Colors.BannerText -NoNewline
+    Write-Host "|" -ForegroundColor $Colors.Banner
+    Write-Host "|" -ForegroundColor $Colors.Banner -NoNewline
+    Write-Host "   $($Symbols.Trophy) TEST SUITE EXECUTION COMPLETE $($Symbols.Trophy)                                " -ForegroundColor $Colors.BannerText -NoNewline
+    Write-Host "|" -ForegroundColor $Colors.Banner
+    Write-Host "|" -ForegroundColor $Colors.Banner -NoNewline
+    Write-Host "                                                                              " -ForegroundColor $Colors.BannerText -NoNewline
+    Write-Host "|" -ForegroundColor $Colors.Banner
+    Write-Host "+==============================================================================+" -ForegroundColor $Colors.Banner
+    
+    $endTimestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    Write-Host "|  " -ForegroundColor $Colors.BannerAccent -NoNewline
+    Write-Host "$($Symbols.Clock) Completed  : " -ForegroundColor $Colors.Muted -NoNewline
+    Write-Host $endTimestamp.PadRight(58) -ForegroundColor $Colors.Highlight -NoNewline
+    Write-Host "|" -ForegroundColor $Colors.BannerAccent
+    Write-Host "|  " -ForegroundColor $Colors.BannerAccent -NoNewline
+    Write-Host "$($Symbols.Star) Duration   : " -ForegroundColor $Colors.Muted -NoNewline
+    Write-Host "$([Math]::Round($totalDuration, 2)) seconds".PadRight(58) -ForegroundColor $Colors.Highlight -NoNewline
+    Write-Host "|" -ForegroundColor $Colors.BannerAccent
+    Write-Host "|  " -ForegroundColor $Colors.BannerAccent -NoNewline
+    Write-Host "$($Symbols.Package) Suite      : " -ForegroundColor $Colors.Muted -NoNewline
+    Write-Host $script:TestSuiteName.PadRight(58) -ForegroundColor $Colors.Highlight -NoNewline
+    Write-Host "|" -ForegroundColor $Colors.BannerAccent
+    Write-Host "|  " -ForegroundColor $Colors.BannerAccent -NoNewline
+    Write-Host "$($Symbols.Sparkles) Version    : " -ForegroundColor $Colors.Muted -NoNewline
+    Write-Host $script:TestSuiteVersion.PadRight(58) -ForegroundColor $Colors.Highlight -NoNewline
+    Write-Host "|" -ForegroundColor $Colors.BannerAccent
+    Write-Host "+==============================================================================+" -ForegroundColor $Colors.Banner
+    Write-Host ""
+    
+    Write-Host "[$elapsedFormatted] " -ForegroundColor $Colors.Timestamp -NoNewline
+    Write-Host "[" -ForegroundColor $Colors.Success -NoNewline
+    Write-Host "DONE" -ForegroundColor $Colors.Success -NoNewline
+    Write-Host "] " -ForegroundColor $Colors.Success -NoNewline
+    Write-Host "$($Symbols.Check) Test suite execution finished" -ForegroundColor $Colors.Success
+    
+    Write-Host "[$elapsedFormatted] " -ForegroundColor $Colors.Timestamp -NoNewline
+    Write-Host "[" -ForegroundColor $Colors.Info -NoNewline
+    Write-Host "INFO" -ForegroundColor $Colors.Info -NoNewline
+    Write-Host "] " -ForegroundColor $Colors.Info -NoNewline
+    Write-Host "Review Pester output above for detailed results" -ForegroundColor $Colors.Info
+    Write-Host ""
 }
