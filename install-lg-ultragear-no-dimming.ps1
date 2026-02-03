@@ -537,6 +537,26 @@ begin {
         return "menu"
     }
 
+    function Read-TUIKey {
+        # Read a single key press without requiring Enter
+        Write-Host ""
+        Write-Host "  Select option: " -ForegroundColor White -NoNewline
+        try {
+            $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            $char = $key.Character
+            if ($char -match '[a-zA-Z0-9]') {
+                Write-Host $char -ForegroundColor Cyan
+                return $char.ToString().ToUpper()
+            } else {
+                Write-Host ""
+                return ""
+            }
+        } catch {
+            # Fallback for non-interactive terminals
+            return (Read-Host).ToUpper()
+        }
+    }
+
     function Start-TUI {
         $currentMenu = "main"
         $continue = $true
@@ -547,8 +567,7 @@ begin {
                 "advanced" { Show-TUIAdvancedMenu }
             }
 
-            Write-Host ""
-            $choice = Read-Host "  Select option"
+            $choice = Read-TUIKey
             $action = Invoke-TUIAction -Choice $choice -Menu $currentMenu
 
             switch ($action) {
