@@ -352,7 +352,7 @@ begin {
         $raw.BackgroundColor = 'Black'
         $raw.ForegroundColor = 'White'
         try { $raw.WindowTitle = $script:TUI_TITLE } catch { [Console]::Title = $script:TUI_TITLE }
-        if (-not $script:IsInteractive) {
+        if (-not $script:IsInteractive -and -not $Help) {
             try { Clear-Host } catch { }
         }
     } catch {
