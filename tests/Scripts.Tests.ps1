@@ -268,9 +268,9 @@ Describe 'WMI Monitor Detection' {
         }
 
         It 'handles Unicode characters' {
-            $charArray = Get-MockMonitorCharBuffer -Name 'Monitor™'
+            $charArray = Get-MockMonitorCharBuffer -Name 'Monitorâ„¢'
             $decoded = ($charArray | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ }) -join ''
-            $decoded | Should -Be 'Monitor™'
+            $decoded | Should -Be 'Monitorâ„¢'
         }
     }
 
