@@ -9,4 +9,7 @@ if %errorlevel% neq 0 (
 )
 
 cd /d "%~dp0"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-lg-ultragear-no-dimming.ps1"
+echo Starting installer...
+:: Skip Windows Terminal re-hosting when launched from bat (it handles its own window)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& '%~dp0install-lg-ultragear-no-dimming.ps1' -Interactive -SkipWindowsTerminal; if ($LASTEXITCODE -ne 0) { Read-Host 'Error occurred. Press Enter' }"
+pause
