@@ -78,12 +78,27 @@ begin {
     }
 
     # =========================================================================
+    # VERSION (YY.N format - read from VERSION file or embedded)
+    # =========================================================================
+    # __VERSION_EMBED__ is replaced by CI during build; fallback reads VERSION file
+    $script:VERSION_EMBEDDED = '__VERSION_EMBED__'
+    if ($script:VERSION_EMBEDDED -eq '__VERSION_EMBED__') {
+        # Not embedded - try to read from VERSION file
+        $versionFile = Join-Path $script:InvocationDirectory 'VERSION'
+        if (Test-Path -LiteralPath $versionFile) {
+            $script:VERSION_EMBEDDED = (Get-Content -LiteralPath $versionFile -Raw).Trim()
+        } else {
+            $script:VERSION_EMBEDDED = '26.1'  # Fallback default
+        }
+    }
+
+    # =========================================================================
     # TUI CONFIGURATION
     # =========================================================================
     $script:TUI_WIDTH = 76
     $script:TUI_HEIGHT = 32
     $script:TUI_TITLE = "LG UltraGear Auto-Dimming Fix"
-    $script:TUI_VERSION = "2026.2"
+    $script:TUI_VERSION = $script:VERSION_EMBEDDED
     $script:TUI_PAGE = "main"  # main, install, uninstall, advanced
 
     # Advanced option toggles (persist across menu navigation)
@@ -311,8 +326,6 @@ begin {
         Write-TUIEmpty
 
         Write-TUIBox -Char "═" -Left "╚" -Right "╝"
-        Write-Host ""
-        Write-Host "  Select option: " -ForegroundColor White -NoNewline
     }
 
     function Write-TUIToggle {
@@ -367,8 +380,6 @@ begin {
         Write-TUIEmpty
 
         Write-TUIBox -Char "═" -Left "╚" -Right "╝"
-        Write-Host ""
-        Write-Host "  Toggle option: " -ForegroundColor White -NoNewline
     }
 
     function Show-TUIProcessing {
@@ -536,7 +547,8 @@ begin {
                 "advanced" { Show-TUIAdvancedMenu }
             }
 
-            $choice = Read-Host
+            Write-Host ""
+            $choice = Read-Host "  Select option"
             $action = Invoke-TUIAction -Choice $choice -Menu $currentMenu
 
             switch ($action) {

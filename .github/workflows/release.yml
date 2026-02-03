@@ -59,23 +59,17 @@ jobs:
               core.notice('All required workflows passed. Proceeding to release.');
             }
 
-      - name: Compute release version
+      - name: Read release version from VERSION file
         id: ver
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const year = new Date().getFullYear().toString();
-            const rels = await github.paginate(github.rest.repos.listReleases, { owner: context.repo.owner, repo: context.repo.repo, per_page: 100 });
-            const nums = rels
-              .map(r => r.tag_name)
-              .filter(t => typeof t === 'string' && t.startsWith(year + '.'))
-              .map(t => parseInt(t.split('.')[1], 10))
-              .filter(n => Number.isFinite(n));
-            const next = (nums.length ? Math.max(...nums) + 1 : 1);
-            const version = `${year}.${next}`;
-            core.setOutput('version', version);
-            core.notice(`Next version: ${version}`);
+        shell: bash
+        run: |
+          version=$(cat dist/VERSION 2>/dev/null || echo "")
+          if [ -z "$version" ]; then
+            echo "VERSION file not found in artifacts, fetching from repo"
+            version=$(curl -sL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.workflow_run.head_sha }}/VERSION" | tr -d '\r\n')
+          fi
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "Release version: $version"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2

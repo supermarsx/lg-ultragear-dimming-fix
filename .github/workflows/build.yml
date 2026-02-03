@@ -16,6 +16,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Read version from VERSION file
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Path 'VERSION' -Raw).Trim()
+          Write-Host "Version: $version"
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
       - name: Trust PowerShell Gallery
         shell: pwsh
         run: |
@@ -26,14 +34,23 @@ jobs:
         run: |
           Install-Module ps2exe -Scope CurrentUser -Force -ErrorAction Stop
 
-      - name: Build executable
+      - name: Inject version and build executable
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path dist -Force | Out-Null
           $in  = 'install-lg-ultragear-no-dimming.ps1'
           $out = 'dist\install-lg-ultragear-no-dimming.exe'
-          if (Test-Path $in) {
-            Invoke-ps2exe -inputFile $in -outputFile $out -x64 -noConsole:$false -title 'LG UltraGear No-Dimming Installer' -description 'Automated installer for LG UltraGear no-dimming ICC profile.' -embedFiles 'lg-ultragear-full-cal.icm'
+          $version = '${{ steps.version.outputs.version }}'
+          
+          # Inject version into script before building
+          $content = Get-Content -Path $in -Raw -Encoding UTF8
+          $content = $content -replace "'__VERSION_EMBED__'", "'$version'"
+          $tempScript = 'install-lg-ultragear-no-dimming-versioned.ps1'
+          [System.IO.File]::WriteAllText($tempScript, $content, [System.Text.UTF8Encoding]::new($true))
+          
+          if (Test-Path $tempScript) {
+            Invoke-ps2exe -inputFile $tempScript -outputFile $out -x64 -noConsole:$false -title 'LG UltraGear No-Dimming Installer' -description 'Automated installer for LG UltraGear no-dimming ICC profile.' -product 'LG UltraGear Dimming Fix' -version $version -embedFiles 'lg-ultragear-full-cal.icm'
+            Remove-Item $tempScript -Force
           } else {
             throw "Missing $in"
           }
@@ -41,6 +58,9 @@ jobs:
       - name: Build zip package
         shell: pwsh
         run: |
+          # Copy VERSION to dist for release workflow
+          Copy-Item -Path 'VERSION' -Destination 'dist\VERSION' -Force
+          
           $items = @(
             'install-lg-ultragear-no-dimming.ps1',
             'install-full-auto.bat',
@@ -61,3 +81,4 @@ jobs:
           path: |
             dist/lg-ultragear-dimming-fix.zip
             dist/install-lg-ultragear-no-dimming.exe
+            dist/VERSION
