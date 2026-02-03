@@ -2,7 +2,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 function Ensure-Pester {
-    if (-not (Get-Module -ListAvailable -Name Pester -MinimumVersion 5.0.0)) {
+    $pesterModule = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [version]'5.0.0' } | Select-Object -First 1
+    if (-not $pesterModule) {
         try { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue } catch { Write-Verbose 'Ignoring PSGallery repository setup error.' }
         Install-Module Pester -Scope CurrentUser -Force -ErrorAction Stop
     }
