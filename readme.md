@@ -10,7 +10,9 @@
 [![license](https://img.shields.io/github/license/supermarsx/lg-ultragear-dimming-fix?style=flat-square)](license.md)
 
 [![download-latest](https://img.shields.io/badge/Download-Latest%20Release-2ea44f?style=for-the-badge&logo=github)](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases/latest)
-[![download-binary](https://img.shields.io/badge/Download-EXE%20(x64)-2ea44f?style=for-the-badge&logo=windows)](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases/latest/download/install-lg-ultragear-no-dimming.exe)
+[![download-binary](https://img.shields.io/badge/Download-Complete%20Installer-2ea44f?style=for-the-badge&logo=windows)](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases/latest/download/install-complete.bat)
+
+> 💡 **Quick Start:** Download and run `install-complete.bat` for the easiest installation with persistent auto-reapply!
 
 ## Fix LG UltraGear Monitor Auto-Dimming Problems
 
@@ -65,14 +67,23 @@ This dimming behavior is frustrating for gamers and professionals because:
 
 ## what's in this repo
 
-- `lg-ultragear-full-cal.icm` — custom icc/icm profile that constrains luminance.
-- `install-lg-ultragear-no-dimming.ps1` — installer that finds "lg ultragear" displays, installs the profile, associates it, and sets it as default.
-- `install-full-auto.bat` — one‑click bridge: auto‑elevates, uses a temporary execution policy bypass, and runs the installer end‑to‑end.
-- **`install-with-auto-reapply.bat`** — **recommended installer** that applies the fix AND sets up automatic reapplication on monitor reconnection.
-- **`install-monitor-watcher.ps1`** — creates a lightweight scheduled task that monitors display events and auto-reapplies the profile when needed.
-- **`check-monitor-status.ps1`** — diagnostic tool to verify auto-reapply monitor is working correctly.
-- `AUTO-REAPPLY-GUIDE.md` — quick reference guide for the persistent auto-reapply solution.
-- release artifacts — packaged zip and a single‑file executable built from the installer for easy distribution.
+### Main Installation Files
+- **`install-complete.bat`** / **`install-complete.ps1`** — **⭐ RECOMMENDED** all-in-one installer (profile + auto-reapply monitor)
+- `lg-ultragear-full-cal.icm` — custom ICC/ICM profile that constrains luminance
+- `install-lg-ultragear-no-dimming.ps1` — core installer that finds "lg ultragear" displays and applies the profile
+
+### Auto-Reapply Components
+- `install-monitor-watcher.ps1` — creates a lightweight scheduled task that monitors display events and auto-reapplies the profile when needed
+- `check-monitor-status.ps1` — diagnostic tool to verify auto-reapply monitor is working correctly
+
+### Alternative Installers
+- `install-with-auto-reapply.bat` — older two-step installer (still works, but use install-complete.bat instead)
+- `install-full-auto.bat` — basic one-time installer (no auto-reapply)
+
+### Documentation & Build Tools
+- `AUTO-REAPPLY-GUIDE.md` — quick reference guide for the persistent auto-reapply solution
+- `INSTALLATION-GUIDE.md` — comprehensive guide to all installation options and file relationships
+- Release artifacts — packaged zip and a single‑file executable built from the installer for easy distribution
 - `scripts/` — helper scripts:
   - `scripts/local-ci.ps1` — run format, lint, test, build locally (skips steps if tools not installed)
   - `scripts/clean.ps1` — clean common build/test artifacts (dist, logs, coverage, etc.)
@@ -81,42 +92,42 @@ This dimming behavior is frustrating for gamers and professionals because:
 
 ## quick start
 
-### ⚡ persistent fix with auto-reapply (recommended)
+### ⚡ complete installation (recommended)
 
-**NEW: `install-with-auto-reapply.bat`** — one-click installer that:
+**`install-complete.bat`** — simplest one-click installer:
 1. Installs the color profile fix
 2. Sets up automatic reapplication when monitor reconnects
+3. Everything in one script
 
-This solves the issue where the fix doesn't stay permanent after:
-- Monitor disconnect/reconnect
-- System sleep/wake
-- Display driver updates
-- Switching display inputs
+Just double-click `install-complete.bat` and you're done!
 
-**How it works:**
-- Creates a lightweight Windows scheduled task
-- Uses event-driven triggers (no constant polling or background processes)
-- Zero performance impact - only activates on actual display events
-- Runs as SYSTEM service for maximum reliability
+**Why this is the best option:**
+- ✅ Solves persistent dimming permanently
+- ✅ Auto-reapplies after monitor reconnect, sleep/wake, driver updates
+- ✅ Zero performance impact (event-driven, no polling)
+- ✅ Runs as SYSTEM service for maximum reliability
+- ✅ Single file does everything
 
-**To install:** Double-click `install-with-auto-reapply.bat` or run in PowerShell:
+**PowerShell alternative:**
 ```powershell
-.\install-with-auto-reapply.bat
+.\install-complete.ps1
 ```
 
-**To uninstall the monitor:**
+**Useful commands:**
 ```powershell
-.\install-monitor-watcher.ps1 -Uninstall
-```
-
-**To check status:**
-```powershell
+# Check status
 .\check-monitor-status.ps1
+
+# Uninstall monitor
+.\install-complete.ps1 -UninstallMonitor
+
+# Install profile only (no auto-reapply)
+.\install-complete.ps1 -SkipMonitor
 ```
 
 ---
 
-### basic installation (one-time apply)
+### alternative installers
 
 **option a - one-click batch**
 - double-click `install-full-auto.bat` (or run from command prompt). it will:
@@ -326,10 +337,49 @@ Start-ScheduledTask -TaskName "LG-UltraGear-ColorProfile-AutoReapply"
 
 ## license
 
-- see `license.md` for licensing details.
-- downloads & releases
+See [license.md](license.md) for licensing details.
 
-- automated ci produces versioned releases named `yyyy.n` (example: `2025.1`). `n` increments for each release within the year.
-- each release includes:
-  - `lg-ultragear-dimming-fix.zip` (scripts, exe, profile, readme, license)
-  - `install-lg-ultragear-no-dimming.exe` (standalone executable)
+## downloads & releases
+
+Automated CI produces versioned releases named `yyyy.n` (example: `2025.1`). `n` increments for each release within the year.
+
+Each release includes:
+- `lg-ultragear-dimming-fix.zip` (scripts, exe, profile, readme, license)
+- `install-lg-ultragear-no-dimming.exe` (standalone executable)
+
+## frequently asked questions (faq)
+
+### Does this work with all LG UltraGear monitors?
+This fix has been tested and confirmed working on many LG UltraGear models including:
+- 27GL850, 27GL83A
+- 27GN950, 27GN850, 27GN800
+- 34GN850, 38GN950
+- 32GN650, 32GP850
+- And many other models experiencing auto-dimming
+
+If your model isn't listed, try it - the fix is safe and reversible.
+
+### Will this affect color accuracy?
+The profile constrains luminance range slightly to prevent dimming triggers. Most users report no noticeable color difference in normal use. For professional color work, you may want to use a different profile or revert when color accuracy is critical.
+
+### Does this work with HDR content?
+This fix primarily targets SDR (Standard Dynamic Range) content. For HDR content, the behavior may vary depending on your monitor model. Some users report success with `-EnableHdrAssociation` flag.
+
+### Can I use this with NVIDIA or AMD graphics cards?
+Yes! This fix works with any graphics card brand (NVIDIA, AMD, Intel) because it operates at the Windows color management level, independent of GPU driver settings.
+
+### Will this void my monitor warranty?
+No. This is a software-only fix that doesn't modify your monitor's firmware or hardware. It simply changes how Windows sends color data to the display.
+
+### My monitor still dims after applying the fix
+- Ensure you used `install-with-auto-reapply.bat` for persistent fixing
+- Check Task Scheduler to verify the auto-reapply task is active
+- Disable "Energy Saving" features in your monitor's OSD menu
+- Some extreme ABL cases may require additional monitor OSD adjustments
+
+### Can I uninstall this easily?
+Yes! Simply run `.\install-monitor-watcher.ps1 -Uninstall` and remove the color profile through Windows Color Management (`colorcpl`).
+
+## keywords & search terms
+
+LG UltraGear dimming fix, LG monitor auto dimming, LG UltraGear brightness problem, stop LG monitor from dimming, LG ABL disable, LG automatic brightness limiting, gaming monitor dimming issue, LG 27GL850 dimming, LG 27GN950 dimming, LG UltraGear screen darkening, fix monitor brightness fluctuation, LG gaming monitor dimming Windows 10, LG gaming monitor dimming Windows 11, disable ABL LG UltraGear, ICC profile fix dimming, color profile dimming solution
