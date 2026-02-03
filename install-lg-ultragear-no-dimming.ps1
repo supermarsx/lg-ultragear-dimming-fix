@@ -73,8 +73,7 @@ begin {
     # Capture the caller's working directory if available; this helps rebuild relative paths later.
     try {
         $script:OriginalWorkingDirectory = (Get-Location).ProviderPath
-    }
-    catch {
+    } catch {
         try { $script:OriginalWorkingDirectory = (Get-Location).Path } catch { $script:OriginalWorkingDirectory = $null }
     }
 
@@ -106,8 +105,7 @@ begin {
             $windowSize.Width = $script:TUI_WIDTH
             $windowSize.Height = $script:TUI_HEIGHT
             $raw.WindowSize = $windowSize
-        }
-        catch {
+        } catch {
             # Expected on terminals that don't support resizing (ISE, non-console hosts)
             $null = $_
         }
@@ -127,8 +125,7 @@ begin {
             $leftPad = [math]::Floor($padding / 2)
             $rightPad = [math]::Ceiling($padding / 2)
             $line = $Left + ($Char * $leftPad) + " $Title " + ($Char * $rightPad) + $Right
-        }
-        else {
+        } else {
             $line = $Left + ($Char * $innerWidth) + $Right
         }
         Write-Host $line -ForegroundColor $Color
@@ -147,8 +144,7 @@ begin {
             $leftPad = [math]::Floor($padding / 2)
             $rightPad = [math]::Ceiling($padding / 2)
             $content = (" " * $leftPad) + $Text + (" " * $rightPad)
-        }
-        else {
+        } else {
             $content = $Text.PadRight($innerWidth)
         }
         Write-Host "║ " -ForegroundColor $BorderColor -NoNewline
@@ -206,8 +202,7 @@ begin {
                 $name = ($_.UserFriendlyName | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ }) -join ''
                 if ($name -match 'LG.*ULTRAGEAR') { $lgCount++ }
             }
-        }
-        catch {
+        } catch {
             # WMI query may fail on systems without monitor support
             $null = $_
         }
@@ -226,8 +221,7 @@ begin {
         )
         if ($Title) {
             Write-TUIBox -Title $Title -Char "─" -Left "╟" -Right "╢" -Color $Color
-        }
-        else {
+        } else {
             Write-TUIBox -Char "─" -Left "╟" -Right "╢" -Color $Color
         }
     }
@@ -337,8 +331,7 @@ begin {
         Write-Host "  Press any key to continue..." -ForegroundColor DarkGray
         try {
             $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-        }
-        catch {
+        } catch {
             # Fallback for non-interactive terminals
             Read-Host "  Press Enter to continue"
         }
@@ -407,12 +400,10 @@ begin {
                         try {
                             Remove-Item -LiteralPath $profilePath -Force -ErrorAction Stop
                             Write-Host "  [DEL ] Removed color profile" -ForegroundColor Green
-                        }
-                        catch {
+                        } catch {
                             Write-Host "  [WARN] Could not remove profile: $($_.Exception.Message)" -ForegroundColor Yellow
                         }
-                    }
-                    else {
+                    } else {
                         Write-Host "  [NOTE] Profile not found (already removed)" -ForegroundColor Gray
                     }
                     Wait-TUIKeyPress
@@ -422,8 +413,7 @@ begin {
                 "Q" { return "quit" }
                 default { return "menu" }
             }
-        }
-        elseif ($Menu -eq "advanced") {
+        } elseif ($Menu -eq "advanced") {
             switch ($Choice.ToUpper()) {
                 "1" {
                     Show-TUIProcessing -Message "Installing with HDR association..."
@@ -498,8 +488,7 @@ begin {
                 "installmonitor" {
                     try {
                         Install-AutoReapplyMonitor -TaskName $MonitorTaskName -InstallerPath $script:InvocationPath -MonitorMatch $MonitorNameMatch
-                    }
-                    catch {
+                    } catch {
                         Write-Host "  [ERR ] Failed: $($_.Exception.Message)" -ForegroundColor Red
                     }
                     Wait-TUIKeyPress
@@ -551,8 +540,7 @@ begin {
                 $null = $_
             }
         }
-    }
-    catch {
+    } catch {
         Write-Host "[NOTE] console color/title not set: $($_.Exception.Message)" -ForegroundColor White
     }
 
@@ -638,8 +626,7 @@ begin {
             Write-Host ""
             Write-Host "Press Enter to exit..." -ForegroundColor White
             [void][System.Console]::ReadLine()
-        }
-        catch {
+        } catch {
             Write-NoteMessage "Exit prompt skipped (no interactive console)."
         }
         $script:PromptShown = $true
@@ -753,12 +740,10 @@ Start-Sleep -Milliseconds 1500
                 Remove-Item -Path (Split-Path $actionScriptPath -Parent) -Recurse -Force -ErrorAction SilentlyContinue
                 Write-SuccessMessage "Removed action script directory"
             }
-        }
-        catch {
+        } catch {
             if ($_.Exception.Message -match "No MSFT_ScheduledTask objects found") {
                 Write-NoteMessage "Task '$TaskName' not found (already removed)"
-            }
-            else {
+            } else {
                 Write-WarnMessage "Failed to remove task: $($_.Exception.Message)"
             }
         }
@@ -767,8 +752,7 @@ Start-Sleep -Milliseconds 1500
     # Determine if Get-FileHash is available (missing on some older/newer editions)
     try {
         $script:SupportsGetFileHash = [bool](Get-Command -Name Get-FileHash -ErrorAction Stop)
-    }
-    catch {
+    } catch {
         $script:SupportsGetFileHash = $false
     }
 
@@ -781,8 +765,7 @@ Start-Sleep -Milliseconds 1500
         if ($script:SupportsGetFileHash) {
             try {
                 return (Microsoft.PowerShell.Utility\Get-FileHash -Algorithm SHA256 -LiteralPath $LiteralPath).Hash
-            }
-            catch {
+            } catch {
                 throw
             }
         }
@@ -794,11 +777,9 @@ Start-Sleep -Milliseconds 1500
             $sha256 = [System.Security.Cryptography.SHA256]::Create()
             $hashBytes = $sha256.ComputeHash($fileStream)
             return ([System.BitConverter]::ToString($hashBytes) -replace '-', '').ToUpperInvariant()
-        }
-        catch {
+        } catch {
             throw
-        }
-        finally {
+        } finally {
             if ($null -ne $fileStream) { $fileStream.Dispose() }
             if ($null -ne $sha256) { $sha256.Dispose() }
         }
@@ -876,8 +857,7 @@ Start-Sleep -Milliseconds 1500
             if ($Context) { $msg = "{0}: {1}" -f $Context, $msg }
             Write-Host $script:SymbolError -ForegroundColor Red -NoNewline
             Write-Host ("  {0}" -f $msg)
-        }
-        catch { Write-Host $script:SymbolError -ForegroundColor Red -NoNewline; Write-Host ("  {0}" -f $_.Exception.Message) }
+        } catch { Write-Host $script:SymbolError -ForegroundColor Red -NoNewline; Write-Host ("  {0}" -f $_.Exception.Message) }
     }
 
     function Test-IsAdmin {
@@ -911,11 +891,9 @@ Start-Sleep -Milliseconds 1500
             $val = $kv.Value
             if ($val -is [System.Management.Automation.SwitchParameter]) {
                 if ([bool]$val) { $argsList += $name }
-            }
-            elseif ($val -is [bool]) {
+            } elseif ($val -is [bool]) {
                 if ($val) { $argsList += $name }
-            }
-            else {
+            } else {
                 $argsList += $name
                 if ($null -ne $val -and $val -ne '') { $argsList += $val }
             }
@@ -923,11 +901,9 @@ Start-Sleep -Milliseconds 1500
 
         $workingDir = if ($script:OriginalWorkingDirectory -and (Test-Path -LiteralPath $script:OriginalWorkingDirectory)) {
             $script:OriginalWorkingDirectory
-        }
-        elseif ($script:InvocationDirectory -and (Test-Path -LiteralPath $script:InvocationDirectory)) {
+        } elseif ($script:InvocationDirectory -and (Test-Path -LiteralPath $script:InvocationDirectory)) {
             $script:InvocationDirectory
-        }
-        else {
+        } else {
             $env:SystemRoot
         }
 
@@ -963,11 +939,9 @@ Start-Sleep -Milliseconds 1500
                 $val = $kv.Value
                 if ($val -is [System.Management.Automation.SwitchParameter]) {
                     if ([bool]$val) { $psArgs += $name }
-                }
-                elseif ($val -is [bool]) {
+                } elseif ($val -is [bool]) {
                     if ($val) { $psArgs += $name }
-                }
-                else {
+                } else {
                     $psArgs += $name
                     $psArgs += $val
                 }
@@ -977,11 +951,9 @@ Start-Sleep -Milliseconds 1500
 
             $workingDir = if ($script:OriginalWorkingDirectory -and (Test-Path -LiteralPath $script:OriginalWorkingDirectory)) {
                 $script:OriginalWorkingDirectory
-            }
-            elseif ($script:InvocationDirectory -and (Test-Path -LiteralPath $script:InvocationDirectory)) {
+            } elseif ($script:InvocationDirectory -and (Test-Path -LiteralPath $script:InvocationDirectory)) {
                 $script:InvocationDirectory
-            }
-            else {
+            } else {
                 $env:SystemRoot
             }
 
@@ -1005,8 +977,7 @@ Start-Sleep -Milliseconds 1500
 
             Start-Process -FilePath $wt.Path -ArgumentList $wtArgs -WorkingDirectory $workingDir | Out-Null
             exit 0
-        }
-        catch {
+        } catch {
             Write-ErrorFull -ErrorRecord $_ -Context 'Ensure-WindowsTerminal'
         }
     }
@@ -1037,8 +1008,7 @@ Start-Sleep -Milliseconds 1500
                 [IO.Directory]::CreateDirectory($destinationDirectory) | Out-Null
                 Write-CreateMessage ("created folder: {0}" -f $destinationDirectory)
             }
-        }
-        catch {
+        } catch {
             Write-NoteMessage ("failed to create temp directory '{0}': {1}" -f $destinationDirectory, $_.Exception.Message)
             # Retry with plain temp root without unique subdir
             $destinationDirectory = $tempRoot
@@ -1060,8 +1030,7 @@ Start-Sleep -Milliseconds 1500
                 try {
                     $fileStream = [IO.File]::Open($destination, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None)
                     try { $stream.WriteTo($fileStream) } finally { $fileStream.Dispose() }
-                }
-                finally { $stream.Dispose() }
+                } finally { $stream.Dispose() }
                 Write-CreateMessage ("extracted embedded profile resource to '{0}'" -f $destination)
                 try {
                     $size = (Get-Item -LiteralPath $destination).Length
@@ -1069,11 +1038,9 @@ Start-Sleep -Milliseconds 1500
                     Write-InfoMessage ("embedded profile size: {0} bytes" -f $size)
                     Write-InfoMessage ("embedded profile SHA256: {0}" -f $hash)
                     if (-not $SkipHashCheck -and ($hash.ToUpperInvariant() -ne $expectedHash)) { throw ("embedded profile hash mismatch after resource extract; expected {0}, got {1}" -f $expectedHash, $hash) }
-                }
-                catch { Write-NoteMessage ("could not compute hash/size: {0}" -f $_.Exception.Message) }
+                } catch { Write-NoteMessage ("could not compute hash/size: {0}" -f $_.Exception.Message) }
                 return (Resolve-Path -LiteralPath $destination -ErrorAction Stop).Path
-            }
-            catch {
+            } catch {
                 Write-NoteMessage ("failed to extract embedded profile resource '{0}': {1}" -f $ProfileName, $_.Exception.Message)
             }
         }
@@ -1086,16 +1053,14 @@ Start-Sleep -Milliseconds 1500
                 $rawStripped = ($raw -replace '\s', '')
                 try {
                     $bytes = [Convert]::FromBase64String($rawStripped)
-                }
-                catch {
+                } catch {
                     # Fallback: remove any non-Base64 characters and fix padding
                     $clean = ($rawStripped -replace "[^A-Za-z0-9\+/=]", "")
                     if (($clean.Length % 4) -ne 0) { $pad = 4 - ($clean.Length % 4); $clean = $clean + ('=' * $pad) }
                     Write-NoteMessage ("base64 sanitized: rawLen={0}, cleanLen={1}" -f $rawStripped.Length, $clean.Length)
                     try {
                         $bytes = [Convert]::FromBase64String($clean)
-                    }
-                    catch {
+                    } catch {
                         throw ("embedded Base64 decode failed. rawLen={0} cleanLen={1}: {2}" -f $rawStripped.Length, $clean.Length, $_.Exception.Message)
                     }
                 }
@@ -1107,11 +1072,9 @@ Start-Sleep -Milliseconds 1500
                     Write-InfoMessage ("embedded profile size: {0} bytes" -f $size)
                     Write-InfoMessage ("embedded profile SHA256: {0}" -f $hash)
                     if (-not $SkipHashCheck -and ($hash.ToUpperInvariant() -ne $expectedHash)) { throw ("embedded profile hash mismatch after Base64 write; expected {0}, got {1}" -f $expectedHash, $hash) }
-                }
-                catch { Write-NoteMessage ("could not compute hash/size: {0}" -f $_.Exception.Message) }
+                } catch { Write-NoteMessage ("could not compute hash/size: {0}" -f $_.Exception.Message) }
                 return (Resolve-Path -LiteralPath $destination -ErrorAction Stop).Path
-            }
-            catch {
+            } catch {
                 Write-NoteMessage ("failed to write embedded Base64 profile '{0}': {1}" -f $ProfileName, $_.Exception.Message)
                 # Attempt fallback to on-disk profile asset from known locations
                 $fallbackCandidates = @()
@@ -1128,12 +1091,10 @@ Start-Sleep -Milliseconds 1500
                                 Write-InfoMessage ("embedded profile size: {0} bytes" -f $size)
                                 Write-InfoMessage ("embedded profile SHA256: {0}" -f $hash)
                                 if (-not $SkipHashCheck -and ($hash.ToUpperInvariant() -ne $expectedHash)) { throw ("embedded profile hash mismatch after fallback asset copy; expected {0}, got {1}" -f $expectedHash, $hash) }
-                            }
-                            catch { Write-NoteMessage ("could not compute hash/size: {0}" -f $_.Exception.Message) }
+                            } catch { Write-NoteMessage ("could not compute hash/size: {0}" -f $_.Exception.Message) }
                             return (Resolve-Path -LiteralPath $destination -ErrorAction Stop).Path
                         }
-                    }
-                    catch { Write-NoteMessage ("fallback copy failed from '{0}': {1}" -f $cand, $_.Exception.Message) }
+                    } catch { Write-NoteMessage ("fallback copy failed from '{0}': {1}" -f $cand, $_.Exception.Message) }
                 }
             }
         }
@@ -1153,12 +1114,10 @@ Start-Sleep -Milliseconds 1500
                         Write-InfoMessage ("embedded profile size: {0} bytes" -f $size)
                         Write-InfoMessage ("embedded profile SHA256: {0}" -f $hash)
                         if (-not $SkipHashCheck -and ($hash.ToUpperInvariant() -ne $expectedHash)) { throw ("embedded profile hash mismatch after final fallback copy; expected {0}, got {1}" -f $expectedHash, $hash) }
-                    }
-                    catch { Write-NoteMessage ("could not compute hash/size: {0}" -f $_.Exception.Message) }
+                    } catch { Write-NoteMessage ("could not compute hash/size: {0}" -f $_.Exception.Message) }
                     return (Resolve-Path -LiteralPath $destination -ErrorAction Stop).Path
                 }
-            }
-            catch { Write-NoteMessage ("fallback copy failed from '{0}': {1}" -f $cand, $_.Exception.Message) }
+            } catch { Write-NoteMessage ("fallback copy failed from '{0}': {1}" -f $cand, $_.Exception.Message) }
         }
 
         return $null
@@ -1180,8 +1139,7 @@ Start-Sleep -Milliseconds 1500
         # Try the caller-provided value first and backfill with known directories when relative.
         if ([IO.Path]::IsPathRooted($InputPath)) {
             $candidates += $InputPath
-        }
-        else {
+        } else {
             $candidates += $InputPath
             if ($script:OriginalWorkingDirectory) {
                 $candidates += (Join-Path $script:OriginalWorkingDirectory $InputPath)
@@ -1198,8 +1156,7 @@ Start-Sleep -Milliseconds 1500
                 $resolved = Resolve-Path -LiteralPath $candidate -ErrorAction Stop
                 Write-SuccessMessage ("resolved profile path: {0}" -f $resolved.Path)
                 return $resolved.Path
-            }
-            catch {
+            } catch {
                 Write-NoteMessage ("profile lookup skipped for candidate '{0}': {1}" -f $candidate, $_.Exception.Message)
             }
         }
@@ -1222,8 +1179,7 @@ Start-Sleep -Milliseconds 1500
         foreach ($codePoint in $CodePoints) {
             if ($codePoint -le 0xFFFF) {
                 [void]$builder.Append([char]$codePoint)
-            }
-            else {
+            } else {
                 $adjusted = $codePoint - 0x10000
                 $highSurrogate = [int][math]::Floor($adjusted / 0x400) + 0xD800
                 $lowSurrogate = ($adjusted % 0x400) + 0xDC00
@@ -1295,8 +1251,7 @@ Start-Sleep -Milliseconds 1500
             Write-ActionMessage ("loading P/Invoke: {0}" -f $Name)
             Add-Type -TypeDefinition $Code -ErrorAction Stop
             Write-SuccessMessage ("P/Invoke loaded: {0}" -f $Name)
-        }
-        catch {
+        } catch {
             Write-ErrorFull -ErrorRecord $_ -Context ("Add-PInvokeType:{0}" -f $Name)
             throw
         }
@@ -1379,12 +1334,10 @@ public static class Win32SendMessage {
                 try {
                     Remove-Item -LiteralPath $profilePath -Force -ErrorAction Stop
                     Write-DeleteMessage "Removed color profile"
-                }
-                catch {
+                } catch {
                     Write-WarnMessage "Could not remove profile: $($_.Exception.Message)"
                 }
-            }
-            else {
+            } else {
                 Write-NoteMessage "Profile not found (already removed)"
             }
             Write-DoneMessage "Full uninstall complete"
@@ -1438,19 +1391,16 @@ public static class Win32SendMessage {
                     if ($srcHash -ne $dstHash) {
                         Copy-Item -LiteralPath $profileFull -Destination $installedPath -Force
                         Write-SuccessMessage "profile updated at: $installedPath"
-                    }
-                    else {
+                    } else {
                         Write-SkipMessage "profile already current (skipped) at: $installedPath"
                     }
-                }
-                else {
+                } else {
                     $copied = $false
                     try {
                         Copy-Item -LiteralPath $profileFull -Destination $installedPath -Force -ErrorAction Stop
                         $copied = $true
                         Write-SuccessMessage "profile copied to color store"
-                    }
-                    catch {
+                    } catch {
                         Write-NoteMessage ("direct copy failed; attempting InstallColorProfile: {0}" -f $_.Exception.Message)
                     }
                     if (-not $copied) {
@@ -1495,8 +1445,7 @@ public static class Win32SendMessage {
             Write-ActionMessage "compatibility check"
             if ($targets) {
                 Write-SuccessMessage ("found {0} compatible monitor(s)" -f $targets.Count)
-            }
-            else {
+            } else {
                 Write-SkipMessage "no compatible monitors matched; adjust -MonitorNameMatch"
             }
             Write-Host ""
@@ -1520,8 +1469,7 @@ public static class Win32SendMessage {
                     if (-not [WcsAssociate]::WcsAssociateColorProfileWithDevice([uint32]$WCS_SCOPE_SYSTEM_WIDE, $installedPath, $deviceName)) {
                         $code = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
                         Write-WarnMessage ("system-wide association failed (Win32={0})" -f $code)
-                    }
-                    else { Write-SuccessMessage "system-wide association ok" }
+                    } else { Write-SuccessMessage "system-wide association ok" }
                 }
 
                 if ($PerUser.IsPresent) {
@@ -1529,8 +1477,7 @@ public static class Win32SendMessage {
                         if (-not [WcsAssociate]::WcsAssociateColorProfileWithDevice([uint32]$WCS_SCOPE_CURRENT_USER, $installedPath, $deviceName)) {
                             $code = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
                             Write-WarnMessage ("per-user association failed (Win32={0})" -f $code)
-                        }
-                        else { Write-SuccessMessage "per-user association ok" }
+                        } else { Write-SuccessMessage "per-user association ok" }
                     }
                 }
 
@@ -1542,18 +1489,15 @@ public static class Win32SendMessage {
                         if (-not [WcsDefault]::WcsSetDefaultColorProfile([uint32]$WCS_SCOPE_SYSTEM_WIDE, $deviceName, $CPT_ICC, $CPS_DEV, 0, $installedPath)) {
                             $code = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
                             Write-WarnMessage ("set generic default (system) failed (Win32={0})" -f $code)
-                        }
-                        else { Write-SuccessMessage "set generic default (system) ok" }
+                        } else { Write-SuccessMessage "set generic default (system) ok" }
                         if ($PerUser.IsPresent) {
                             if (-not [WcsDefault]::WcsSetDefaultColorProfile([uint32]$WCS_SCOPE_CURRENT_USER, $deviceName, $CPT_ICC, $CPS_DEV, 0, $installedPath)) {
                                 $code = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
                                 Write-WarnMessage ("set generic default (user) failed (Win32={0})" -f $code)
-                            }
-                            else { Write-SuccessMessage "set generic default (user) ok" }
+                            } else { Write-SuccessMessage "set generic default (user) ok" }
                         }
                     }
-                }
-                else {
+                } else {
                     if ($NoSetDefault) { Write-InfoMessage "NoSetDefault requested; skipping generic default profile operations" } else { Write-NoteMessage "Generic default profile not enabled; skipping. Use -EnableGenericDefault to allow." }
                 }
 
@@ -1565,8 +1509,7 @@ public static class Win32SendMessage {
                         }
                         Write-SuccessMessage "SDR/default association ok"
                     }
-                }
-                catch {
+                } catch {
                     Write-NoteMessage "SDR association API not available; skipping."
                 }
 
@@ -1579,12 +1522,10 @@ public static class Win32SendMessage {
                             if ($PerUser.IsPresent) { [void][WcsHdrAssoc]::ColorProfileAddDisplayAssociation($installedPath, $deviceName, [uint32]$WCS_SCOPE_CURRENT_USER, 0) }
                             Write-SuccessMessage "HDR/advanced-color association ok"
                         }
-                    }
-                    catch {
+                    } catch {
                         Write-NoteMessage "HDR association API not available; skipping."
                     }
-                }
-                else {
+                } else {
                     if ($SkipHdrAssociation) { Write-InfoMessage "SkipHdrAssociation requested; skipping HDR/advanced-color association" } else { Write-NoteMessage "HDR/advanced-color association not enabled; skipping. Use -EnableHdrAssociation to allow." }
                 }
             }
@@ -1606,28 +1547,23 @@ public static class Win32SendMessage {
                 Write-StepMessage "installing auto-reapply monitor"
                 try {
                     Install-AutoReapplyMonitor -TaskName $MonitorTaskName -InstallerPath $script:InvocationPath -MonitorMatch $MonitorNameMatch
-                }
-                catch {
+                } catch {
                     Write-WarnMessage "Auto-reapply monitor installation failed: $($_.Exception.Message)"
                     Write-NoteMessage "Profile is installed but won't auto-reapply on reconnection"
                 }
-            }
-            elseif ($SkipMonitor) {
+            } elseif ($SkipMonitor) {
                 Write-NoteMessage "Skipping auto-reapply monitor (-SkipMonitor specified)"
             }
-        }
-        catch {
+        } catch {
             Write-ErrorFull -ErrorRecord $_ -Context "Invoke-Main"
             exit 1
-        }
-        finally {
+        } finally {
             Write-ActionMessage "wrapping up"
             # Delete materialized temp profile (and its unique folder) if applicable
             try {
                 if ($KeepTemp.IsPresent) {
                     Write-NoteMessage ("KeepTemp set; retaining temp files. Path: {0}" -f $script:MaterializedTempProfilePath)
-                }
-                elseif ($script:MaterializedTempProfilePath -and (Test-Path -LiteralPath $script:MaterializedTempProfilePath)) {
+                } elseif ($script:MaterializedTempProfilePath -and (Test-Path -LiteralPath $script:MaterializedTempProfilePath)) {
                     $tempRoot = [IO.Path]::GetTempPath()
                     $full = (Resolve-Path -LiteralPath $script:MaterializedTempProfilePath).Path
                     $tempFull = (Resolve-Path -LiteralPath $tempRoot).Path
@@ -1645,8 +1581,7 @@ public static class Win32SendMessage {
                         Write-DeleteMessage ("deleted temp folder: {0}" -f $script:MaterializedTempProfileDir)
                     }
                 }
-            }
-            catch {
+            } catch {
                 Write-NoteMessage ("temp cleanup skipped: {0}" -f $_.Exception.Message)
             }
             # Emit done as the last status line
@@ -1659,8 +1594,7 @@ public static class Win32SendMessage {
 process {
     if ($script:IsInteractive) {
         Start-TUI
-    }
-    else {
+    } else {
         Invoke-Main
     }
 }
