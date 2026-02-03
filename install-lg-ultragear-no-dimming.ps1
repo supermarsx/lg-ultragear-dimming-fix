@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   LG UltraGear No-Auto-Dim installer.
 
@@ -86,6 +86,13 @@ begin {
     $script:TUI_VERSION = "2026.2"
     $script:TUI_PAGE = "main"  # main, install, uninstall, advanced
 
+    # Advanced option toggles (persist across menu navigation)
+    $script:Toggle_HdrAssociation = $false
+    $script:Toggle_PerUser = $false
+    $script:Toggle_DryRun = $false
+    $script:Toggle_SkipElevation = $false
+    $script:Toggle_GenericDefault = $false
+
     # =========================================================================
     # TUI FUNCTIONS
     # =========================================================================
@@ -165,13 +172,17 @@ begin {
             [ConsoleColor]$TextColor = "White",
             [ConsoleColor]$BorderColor = "Cyan"
         )
-        $innerWidth = $script:TUI_WIDTH - 4
+        $innerWidth = $script:TUI_WIDTH - 4  # 72 chars between borders
         $keyPart = "[$Key]"
+        # We output: "  " (2) + keyPart + " " (1) + Text, must total innerWidth
+        $prefixLen = 2 + $keyPart.Length + 1  # indent + key + space before text
+        $textPadded = $Text.PadRight($innerWidth - $prefixLen)
 
         Write-Host "║ " -ForegroundColor $BorderColor -NoNewline
         Write-Host "  " -NoNewline
         Write-Host $keyPart -ForegroundColor $KeyColor -NoNewline
-        Write-Host (" " + $Text).PadRight($innerWidth - 4 - $keyPart.Length) -ForegroundColor $TextColor -NoNewline
+        Write-Host " " -NoNewline
+        Write-Host $textPadded -ForegroundColor $TextColor -NoNewline
         Write-Host " ║" -ForegroundColor $BorderColor
     }
 
@@ -183,11 +194,14 @@ begin {
             [ConsoleColor]$ValueColor = "Green",
             [ConsoleColor]$BorderColor = "Cyan"
         )
-        $innerWidth = $script:TUI_WIDTH - 4
+        $innerWidth = $script:TUI_WIDTH - 4  # 72 chars between borders
+        # We output: "  " (2) + Label + " " (1) + Value, must total innerWidth
+        $prefixLen = 2 + $Label.Length + 1
+        $valuePadded = $Value.PadRight($innerWidth - $prefixLen)
+
         Write-Host "║ " -ForegroundColor $BorderColor -NoNewline
         Write-Host "  $Label " -ForegroundColor $LabelColor -NoNewline
-        $remaining = $innerWidth - $Label.Length - 3
-        Write-Host $Value.PadRight($remaining) -ForegroundColor $ValueColor -NoNewline
+        Write-Host $valuePadded -ForegroundColor $ValueColor -NoNewline
         Write-Host " ║" -ForegroundColor $BorderColor
     }
 
@@ -235,7 +249,7 @@ begin {
 
         # Status section
         Write-TUIEmpty
-        Write-TUILine -Text "┌─ CURRENT STATUS ─────────────────────────────────────────────────┐" -Color DarkCyan
+        Write-TUILine -Text "┌─ CURRENT STATUS ─────────────────────────────────────────────────────┐" -Color DarkCyan
 
         $profileStatus = if ($Status.ProfileExists) { "● Installed" } else { "○ Not Installed" }
         $profileColor = if ($Status.ProfileExists) { "Green" } else { "Red" }
@@ -249,7 +263,7 @@ begin {
         $lgColor = if ($Status.LGCount -gt 0) { "Green" } else { "Gray" }
         Write-TUIStatus -Label "  LG UltraGear: " -Value $lgStatus -ValueColor $lgColor
 
-        Write-TUILine -Text "└──────────────────────────────────────────────────────────────────┘" -Color DarkCyan
+        Write-TUILine -Text "└──────────────────────────────────────────────────────────────────────┘" -Color DarkCyan
         Write-TUIEmpty
     }
 
@@ -277,7 +291,21 @@ begin {
         Write-TUIMenuItem -Key "8" -Text "Full Uninstall (Remove everything)"
         Write-TUIEmpty
         Write-TUILine -Text "  ADVANCED" -Color Cyan
-        Write-TUIMenuItem -Key "A" -Text "Advanced Options Menu..."
+
+        # Show active toggle summary
+        $activeToggles = @()
+        if ($script:Toggle_HdrAssociation) { $activeToggles += "HDR" }
+        if ($script:Toggle_PerUser) { $activeToggles += "PerUser" }
+        if ($script:Toggle_GenericDefault) { $activeToggles += "GenericDef" }
+        if ($script:Toggle_DryRun) { $activeToggles += "DryRun" }
+        if ($script:Toggle_SkipElevation) { $activeToggles += "NoAdmin" }
+
+        if ($activeToggles.Count -gt 0) {
+            $toggleText = "Advanced Options (" + ($activeToggles -join ", ") + ")"
+            Write-TUIMenuItem -Key "A" -Text $toggleText -TextColor "Green"
+        } else {
+            Write-TUIMenuItem -Key "A" -Text "Advanced Options (None active)"
+        }
         Write-TUIEmpty
         Write-TUIMenuItem -Key "Q" -Text "Quit" -KeyColor "Red" -TextColor "DarkGray"
         Write-TUIEmpty
@@ -287,23 +315,51 @@ begin {
         Write-Host "  Select option: " -ForegroundColor White -NoNewline
     }
 
+    function Write-TUIToggle {
+        param(
+            [string]$Key,
+            [string]$Text,
+            [bool]$Enabled,
+            [ConsoleColor]$BorderColor = "Cyan"
+        )
+        $innerWidth = $script:TUI_WIDTH - 4  # 72 chars between borders
+        $keyPart = "[$Key]"
+        $toggle = if ($Enabled) { "[ON ]" } else { "[OFF]" }
+        $toggleColor = if ($Enabled) { "Green" } else { "DarkGray" }
+
+        # We output: "  " (2) + keyPart + " " (1) + toggle + " " (1) + Text, must total innerWidth
+        $prefixLen = 2 + $keyPart.Length + 1 + $toggle.Length + 1
+        $textPadded = $Text.PadRight($innerWidth - $prefixLen)
+
+        Write-Host "║ " -ForegroundColor $BorderColor -NoNewline
+        Write-Host "  " -NoNewline
+        Write-Host $keyPart -ForegroundColor Yellow -NoNewline
+        Write-Host " " -NoNewline
+        Write-Host $toggle -ForegroundColor $toggleColor -NoNewline
+        Write-Host " " -NoNewline
+        Write-Host $textPadded -ForegroundColor White -NoNewline
+        Write-Host " ║" -ForegroundColor $BorderColor
+    }
+
     function Show-TUIAdvancedMenu {
         Clear-Host
         Set-ConsoleSize
         $status = Get-MonitorStatus
 
         Show-TUIHeader -Status $status
-        Write-TUISeparator -Title " ADVANCED OPTIONS "
+        Write-TUISeparator -Title " ADVANCED OPTIONS (Toggles) "
 
         Write-TUIEmpty
-        Write-TUILine -Text "  INSTALL MODES" -Color Cyan
-        Write-TUIMenuItem -Key "1" -Text "Install with HDR Association"
-        Write-TUIMenuItem -Key "2" -Text "Install Profile Only (No associations)"
-        Write-TUIMenuItem -Key "3" -Text "Install Per-User (Current user scope)"
+        Write-TUILine -Text "  INSTALL MODIFIERS" -Color Cyan
+        Write-TUIToggle -Key "1" -Text "HDR Association (Include HDR color binding)" -Enabled $script:Toggle_HdrAssociation
+        Write-TUIToggle -Key "2" -Text "Per-User Install (User scope, not system)" -Enabled $script:Toggle_PerUser
+        Write-TUIToggle -Key "3" -Text "Generic Default (Legacy default profile API)" -Enabled $script:Toggle_GenericDefault
         Write-TUIEmpty
         Write-TUILine -Text "  TESTING" -Color Cyan
-        Write-TUIMenuItem -Key "4" -Text "Dry Run (Simulate without changes)"
-        Write-TUIMenuItem -Key "5" -Text "Skip Elevation (Run without admin)"
+        Write-TUIToggle -Key "4" -Text "Dry Run (Simulate without changes)" -Enabled $script:Toggle_DryRun
+        Write-TUIToggle -Key "5" -Text "Skip Elevation (Run without admin)" -Enabled $script:Toggle_SkipElevation
+        Write-TUIEmpty
+        Write-TUILine -Text "  These toggles affect main menu install options" -Color DarkGray
         Write-TUIEmpty
         Write-TUILine -Text "  NAVIGATION" -Color Cyan
         Write-TUIMenuItem -Key "B" -Text "Back to Main Menu" -KeyColor "Yellow"
@@ -312,7 +368,7 @@ begin {
 
         Write-TUIBox -Char "═" -Left "╚" -Right "╝"
         Write-Host ""
-        Write-Host "  Select option: " -ForegroundColor White -NoNewline
+        Write-Host "  Toggle option: " -ForegroundColor White -NoNewline
     }
 
     function Show-TUIProcessing {
@@ -337,6 +393,26 @@ begin {
         }
     }
 
+    function Apply-ToggleSettings {
+        # Apply advanced option toggles to script variables before install
+        if ($script:Toggle_HdrAssociation) {
+            $script:EnableHdrAssociation = $true
+            $script:SkipHdrAssociation = $false
+        }
+        if ($script:Toggle_PerUser) {
+            $script:PerUser = $true
+        }
+        if ($script:Toggle_GenericDefault) {
+            $script:EnableGenericDefault = $true
+        }
+        if ($script:Toggle_DryRun) {
+            $script:DryRun = $true
+        }
+        if ($script:Toggle_SkipElevation) {
+            $script:SkipElevation = $true
+        }
+    }
+
     function Invoke-TUIAction {
         param(
             [string]$Choice,
@@ -348,26 +424,31 @@ begin {
                 "1" {
                     Show-TUIProcessing -Message "Installing SDR profile + auto-reapply monitor..."
                     $script:SkipMonitor = $false
-                    $script:SkipHdrAssociation = $true
+                    $script:SkipHdrAssociation = -not $script:Toggle_HdrAssociation
+                    Apply-ToggleSettings
                     $script:IsInteractive = $false
                     return "install"
                 }
                 "2" {
                     Show-TUIProcessing -Message "Installing SDR profile only..."
                     $script:SkipMonitor = $true
-                    $script:SkipHdrAssociation = $true
+                    $script:SkipHdrAssociation = -not $script:Toggle_HdrAssociation
+                    Apply-ToggleSettings
                     $script:IsInteractive = $false
                     return "install"
                 }
                 "3" {
                     Show-TUIProcessing -Message "Installing auto-reapply monitor only..."
                     $script:InstallMonitor = $true
+                    Apply-ToggleSettings
                     $script:IsInteractive = $false
                     return "installmonitor"
                 }
                 "4" {
                     Show-TUIProcessing -Message "Refreshing installation..."
                     $script:SkipMonitor = $false
+                    $script:SkipHdrAssociation = -not $script:Toggle_HdrAssociation
+                    Apply-ToggleSettings
                     $script:IsInteractive = $false
                     return "install"
                 }
@@ -376,6 +457,8 @@ begin {
                     # Uninstall first, then install
                     Uninstall-AutoReapplyMonitor -TaskName $MonitorTaskName
                     $script:SkipMonitor = $false
+                    $script:SkipHdrAssociation = -not $script:Toggle_HdrAssociation
+                    Apply-ToggleSettings
                     $script:IsInteractive = $false
                     return "install"
                 }
@@ -416,39 +499,24 @@ begin {
         } elseif ($Menu -eq "advanced") {
             switch ($Choice.ToUpper()) {
                 "1" {
-                    Show-TUIProcessing -Message "Installing with HDR association..."
-                    $script:SkipMonitor = $false
-                    $script:SkipHdrAssociation = $false
-                    $script:EnableHdrAssociation = $true
-                    $script:IsInteractive = $false
-                    return "install"
+                    $script:Toggle_HdrAssociation = -not $script:Toggle_HdrAssociation
+                    return "advanced"
                 }
                 "2" {
-                    Show-TUIProcessing -Message "Installing profile only (no associations)..."
-                    $script:InstallOnly = $true
-                    $script:SkipMonitor = $true
-                    $script:IsInteractive = $false
-                    return "install"
+                    $script:Toggle_PerUser = -not $script:Toggle_PerUser
+                    return "advanced"
                 }
                 "3" {
-                    Show-TUIProcessing -Message "Installing for current user..."
-                    $script:PerUser = $true
-                    $script:SkipMonitor = $false
-                    $script:IsInteractive = $false
-                    return "install"
+                    $script:Toggle_GenericDefault = -not $script:Toggle_GenericDefault
+                    return "advanced"
                 }
                 "4" {
-                    Show-TUIProcessing -Message "Running dry run (no changes)..."
-                    $script:DryRun = $true
-                    $script:IsInteractive = $false
-                    return "install"
+                    $script:Toggle_DryRun = -not $script:Toggle_DryRun
+                    return "advanced"
                 }
                 "5" {
-                    Show-TUIProcessing -Message "Running without elevation..."
-                    $script:SkipElevation = $true
-                    $script:SkipMonitor = $false
-                    $script:IsInteractive = $false
-                    return "install"
+                    $script:Toggle_SkipElevation = -not $script:Toggle_SkipElevation
+                    return "advanced"
                 }
                 "B" { return "main" }
                 "Q" { return "quit" }
@@ -510,17 +578,17 @@ begin {
 
         Clear-Host
         Write-Host ""
-        Write-Host "  ╔════════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-        Write-Host "  ║                                                                    ║" -ForegroundColor Cyan
+        Write-Host "  ╔════════════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+        Write-Host "  ║                                                                        ║" -ForegroundColor Cyan
         Write-Host "  ║   " -ForegroundColor Cyan -NoNewline
-        Write-Host "Thank you for using LG UltraGear Auto-Dimming Fix!" -ForegroundColor White -NoNewline
-        Write-Host "           ║" -ForegroundColor Cyan
-        Write-Host "  ║                                                                    ║" -ForegroundColor Cyan
+        Write-Host "Thank you for using LG UltraGear Auto-Dimming Fix!".PadRight(69) -ForegroundColor White -NoNewline
+        Write-Host "║" -ForegroundColor Cyan
+        Write-Host "  ║                                                                        ║" -ForegroundColor Cyan
         Write-Host "  ║   " -ForegroundColor Cyan -NoNewline
-        Write-Host "github.com/supermarsx/lg-ultragear-dimming-fix" -ForegroundColor DarkGray -NoNewline
-        Write-Host "                  ║" -ForegroundColor Cyan
-        Write-Host "  ║                                                                    ║" -ForegroundColor Cyan
-        Write-Host "  ╚════════════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+        Write-Host "github.com/supermarsx/lg-ultragear-dimming-fix".PadRight(69) -ForegroundColor DarkGray -NoNewline
+        Write-Host "║" -ForegroundColor Cyan
+        Write-Host "  ║                                                                        ║" -ForegroundColor Cyan
+        Write-Host "  ╚════════════════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
         Write-Host ""
     }
 
