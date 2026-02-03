@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   LG UltraGear No-Auto-Dim installer.
 
@@ -50,17 +50,22 @@ param(
     [switch]$SkipMonitor,
     [string]$MonitorTaskName = "LG-UltraGear-ColorProfile-AutoReapply",
     [switch]$Interactive,
+    [switch]$NonInteractive,
+    [switch]$Uninstall,
+    [switch]$UninstallFull,
+    [switch]$Reinstall,
+    [switch]$Refresh,
     [Alias('h', '?')]
     [switch]$Help
 )
 
 begin {
     # Hint to static analysis: parameters are intentionally used across nested scopes
-    $null = $ProfilePath, $MonitorNameMatch, $PerUser, $NoSetDefault, $SkipHdrAssociation, $NoPrompt, $InstallOnly, $Probe, $SkipElevation, $SkipWindowsTerminal, $KeepTemp, $SkipHashCheck, $InstallMonitor, $UninstallMonitor, $SkipMonitor, $MonitorTaskName, $Interactive
+    $null = $ProfilePath, $MonitorNameMatch, $PerUser, $NoSetDefault, $SkipHdrAssociation, $NoPrompt, $InstallOnly, $Probe, $SkipElevation, $SkipWindowsTerminal, $KeepTemp, $SkipHashCheck, $InstallMonitor, $UninstallMonitor, $SkipMonitor, $MonitorTaskName, $Interactive, $NonInteractive, $Uninstall, $UninstallFull, $Reinstall, $Refresh
     # Mark parameters as referenced for static analyzers
-    
+
     # Check if running with no arguments (interactive mode)
-    $script:IsInteractive = $Interactive -or ($PSBoundParameters.Count -eq 0 -and -not $Help)
+    $script:IsInteractive = $Interactive -or (($PSBoundParameters.Count -eq 0 -and -not $Help) -and -not $NonInteractive)
 
     # Record the launch context so relative paths stay consistent after re-invocation.
     $script:InvocationPath = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Path }
@@ -68,17 +73,19 @@ begin {
     # Capture the caller's working directory if available; this helps rebuild relative paths later.
     try {
         $script:OriginalWorkingDirectory = (Get-Location).ProviderPath
-    } catch {
+    }
+    catch {
         try { $script:OriginalWorkingDirectory = (Get-Location).Path } catch { $script:OriginalWorkingDirectory = $null }
     }
 
     # =========================================================================
     # TUI CONFIGURATION
     # =========================================================================
-    $script:TUI_WIDTH = 70
-    $script:TUI_HEIGHT = 24
+    $script:TUI_WIDTH = 76
+    $script:TUI_HEIGHT = 32
     $script:TUI_TITLE = "LG UltraGear Auto-Dimming Fix"
-    $script:TUI_VERSION = "2026.1"
+    $script:TUI_VERSION = "2026.2"
+    $script:TUI_PAGE = "main"  # main, install, uninstall, advanced
 
     # =========================================================================
     # TUI FUNCTIONS
@@ -88,19 +95,21 @@ begin {
             $raw = $Host.UI.RawUI
             $bufferSize = $raw.BufferSize
             $windowSize = $raw.WindowSize
-            
+
             # Set buffer first (must be >= window)
             if ($bufferSize.Width -lt $script:TUI_WIDTH) {
                 $bufferSize.Width = $script:TUI_WIDTH + 5
                 $raw.BufferSize = $bufferSize
             }
-            
+
             # Set window size
             $windowSize.Width = $script:TUI_WIDTH
             $windowSize.Height = $script:TUI_HEIGHT
             $raw.WindowSize = $windowSize
-        } catch {
-            # Ignore errors on terminals that don't support resizing
+        }
+        catch {
+            # Expected on terminals that don't support resizing (ISE, non-console hosts)
+            $null = $_
         }
     }
 
@@ -118,7 +127,8 @@ begin {
             $leftPad = [math]::Floor($padding / 2)
             $rightPad = [math]::Ceiling($padding / 2)
             $line = $Left + ($Char * $leftPad) + " $Title " + ($Char * $rightPad) + $Right
-        } else {
+        }
+        else {
             $line = $Left + ($Char * $innerWidth) + $Right
         }
         Write-Host $line -ForegroundColor $Color
@@ -137,7 +147,8 @@ begin {
             $leftPad = [math]::Floor($padding / 2)
             $rightPad = [math]::Ceiling($padding / 2)
             $content = (" " * $leftPad) + $Text + (" " * $rightPad)
-        } else {
+        }
+        else {
             $content = $Text.PadRight($innerWidth)
         }
         Write-Host "║ " -ForegroundColor $BorderColor -NoNewline
@@ -160,9 +171,7 @@ begin {
         )
         $innerWidth = $script:TUI_WIDTH - 4
         $keyPart = "[$Key]"
-        $fullText = "  $keyPart $Text"
-        $content = $fullText.PadRight($innerWidth)
-        
+
         Write-Host "║ " -ForegroundColor $BorderColor -NoNewline
         Write-Host "  " -NoNewline
         Write-Host $keyPart -ForegroundColor $KeyColor -NoNewline
@@ -190,15 +199,19 @@ begin {
         $taskExists = $null -ne (Get-ScheduledTask -TaskName $MonitorTaskName -ErrorAction SilentlyContinue)
         $profilePath = Join-Path $env:WINDIR "System32\spool\drivers\color\lg-ultragear-full-cal.icm"
         $profileExists = Test-Path -LiteralPath $profilePath
-        
+
         $lgCount = 0
         try {
             Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID -ErrorAction Stop | ForEach-Object {
                 $name = ($_.UserFriendlyName | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ }) -join ''
                 if ($name -match 'LG.*ULTRAGEAR') { $lgCount++ }
             }
-        } catch {}
-        
+        }
+        catch {
+            # WMI query may fail on systems without monitor support
+            $null = $_
+        }
+
         return @{
             TaskExists    = $taskExists
             ProfileExists = $profileExists
@@ -206,144 +219,324 @@ begin {
         }
     }
 
-    function Show-TUIMenu {
-        Clear-Host
-        Set-ConsoleSize
-        
-        $status = Get-MonitorStatus
-        
-        # Header
+    function Write-TUISeparator {
+        param(
+            [string]$Title = "",
+            [ConsoleColor]$Color = "DarkCyan"
+        )
+        if ($Title) {
+            Write-TUIBox -Title $Title -Char "─" -Left "╟" -Right "╢" -Color $Color
+        }
+        else {
+            Write-TUIBox -Char "─" -Left "╟" -Right "╢" -Color $Color
+        }
+    }
+
+    function Show-TUIHeader {
+        param([hashtable]$Status)
+
         Write-TUIBox -Title $script:TUI_TITLE -Left "╔" -Right "╗"
-        Write-TUILine -Text "Version $script:TUI_VERSION" -Center -Color Gray
-        Write-TUIBox -Char "─" -Left "╟" -Right "╢"
-        
+        Write-TUILine -Text "Version $script:TUI_VERSION  │  github.com/supermarsx/lg-ultragear-dimming-fix" -Center -Color DarkGray
+        Write-TUISeparator
+
         # Status section
         Write-TUIEmpty
-        Write-TUILine -Text "STATUS" -Color Cyan
+        Write-TUILine -Text "┌─ CURRENT STATUS ─────────────────────────────────────────────────┐" -Color DarkCyan
+
+        $profileStatus = if ($Status.ProfileExists) { "● Installed" } else { "○ Not Installed" }
+        $profileColor = if ($Status.ProfileExists) { "Green" } else { "Red" }
+        Write-TUIStatus -Label "  Color Profile:" -Value $profileStatus -ValueColor $profileColor
+
+        $monitorStatus = if ($Status.TaskExists) { "● Active" } else { "○ Inactive" }
+        $monitorColor = if ($Status.TaskExists) { "Green" } else { "Yellow" }
+        Write-TUIStatus -Label "  Auto-Reapply: " -Value $monitorStatus -ValueColor $monitorColor
+
+        $lgStatus = if ($Status.LGCount -gt 0) { "● $($Status.LGCount) monitor(s) detected" } else { "○ None detected" }
+        $lgColor = if ($Status.LGCount -gt 0) { "Green" } else { "Gray" }
+        Write-TUIStatus -Label "  LG UltraGear: " -Value $lgStatus -ValueColor $lgColor
+
+        Write-TUILine -Text "└──────────────────────────────────────────────────────────────────┘" -Color DarkCyan
         Write-TUIEmpty
-        
-        $profileStatus = if ($status.ProfileExists) { "Installed" } else { "Not Installed" }
-        $profileColor = if ($status.ProfileExists) { "Green" } else { "Red" }
-        Write-TUIStatus -Label "Color Profile:" -Value $profileStatus -ValueColor $profileColor
-        
-        $monitorStatus = if ($status.TaskExists) { "Active" } else { "Not Installed" }
-        $monitorColor = if ($status.TaskExists) { "Green" } else { "Yellow" }
-        Write-TUIStatus -Label "Auto-Reapply:" -Value $monitorStatus -ValueColor $monitorColor
-        
-        $lgStatus = if ($status.LGCount -gt 0) { "$($status.LGCount) found" } else { "None detected" }
-        $lgColor = if ($status.LGCount -gt 0) { "Green" } else { "Gray" }
-        Write-TUIStatus -Label "LG UltraGear:" -Value $lgStatus -ValueColor $lgColor
-        
-        Write-TUIBox -Char "─" -Left "╟" -Right "╢"
-        
-        # Menu options
+    }
+
+    function Show-TUIMainMenu {
+        Clear-Host
+        Set-ConsoleSize
+        $status = Get-MonitorStatus
+
+        Show-TUIHeader -Status $status
+        Write-TUISeparator -Title " MAIN MENU "
+
         Write-TUIEmpty
-        Write-TUILine -Text "ACTIONS" -Color Cyan
+        Write-TUILine -Text "  INSTALL OPTIONS" -Color Cyan
+        Write-TUIMenuItem -Key "1" -Text "Default Install (SDR Profile + Auto-Reapply)"
+        Write-TUIMenuItem -Key "2" -Text "SDR Only (Profile without Auto-Reapply)"
+        Write-TUIMenuItem -Key "3" -Text "Auto-Reapply Only (Monitor Task Only)"
         Write-TUIEmpty
-        Write-TUIMenuItem -Key "1" -Text "Install Complete (Profile + Auto-Reapply)"
-        Write-TUIMenuItem -Key "2" -Text "Install Profile Only (No Auto-Reapply)"
-        Write-TUIMenuItem -Key "3" -Text "Uninstall Auto-Reapply Monitor"
-        Write-TUIMenuItem -Key "4" -Text "Detect Monitors (Probe)"
+        Write-TUILine -Text "  MAINTENANCE" -Color Cyan
+        Write-TUIMenuItem -Key "4" -Text "Refresh Install (Re-apply current settings)"
+        Write-TUIMenuItem -Key "5" -Text "Reinstall (Clean reinstall everything)"
+        Write-TUIMenuItem -Key "6" -Text "Probe (Detect connected monitors)"
         Write-TUIEmpty
-        Write-TUIMenuItem -Key "Q" -Text "Quit" -KeyColor "Red"
+        Write-TUILine -Text "  UNINSTALL" -Color Cyan
+        Write-TUIMenuItem -Key "7" -Text "Remove Auto-Reapply (Keep profile)"
+        Write-TUIMenuItem -Key "8" -Text "Full Uninstall (Remove everything)"
         Write-TUIEmpty
-        
-        # Footer
+        Write-TUILine -Text "  ADVANCED" -Color Cyan
+        Write-TUIMenuItem -Key "A" -Text "Advanced Options Menu..."
+        Write-TUIEmpty
+        Write-TUIMenuItem -Key "Q" -Text "Quit" -KeyColor "Red" -TextColor "DarkGray"
+        Write-TUIEmpty
+
         Write-TUIBox -Char "═" -Left "╚" -Right "╝"
-        
         Write-Host ""
-        Write-Host "  Select option [1-4, Q]: " -ForegroundColor White -NoNewline
+        Write-Host "  Select option: " -ForegroundColor White -NoNewline
+    }
+
+    function Show-TUIAdvancedMenu {
+        Clear-Host
+        Set-ConsoleSize
+        $status = Get-MonitorStatus
+
+        Show-TUIHeader -Status $status
+        Write-TUISeparator -Title " ADVANCED OPTIONS "
+
+        Write-TUIEmpty
+        Write-TUILine -Text "  INSTALL MODES" -Color Cyan
+        Write-TUIMenuItem -Key "1" -Text "Install with HDR Association"
+        Write-TUIMenuItem -Key "2" -Text "Install Profile Only (No associations)"
+        Write-TUIMenuItem -Key "3" -Text "Install Per-User (Current user scope)"
+        Write-TUIEmpty
+        Write-TUILine -Text "  TESTING" -Color Cyan
+        Write-TUIMenuItem -Key "4" -Text "Dry Run (Simulate without changes)"
+        Write-TUIMenuItem -Key "5" -Text "Skip Elevation (Run without admin)"
+        Write-TUIEmpty
+        Write-TUILine -Text "  NAVIGATION" -Color Cyan
+        Write-TUIMenuItem -Key "B" -Text "Back to Main Menu" -KeyColor "Yellow"
+        Write-TUIMenuItem -Key "Q" -Text "Quit" -KeyColor "Red" -TextColor "DarkGray"
+        Write-TUIEmpty
+
+        Write-TUIBox -Char "═" -Left "╚" -Right "╝"
+        Write-Host ""
+        Write-Host "  Select option: " -ForegroundColor White -NoNewline
+    }
+
+    function Show-TUIProcessing {
+        param([string]$Message)
+        Clear-Host
+        Write-TUIBox -Title " PROCESSING " -Left "╔" -Right "╗"
+        Write-TUIEmpty
+        Write-TUILine -Text $Message -Color Yellow
+        Write-TUIEmpty
+        Write-TUIBox -Char "═" -Left "╚" -Right "╝"
+        Write-Host ""
+    }
+
+    function Wait-TUIKeyPress {
+        Write-Host ""
+        Write-Host "  Press any key to continue..." -ForegroundColor DarkGray
+        try {
+            $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        }
+        catch {
+            # Fallback for non-interactive terminals
+            Read-Host "  Press Enter to continue"
+        }
     }
 
     function Invoke-TUIAction {
-        param([string]$Choice)
-        
-        Clear-Host
-        Write-TUIBox -Title "Processing" -Left "╔" -Right "╗"
-        Write-TUIEmpty
-        
-        switch ($Choice) {
-            "1" {
-                Write-TUILine -Text "Installing profile + auto-reapply monitor..." -Color Yellow
-                Write-TUIBox -Char "═" -Left "╚" -Right "╝"
-                Write-Host ""
-                
-                # Run full install
-                $script:SkipMonitor = $false
-                $script:IsInteractive = $false
-                return "install"
+        param(
+            [string]$Choice,
+            [string]$Menu = "main"
+        )
+
+        if ($Menu -eq "main") {
+            switch ($Choice.ToUpper()) {
+                "1" {
+                    Show-TUIProcessing -Message "Installing SDR profile + auto-reapply monitor..."
+                    $script:SkipMonitor = $false
+                    $script:SkipHdrAssociation = $true
+                    $script:IsInteractive = $false
+                    return "install"
+                }
+                "2" {
+                    Show-TUIProcessing -Message "Installing SDR profile only..."
+                    $script:SkipMonitor = $true
+                    $script:SkipHdrAssociation = $true
+                    $script:IsInteractive = $false
+                    return "install"
+                }
+                "3" {
+                    Show-TUIProcessing -Message "Installing auto-reapply monitor only..."
+                    $script:InstallMonitor = $true
+                    $script:IsInteractive = $false
+                    return "installmonitor"
+                }
+                "4" {
+                    Show-TUIProcessing -Message "Refreshing installation..."
+                    $script:SkipMonitor = $false
+                    $script:IsInteractive = $false
+                    return "install"
+                }
+                "5" {
+                    Show-TUIProcessing -Message "Reinstalling everything..."
+                    # Uninstall first, then install
+                    Uninstall-AutoReapplyMonitor -TaskName $MonitorTaskName
+                    $script:SkipMonitor = $false
+                    $script:IsInteractive = $false
+                    return "install"
+                }
+                "6" {
+                    Show-TUIProcessing -Message "Detecting connected monitors..."
+                    $script:Probe = $true
+                    $script:IsInteractive = $false
+                    return "probe"
+                }
+                "7" {
+                    Show-TUIProcessing -Message "Removing auto-reapply monitor..."
+                    Uninstall-AutoReapplyMonitor -TaskName $MonitorTaskName
+                    Wait-TUIKeyPress
+                    return "menu"
+                }
+                "8" {
+                    Show-TUIProcessing -Message "Performing full uninstall..."
+                    Uninstall-AutoReapplyMonitor -TaskName $MonitorTaskName
+                    # Remove profile from system
+                    $profilePath = Join-Path $env:WINDIR "System32\spool\drivers\color\lg-ultragear-full-cal.icm"
+                    if (Test-Path -LiteralPath $profilePath) {
+                        try {
+                            Remove-Item -LiteralPath $profilePath -Force -ErrorAction Stop
+                            Write-Host "  [DEL ] Removed color profile" -ForegroundColor Green
+                        }
+                        catch {
+                            Write-Host "  [WARN] Could not remove profile: $($_.Exception.Message)" -ForegroundColor Yellow
+                        }
+                    }
+                    else {
+                        Write-Host "  [NOTE] Profile not found (already removed)" -ForegroundColor Gray
+                    }
+                    Wait-TUIKeyPress
+                    return "menu"
+                }
+                "A" { return "advanced" }
+                "Q" { return "quit" }
+                default { return "menu" }
             }
-            "2" {
-                Write-TUILine -Text "Installing profile only..." -Color Yellow
-                Write-TUIBox -Char "═" -Left "╚" -Right "╝"
-                Write-Host ""
-                
-                # Run profile-only install
-                $script:SkipMonitor = $true
-                $script:IsInteractive = $false
-                return "install"
-            }
-            "3" {
-                Write-TUILine -Text "Uninstalling auto-reapply monitor..." -Color Yellow
-                Write-TUIBox -Char "═" -Left "╚" -Right "╝"
-                Write-Host ""
-                
-                Uninstall-AutoReapplyMonitor -TaskName $MonitorTaskName
-                
-                Write-Host ""
-                Write-Host "  Press any key to continue..." -ForegroundColor Gray
-                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                return "menu"
-            }
-            "4" {
-                Write-TUILine -Text "Detecting monitors..." -Color Yellow
-                Write-TUIBox -Char "═" -Left "╚" -Right "╝"
-                Write-Host ""
-                
-                # Run probe
-                $script:Probe = $true
-                $script:IsInteractive = $false
-                return "probe"
-            }
-            "Q" { return "quit" }
-            "q" { return "quit" }
-            default { return "menu" }
         }
+        elseif ($Menu -eq "advanced") {
+            switch ($Choice.ToUpper()) {
+                "1" {
+                    Show-TUIProcessing -Message "Installing with HDR association..."
+                    $script:SkipMonitor = $false
+                    $script:SkipHdrAssociation = $false
+                    $script:EnableHdrAssociation = $true
+                    $script:IsInteractive = $false
+                    return "install"
+                }
+                "2" {
+                    Show-TUIProcessing -Message "Installing profile only (no associations)..."
+                    $script:InstallOnly = $true
+                    $script:SkipMonitor = $true
+                    $script:IsInteractive = $false
+                    return "install"
+                }
+                "3" {
+                    Show-TUIProcessing -Message "Installing for current user..."
+                    $script:PerUser = $true
+                    $script:SkipMonitor = $false
+                    $script:IsInteractive = $false
+                    return "install"
+                }
+                "4" {
+                    Show-TUIProcessing -Message "Running dry run (no changes)..."
+                    $script:DryRun = $true
+                    $script:IsInteractive = $false
+                    return "install"
+                }
+                "5" {
+                    Show-TUIProcessing -Message "Running without elevation..."
+                    $script:SkipElevation = $true
+                    $script:SkipMonitor = $false
+                    $script:IsInteractive = $false
+                    return "install"
+                }
+                "B" { return "main" }
+                "Q" { return "quit" }
+                default { return "advanced" }
+            }
+        }
+        return "menu"
     }
 
     function Start-TUI {
+        $currentMenu = "main"
         $continue = $true
+
         while ($continue) {
-            Show-TUIMenu
+            switch ($currentMenu) {
+                "main" { Show-TUIMainMenu }
+                "advanced" { Show-TUIAdvancedMenu }
+            }
+
             $choice = Read-Host
-            $action = Invoke-TUIAction -Choice $choice
-            
+            $action = Invoke-TUIAction -Choice $choice -Menu $currentMenu
+
             switch ($action) {
-                "install" { 
+                "install" {
                     Invoke-Main
-                    Write-Host ""
-                    Write-Host "  Press any key to continue..." -ForegroundColor Gray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    Wait-TUIKeyPress
+                    # Reset flags for next iteration
+                    $script:SkipMonitor = $false
+                    $script:SkipHdrAssociation = $true
+                    $script:InstallOnly = $false
+                    $script:PerUser = $false
+                    $script:DryRun = $false
+                    $script:SkipElevation = $false
+                    $script:EnableHdrAssociation = $false
+                    $currentMenu = "main"
+                }
+                "installmonitor" {
+                    try {
+                        Install-AutoReapplyMonitor -TaskName $MonitorTaskName -InstallerPath $script:InvocationPath -MonitorMatch $MonitorNameMatch
+                    }
+                    catch {
+                        Write-Host "  [ERR ] Failed: $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                    Wait-TUIKeyPress
+                    $script:InstallMonitor = $false
+                    $currentMenu = "main"
                 }
                 "probe" {
                     Invoke-Main
-                    Write-Host ""
-                    Write-Host "  Press any key to continue..." -ForegroundColor Gray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    Wait-TUIKeyPress
                     $script:Probe = $false
+                    $currentMenu = "main"
                 }
-                "quit" { $continue = $false }
+                "advanced" { $currentMenu = "advanced" }
+                "main" { $currentMenu = "main" }
                 "menu" { }
+                "quit" { $continue = $false }
             }
         }
-        
+
         Clear-Host
-        Write-Host "Goodbye!" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "  ╔════════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+        Write-Host "  ║                                                                    ║" -ForegroundColor Cyan
+        Write-Host "  ║   " -ForegroundColor Cyan -NoNewline
+        Write-Host "Thank you for using LG UltraGear Auto-Dimming Fix!" -ForegroundColor White -NoNewline
+        Write-Host "           ║" -ForegroundColor Cyan
+        Write-Host "  ║                                                                    ║" -ForegroundColor Cyan
+        Write-Host "  ║   " -ForegroundColor Cyan -NoNewline
+        Write-Host "github.com/supermarsx/lg-ultragear-dimming-fix" -ForegroundColor DarkGray -NoNewline
+        Write-Host "                  ║" -ForegroundColor Cyan
+        Write-Host "  ║                                                                    ║" -ForegroundColor Cyan
+        Write-Host "  ╚════════════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+        Write-Host ""
     }
 
     # Set console appearance: black background, white text, and window title
     try {
-        $scriptName = if ($script:InvocationPath) { Split-Path -Path $script:InvocationPath -Leaf } else { 'install-lg-ultragear-no-dimming.ps1' }
         $raw = $Host.UI.RawUI
         # Save originals if needed in the future
         $script:OriginalFg = $raw.ForegroundColor
@@ -353,9 +546,13 @@ begin {
         $raw.ForegroundColor = 'White'
         try { $raw.WindowTitle = $script:TUI_TITLE } catch { [Console]::Title = $script:TUI_TITLE }
         if (-not $script:IsInteractive -and -not $Help) {
-            try { Clear-Host } catch { }
+            try { Clear-Host } catch {
+                # Clear-Host may fail on non-console hosts
+                $null = $_
+            }
         }
-    } catch {
+    }
+    catch {
         Write-Host "[NOTE] console color/title not set: $($_.Exception.Message)" -ForegroundColor White
     }
 
@@ -366,39 +563,64 @@ begin {
     .NOTES
       Kept minimal to avoid side-effects before elevation.
     #>
-        Write-Host "Usage: .\\install-lg-ultragear-no-dimming.ps1 [options]"
-        Write-Host ""; Write-Host "Options:"
-        Write-Host "  -ProfilePath <path>          Path to ICC/ICM file (default: .\\lg-ultragear-full-cal.icm)"
-        Write-Host "  -MonitorNameMatch <string>   Substring to match monitor friendly name (default: 'LG ULTRAGEAR')"
+        Write-Host ""
+        Write-Host "  LG UltraGear Auto-Dimming Fix" -ForegroundColor Cyan
+        Write-Host "  =============================" -ForegroundColor DarkCyan
+        Write-Host ""
+        Write-Host "Usage: " -NoNewline -ForegroundColor White
+        Write-Host ".\\install-lg-ultragear-no-dimming.ps1 [options]" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "INSTALL OPTIONS:" -ForegroundColor Cyan
+        Write-Host "  -ProfilePath <path>           Path to ICC/ICM file (default: embedded)"
+        Write-Host "  -MonitorNameMatch <string>    Monitor name pattern (default: 'LG ULTRAGEAR')"
         Write-Host "  -PerUser                      Also associate profile in current-user scope"
         Write-Host "  -NoSetDefault                 Associate only; do not set as default"
-        Write-Host "  -SkipHdrAssociation           Skip HDR/advanced-color association API"
-        Write-Host "  -InstallOnly                  Install/copy profile only; no device association"
-        Write-Host "  -Probe                        Probe and list detected/matched monitors; no changes"
-        Write-Host "  -DryRun                       Simulate operations (same as -WhatIf for actions)"
-        Write-Host "  -NoPrompt                     Do not wait for Enter before exit"
-        Write-Host "  -SkipElevation                Do not auto-elevate (useful for CI/testing)"
-        Write-Host "  -SkipWindowsTerminal          Do not re-host under Windows Terminal"
-        Write-Host "  -KeepTemp                     Keep temp materialized profile files for inspection"
-        Write-Host "  -SkipHashCheck                Do not enforce SHA256 integrity on materialized profile"
+        Write-Host "  -SkipHdrAssociation           Skip HDR/advanced-color association"
+        Write-Host "  -EnableHdrAssociation         Enable HDR color profile association"
+        Write-Host "  -InstallOnly                  Install profile file only; no associations"
         Write-Host ""
-        Write-Host "Auto-Reapply Monitor Options:"
+        Write-Host "MAINTENANCE:" -ForegroundColor Cyan
+        Write-Host "  -Probe                        Detect and list connected monitors"
+        Write-Host "  -Refresh                      Re-apply current settings"
+        Write-Host "  -Reinstall                    Clean reinstall everything"
+        Write-Host "  -DryRun                       Simulate operations (no changes)"
+        Write-Host ""
+        Write-Host "UNINSTALL:" -ForegroundColor Cyan
+        Write-Host "  -Uninstall                    Remove auto-reapply monitor only"
+        Write-Host "  -UninstallFull                Remove everything (profile + monitor)"
+        Write-Host "  -UninstallMonitor             Alias for -Uninstall"
+        Write-Host ""
+        Write-Host "AUTO-REAPPLY MONITOR:" -ForegroundColor Cyan
         Write-Host "  -SkipMonitor                  Do not install auto-reapply monitor"
-        Write-Host "  -InstallMonitor               Only install auto-reapply monitor (no profile)"
-        Write-Host "  -UninstallMonitor             Remove auto-reapply monitor"
-        Write-Host "  -MonitorTaskName <name>       Custom task name (default: 'LG-UltraGear-ColorProfile-AutoReapply')"
+        Write-Host "  -InstallMonitor               Only install auto-reapply monitor"
+        Write-Host "  -MonitorTaskName <name>       Custom scheduled task name"
         Write-Host ""
+        Write-Host "BEHAVIOR:" -ForegroundColor Cyan
         Write-Host "  -Interactive                  Force interactive TUI mode"
-        Write-Host "  -h | -?                       Show this help and exit"
-        Write-Host ""; Write-Host "Notes:"
-        Write-Host "  Running with NO arguments launches interactive TUI mode."
-        Write-Host "  Use any argument to run in non-interactive CLI mode."
-        Write-Host ""; Write-Host "Examples:"
-        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1              # Interactive TUI"
-        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -NoPrompt    # CLI: full install"
-        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -SkipMonitor # CLI: profile only"
-        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -Probe       # CLI: detect monitors"
-        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -UninstallMonitor"
+        Write-Host "  -NonInteractive               Force non-interactive CLI mode"
+        Write-Host "  -NoPrompt                     Do not wait for Enter before exit"
+        Write-Host "  -SkipElevation                Do not auto-elevate (CI/testing)"
+        Write-Host "  -SkipWindowsTerminal          Do not re-host under Windows Terminal"
+        Write-Host "  -KeepTemp                     Keep temp profile files for inspection"
+        Write-Host "  -SkipHashCheck                Skip SHA256 integrity verification"
+        Write-Host "  -h, -?                        Show this help and exit"
+        Write-Host ""
+        Write-Host "EXAMPLES:" -ForegroundColor Cyan
+        Write-Host "  # Interactive TUI (default when no args)" -ForegroundColor DarkGray
+        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1"
+        Write-Host ""
+        Write-Host "  # CLI: Full install with auto-reapply" -ForegroundColor DarkGray
+        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -NonInteractive -NoPrompt"
+        Write-Host ""
+        Write-Host "  # CLI: Profile only (no auto-reapply)" -ForegroundColor DarkGray
+        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -SkipMonitor -NoPrompt"
+        Write-Host ""
+        Write-Host "  # CLI: Detect monitors" -ForegroundColor DarkGray
+        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -Probe -NoPrompt"
+        Write-Host ""
+        Write-Host "  # CLI: Full uninstall" -ForegroundColor DarkGray
+        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -UninstallFull -NoPrompt"
+        Write-Host ""
     }
 
     # Exit prompt helper to avoid premature window close on errors or completion
@@ -416,7 +638,8 @@ begin {
             Write-Host ""
             Write-Host "Press Enter to exit..." -ForegroundColor White
             [void][System.Console]::ReadLine()
-        } catch {
+        }
+        catch {
             Write-NoteMessage "Exit prompt skipped (no interactive console)."
         }
         $script:PromptShown = $true
@@ -438,9 +661,9 @@ begin {
             [string]$InstallerPath,
             [string]$MonitorMatch
         )
-        
+
         Write-ActionMessage "Installing auto-reapply monitor..."
-        
+
         # Create the action script - optimized for speed with early exit
         $actionScript = @"
 # LG UltraGear Color Profile Auto-Reapply - Fast Monitor
@@ -460,20 +683,20 @@ try {
 Start-Sleep -Milliseconds 1500
 & '$InstallerPath' -NoSetDefault -NoPrompt -SkipElevation -SkipWindowsTerminal -SkipMonitor -MonitorNameMatch '$MonitorMatch' 2>`$null | Out-Null
 "@
-        
+
         $actionScriptPath = "$env:ProgramData\LG-UltraGear-Monitor\reapply-profile.ps1"
         $actionScriptDir = Split-Path -Path $actionScriptPath -Parent
-        
+
         if (-not (Test-Path -LiteralPath $actionScriptDir)) {
             New-Item -ItemType Directory -Path $actionScriptDir -Force | Out-Null
         }
-        
+
         Set-Content -Path $actionScriptPath -Value $actionScript -Force
         Write-SuccessMessage "Created action script: $actionScriptPath"
-        
+
         # Create scheduled task with optimized triggers
         $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$actionScriptPath`""
-        
+
         # Trigger 1: Display/Monitor device events only (Device Interface Class GUID for monitors)
         $trigger1 = New-ScheduledTaskTrigger -AtLogOn
         $trigger1.CimInstanceProperties.Item('Enabled').Value = $true
@@ -488,49 +711,54 @@ Start-Sleep -Milliseconds 1500
   </Query>
 </QueryList>
 "@
-        
+
         # Trigger 2: User logon (one-time check at login)
         $trigger2 = New-ScheduledTaskTrigger -AtLogOn
-        
+
         # Trigger 3: Console connect (covers RDP, fast user switching, wake)
         $trigger3 = New-ScheduledTaskTrigger -AtLogOn
         $trigger3.CimInstanceProperties.Item('Enabled').Value = $true
         $trigger3.CimInstanceProperties.Item('StateChange').Value = 7  # ConsoleConnect
-        
+
         # Trigger 4: Session unlock
         $trigger4 = New-ScheduledTaskTrigger -AtLogOn
         $trigger4.CimInstanceProperties.Item('Enabled').Value = $true
         $trigger4.CimInstanceProperties.Item('StateChange').Value = 8  # SessionUnlock
-        
+
         $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
         $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Seconds 30) -MultipleInstances IgnoreNew
-        
-        try { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue } catch {}
-        
+
+        try { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue } catch {
+            # Task may not exist; ignore
+            $null = $_
+        }
+
         Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger1, $trigger2, $trigger3, $trigger4 -Principal $principal -Settings $settings -Description "Fast auto-reapply for LG UltraGear color profile. Only runs when LG UltraGear monitor is detected." | Out-Null
-        
+
         Write-SuccessMessage "Auto-reapply monitor installed: $TaskName"
         Write-InfoMessage "Triggers: display connect, logon, console connect, unlock"
         Write-InfoMessage "Optimization: exits in <50ms if no LG UltraGear detected"
     }
-    
+
     function Uninstall-AutoReapplyMonitor {
         param([string]$TaskName)
-        
+
         Write-ActionMessage "Removing auto-reapply monitor..."
         try {
             Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Stop
             Write-SuccessMessage "Task '$TaskName' removed"
-            
+
             $actionScriptPath = "$env:ProgramData\LG-UltraGear-Monitor\reapply-profile.ps1"
             if (Test-Path $actionScriptPath) {
                 Remove-Item -Path (Split-Path $actionScriptPath -Parent) -Recurse -Force -ErrorAction SilentlyContinue
                 Write-SuccessMessage "Removed action script directory"
             }
-        } catch {
+        }
+        catch {
             if ($_.Exception.Message -match "No MSFT_ScheduledTask objects found") {
                 Write-NoteMessage "Task '$TaskName' not found (already removed)"
-            } else {
+            }
+            else {
                 Write-WarnMessage "Failed to remove task: $($_.Exception.Message)"
             }
         }
@@ -539,7 +767,8 @@ Start-Sleep -Milliseconds 1500
     # Determine if Get-FileHash is available (missing on some older/newer editions)
     try {
         $script:SupportsGetFileHash = [bool](Get-Command -Name Get-FileHash -ErrorAction Stop)
-    } catch {
+    }
+    catch {
         $script:SupportsGetFileHash = $false
     }
 
@@ -552,7 +781,8 @@ Start-Sleep -Milliseconds 1500
         if ($script:SupportsGetFileHash) {
             try {
                 return (Microsoft.PowerShell.Utility\Get-FileHash -Algorithm SHA256 -LiteralPath $LiteralPath).Hash
-            } catch {
+            }
+            catch {
                 throw
             }
         }
@@ -564,9 +794,11 @@ Start-Sleep -Milliseconds 1500
             $sha256 = [System.Security.Cryptography.SHA256]::Create()
             $hashBytes = $sha256.ComputeHash($fileStream)
             return ([System.BitConverter]::ToString($hashBytes) -replace '-', '').ToUpperInvariant()
-        } catch {
+        }
+        catch {
             throw
-        } finally {
+        }
+        finally {
             if ($null -ne $fileStream) { $fileStream.Dispose() }
             if ($null -ne $sha256) { $sha256.Dispose() }
         }
@@ -644,7 +876,8 @@ Start-Sleep -Milliseconds 1500
             if ($Context) { $msg = "{0}: {1}" -f $Context, $msg }
             Write-Host $script:SymbolError -ForegroundColor Red -NoNewline
             Write-Host ("  {0}" -f $msg)
-        } catch { Write-Host $script:SymbolError -ForegroundColor Red -NoNewline; Write-Host ("  {0}" -f $_.Exception.Message) }
+        }
+        catch { Write-Host $script:SymbolError -ForegroundColor Red -NoNewline; Write-Host ("  {0}" -f $_.Exception.Message) }
     }
 
     function Test-IsAdmin {
@@ -678,9 +911,11 @@ Start-Sleep -Milliseconds 1500
             $val = $kv.Value
             if ($val -is [System.Management.Automation.SwitchParameter]) {
                 if ([bool]$val) { $argsList += $name }
-            } elseif ($val -is [bool]) {
+            }
+            elseif ($val -is [bool]) {
                 if ($val) { $argsList += $name }
-            } else {
+            }
+            else {
                 $argsList += $name
                 if ($null -ne $val -and $val -ne '') { $argsList += $val }
             }
@@ -688,9 +923,11 @@ Start-Sleep -Milliseconds 1500
 
         $workingDir = if ($script:OriginalWorkingDirectory -and (Test-Path -LiteralPath $script:OriginalWorkingDirectory)) {
             $script:OriginalWorkingDirectory
-        } elseif ($script:InvocationDirectory -and (Test-Path -LiteralPath $script:InvocationDirectory)) {
+        }
+        elseif ($script:InvocationDirectory -and (Test-Path -LiteralPath $script:InvocationDirectory)) {
             $script:InvocationDirectory
-        } else {
+        }
+        else {
             $env:SystemRoot
         }
 
@@ -726,9 +963,11 @@ Start-Sleep -Milliseconds 1500
                 $val = $kv.Value
                 if ($val -is [System.Management.Automation.SwitchParameter]) {
                     if ([bool]$val) { $psArgs += $name }
-                } elseif ($val -is [bool]) {
+                }
+                elseif ($val -is [bool]) {
                     if ($val) { $psArgs += $name }
-                } else {
+                }
+                else {
                     $psArgs += $name
                     $psArgs += $val
                 }
@@ -738,9 +977,11 @@ Start-Sleep -Milliseconds 1500
 
             $workingDir = if ($script:OriginalWorkingDirectory -and (Test-Path -LiteralPath $script:OriginalWorkingDirectory)) {
                 $script:OriginalWorkingDirectory
-            } elseif ($script:InvocationDirectory -and (Test-Path -LiteralPath $script:InvocationDirectory)) {
+            }
+            elseif ($script:InvocationDirectory -and (Test-Path -LiteralPath $script:InvocationDirectory)) {
                 $script:InvocationDirectory
-            } else {
+            }
+            else {
                 $env:SystemRoot
             }
 
@@ -764,7 +1005,8 @@ Start-Sleep -Milliseconds 1500
 
             Start-Process -FilePath $wt.Path -ArgumentList $wtArgs -WorkingDirectory $workingDir | Out-Null
             exit 0
-        } catch {
+        }
+        catch {
             Write-ErrorFull -ErrorRecord $_ -Context 'Ensure-WindowsTerminal'
         }
     }
@@ -795,7 +1037,8 @@ Start-Sleep -Milliseconds 1500
                 [IO.Directory]::CreateDirectory($destinationDirectory) | Out-Null
                 Write-CreateMessage ("created folder: {0}" -f $destinationDirectory)
             }
-        } catch {
+        }
+        catch {
             Write-NoteMessage ("failed to create temp directory '{0}': {1}" -f $destinationDirectory, $_.Exception.Message)
             # Retry with plain temp root without unique subdir
             $destinationDirectory = $tempRoot
@@ -817,7 +1060,8 @@ Start-Sleep -Milliseconds 1500
                 try {
                     $fileStream = [IO.File]::Open($destination, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None)
                     try { $stream.WriteTo($fileStream) } finally { $fileStream.Dispose() }
-                } finally { $stream.Dispose() }
+                }
+                finally { $stream.Dispose() }
                 Write-CreateMessage ("extracted embedded profile resource to '{0}'" -f $destination)
                 try {
                     $size = (Get-Item -LiteralPath $destination).Length
@@ -825,9 +1069,11 @@ Start-Sleep -Milliseconds 1500
                     Write-InfoMessage ("embedded profile size: {0} bytes" -f $size)
                     Write-InfoMessage ("embedded profile SHA256: {0}" -f $hash)
                     if (-not $SkipHashCheck -and ($hash.ToUpperInvariant() -ne $expectedHash)) { throw ("embedded profile hash mismatch after resource extract; expected {0}, got {1}" -f $expectedHash, $hash) }
-                } catch { Write-NoteMessage ("could not compute hash/size: {0}" -f $_.Exception.Message) }
+                }
+                catch { Write-NoteMessage ("could not compute hash/size: {0}" -f $_.Exception.Message) }
                 return (Resolve-Path -LiteralPath $destination -ErrorAction Stop).Path
-            } catch {
+            }
+            catch {
                 Write-NoteMessage ("failed to extract embedded profile resource '{0}': {1}" -f $ProfileName, $_.Exception.Message)
             }
         }
@@ -840,14 +1086,16 @@ Start-Sleep -Milliseconds 1500
                 $rawStripped = ($raw -replace '\s', '')
                 try {
                     $bytes = [Convert]::FromBase64String($rawStripped)
-                } catch {
+                }
+                catch {
                     # Fallback: remove any non-Base64 characters and fix padding
                     $clean = ($rawStripped -replace "[^A-Za-z0-9\+/=]", "")
                     if (($clean.Length % 4) -ne 0) { $pad = 4 - ($clean.Length % 4); $clean = $clean + ('=' * $pad) }
                     Write-NoteMessage ("base64 sanitized: rawLen={0}, cleanLen={1}" -f $rawStripped.Length, $clean.Length)
                     try {
                         $bytes = [Convert]::FromBase64String($clean)
-                    } catch {
+                    }
+                    catch {
                         throw ("embedded Base64 decode failed. rawLen={0} cleanLen={1}: {2}" -f $rawStripped.Length, $clean.Length, $_.Exception.Message)
                     }
                 }
@@ -859,9 +1107,11 @@ Start-Sleep -Milliseconds 1500
                     Write-InfoMessage ("embedded profile size: {0} bytes" -f $size)
                     Write-InfoMessage ("embedded profile SHA256: {0}" -f $hash)
                     if (-not $SkipHashCheck -and ($hash.ToUpperInvariant() -ne $expectedHash)) { throw ("embedded profile hash mismatch after Base64 write; expected {0}, got {1}" -f $expectedHash, $hash) }
-                } catch { Write-NoteMessage ("could not compute hash/size: {0}" -f $_.Exception.Message) }
+                }
+                catch { Write-NoteMessage ("could not compute hash/size: {0}" -f $_.Exception.Message) }
                 return (Resolve-Path -LiteralPath $destination -ErrorAction Stop).Path
-            } catch {
+            }
+            catch {
                 Write-NoteMessage ("failed to write embedded Base64 profile '{0}': {1}" -f $ProfileName, $_.Exception.Message)
                 # Attempt fallback to on-disk profile asset from known locations
                 $fallbackCandidates = @()
@@ -878,10 +1128,12 @@ Start-Sleep -Milliseconds 1500
                                 Write-InfoMessage ("embedded profile size: {0} bytes" -f $size)
                                 Write-InfoMessage ("embedded profile SHA256: {0}" -f $hash)
                                 if (-not $SkipHashCheck -and ($hash.ToUpperInvariant() -ne $expectedHash)) { throw ("embedded profile hash mismatch after fallback asset copy; expected {0}, got {1}" -f $expectedHash, $hash) }
-                            } catch { Write-NoteMessage ("could not compute hash/size: {0}" -f $_.Exception.Message) }
+                            }
+                            catch { Write-NoteMessage ("could not compute hash/size: {0}" -f $_.Exception.Message) }
                             return (Resolve-Path -LiteralPath $destination -ErrorAction Stop).Path
                         }
-                    } catch { Write-NoteMessage ("fallback copy failed from '{0}': {1}" -f $cand, $_.Exception.Message) }
+                    }
+                    catch { Write-NoteMessage ("fallback copy failed from '{0}': {1}" -f $cand, $_.Exception.Message) }
                 }
             }
         }
@@ -901,10 +1153,12 @@ Start-Sleep -Milliseconds 1500
                         Write-InfoMessage ("embedded profile size: {0} bytes" -f $size)
                         Write-InfoMessage ("embedded profile SHA256: {0}" -f $hash)
                         if (-not $SkipHashCheck -and ($hash.ToUpperInvariant() -ne $expectedHash)) { throw ("embedded profile hash mismatch after final fallback copy; expected {0}, got {1}" -f $expectedHash, $hash) }
-                    } catch { Write-NoteMessage ("could not compute hash/size: {0}" -f $_.Exception.Message) }
+                    }
+                    catch { Write-NoteMessage ("could not compute hash/size: {0}" -f $_.Exception.Message) }
                     return (Resolve-Path -LiteralPath $destination -ErrorAction Stop).Path
                 }
-            } catch { Write-NoteMessage ("fallback copy failed from '{0}': {1}" -f $cand, $_.Exception.Message) }
+            }
+            catch { Write-NoteMessage ("fallback copy failed from '{0}': {1}" -f $cand, $_.Exception.Message) }
         }
 
         return $null
@@ -926,7 +1180,8 @@ Start-Sleep -Milliseconds 1500
         # Try the caller-provided value first and backfill with known directories when relative.
         if ([IO.Path]::IsPathRooted($InputPath)) {
             $candidates += $InputPath
-        } else {
+        }
+        else {
             $candidates += $InputPath
             if ($script:OriginalWorkingDirectory) {
                 $candidates += (Join-Path $script:OriginalWorkingDirectory $InputPath)
@@ -943,7 +1198,8 @@ Start-Sleep -Milliseconds 1500
                 $resolved = Resolve-Path -LiteralPath $candidate -ErrorAction Stop
                 Write-SuccessMessage ("resolved profile path: {0}" -f $resolved.Path)
                 return $resolved.Path
-            } catch {
+            }
+            catch {
                 Write-NoteMessage ("profile lookup skipped for candidate '{0}': {1}" -f $candidate, $_.Exception.Message)
             }
         }
@@ -966,7 +1222,8 @@ Start-Sleep -Milliseconds 1500
         foreach ($codePoint in $CodePoints) {
             if ($codePoint -le 0xFFFF) {
                 [void]$builder.Append([char]$codePoint)
-            } else {
+            }
+            else {
                 $adjusted = $codePoint - 0x10000
                 $highSurrogate = [int][math]::Floor($adjusted / 0x400) + 0xD800
                 $lowSurrogate = ($adjusted % 0x400) + 0xDC00
@@ -1038,7 +1295,8 @@ Start-Sleep -Milliseconds 1500
             Write-ActionMessage ("loading P/Invoke: {0}" -f $Name)
             Add-Type -TypeDefinition $Code -ErrorAction Stop
             Write-SuccessMessage ("P/Invoke loaded: {0}" -f $Name)
-        } catch {
+        }
+        catch {
             Write-ErrorFull -ErrorRecord $_ -Context ("Add-PInvokeType:{0}" -f $Name)
             throw
         }
@@ -1110,21 +1368,49 @@ public static class Win32SendMessage {
     .SYNOPSIS
       Main workflow: prepare profile, install, associate, refresh.
     .NOTES
-      Honors -InstallOnly, -PerUser, -NoSetDefault, -Probe, -InstallMonitor, -UninstallMonitor.
+      Honors -InstallOnly, -PerUser, -NoSetDefault, -Probe, -InstallMonitor, -UninstallMonitor, -Uninstall, -UninstallFull, -Reinstall, -Refresh.
     #>
-        # Handle monitor-only operations first
-        if ($UninstallMonitor) {
+        # Handle uninstall operations first
+        if ($UninstallFull) {
+            Write-ActionMessage "Performing full uninstall..."
+            Uninstall-AutoReapplyMonitor -TaskName $MonitorTaskName
+            $profilePath = Join-Path $env:WINDIR "System32\spool\drivers\color\lg-ultragear-full-cal.icm"
+            if (Test-Path -LiteralPath $profilePath) {
+                try {
+                    Remove-Item -LiteralPath $profilePath -Force -ErrorAction Stop
+                    Write-DeleteMessage "Removed color profile"
+                }
+                catch {
+                    Write-WarnMessage "Could not remove profile: $($_.Exception.Message)"
+                }
+            }
+            else {
+                Write-NoteMessage "Profile not found (already removed)"
+            }
+            Write-DoneMessage "Full uninstall complete"
+            Show-ExitPrompt
+            return
+        }
+
+        if ($Uninstall -or $UninstallMonitor) {
             Uninstall-AutoReapplyMonitor -TaskName $MonitorTaskName
             Show-ExitPrompt
             return
         }
-        
+
+        # Handle reinstall (uninstall then install)
+        if ($Reinstall) {
+            Write-ActionMessage "Reinstalling (removing existing first)..."
+            Uninstall-AutoReapplyMonitor -TaskName $MonitorTaskName
+            $script:SkipMonitor = $false
+        }
+
         if ($InstallMonitor) {
             Install-AutoReapplyMonitor -TaskName $MonitorTaskName -InstallerPath $script:InvocationPath -MonitorMatch $MonitorNameMatch
             Show-ExitPrompt
             return
         }
-        
+
         try {
             Write-ActionMessage "preparing embedded profile"
             $profileName = $script:EmbeddedProfileName
@@ -1152,16 +1438,19 @@ public static class Win32SendMessage {
                     if ($srcHash -ne $dstHash) {
                         Copy-Item -LiteralPath $profileFull -Destination $installedPath -Force
                         Write-SuccessMessage "profile updated at: $installedPath"
-                    } else {
+                    }
+                    else {
                         Write-SkipMessage "profile already current (skipped) at: $installedPath"
                     }
-                } else {
+                }
+                else {
                     $copied = $false
                     try {
                         Copy-Item -LiteralPath $profileFull -Destination $installedPath -Force -ErrorAction Stop
                         $copied = $true
                         Write-SuccessMessage "profile copied to color store"
-                    } catch {
+                    }
+                    catch {
                         Write-NoteMessage ("direct copy failed; attempting InstallColorProfile: {0}" -f $_.Exception.Message)
                     }
                     if (-not $copied) {
@@ -1206,7 +1495,8 @@ public static class Win32SendMessage {
             Write-ActionMessage "compatibility check"
             if ($targets) {
                 Write-SuccessMessage ("found {0} compatible monitor(s)" -f $targets.Count)
-            } else {
+            }
+            else {
                 Write-SkipMessage "no compatible monitors matched; adjust -MonitorNameMatch"
             }
             Write-Host ""
@@ -1230,7 +1520,8 @@ public static class Win32SendMessage {
                     if (-not [WcsAssociate]::WcsAssociateColorProfileWithDevice([uint32]$WCS_SCOPE_SYSTEM_WIDE, $installedPath, $deviceName)) {
                         $code = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
                         Write-WarnMessage ("system-wide association failed (Win32={0})" -f $code)
-                    } else { Write-SuccessMessage "system-wide association ok" }
+                    }
+                    else { Write-SuccessMessage "system-wide association ok" }
                 }
 
                 if ($PerUser.IsPresent) {
@@ -1238,7 +1529,8 @@ public static class Win32SendMessage {
                         if (-not [WcsAssociate]::WcsAssociateColorProfileWithDevice([uint32]$WCS_SCOPE_CURRENT_USER, $installedPath, $deviceName)) {
                             $code = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
                             Write-WarnMessage ("per-user association failed (Win32={0})" -f $code)
-                        } else { Write-SuccessMessage "per-user association ok" }
+                        }
+                        else { Write-SuccessMessage "per-user association ok" }
                     }
                 }
 
@@ -1250,15 +1542,18 @@ public static class Win32SendMessage {
                         if (-not [WcsDefault]::WcsSetDefaultColorProfile([uint32]$WCS_SCOPE_SYSTEM_WIDE, $deviceName, $CPT_ICC, $CPS_DEV, 0, $installedPath)) {
                             $code = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
                             Write-WarnMessage ("set generic default (system) failed (Win32={0})" -f $code)
-                        } else { Write-SuccessMessage "set generic default (system) ok" }
+                        }
+                        else { Write-SuccessMessage "set generic default (system) ok" }
                         if ($PerUser.IsPresent) {
                             if (-not [WcsDefault]::WcsSetDefaultColorProfile([uint32]$WCS_SCOPE_CURRENT_USER, $deviceName, $CPT_ICC, $CPS_DEV, 0, $installedPath)) {
                                 $code = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
                                 Write-WarnMessage ("set generic default (user) failed (Win32={0})" -f $code)
-                            } else { Write-SuccessMessage "set generic default (user) ok" }
+                            }
+                            else { Write-SuccessMessage "set generic default (user) ok" }
                         }
                     }
-                } else {
+                }
+                else {
                     if ($NoSetDefault) { Write-InfoMessage "NoSetDefault requested; skipping generic default profile operations" } else { Write-NoteMessage "Generic default profile not enabled; skipping. Use -EnableGenericDefault to allow." }
                 }
 
@@ -1270,7 +1565,8 @@ public static class Win32SendMessage {
                         }
                         Write-SuccessMessage "SDR/default association ok"
                     }
-                } catch {
+                }
+                catch {
                     Write-NoteMessage "SDR association API not available; skipping."
                 }
 
@@ -1283,10 +1579,12 @@ public static class Win32SendMessage {
                             if ($PerUser.IsPresent) { [void][WcsHdrAssoc]::ColorProfileAddDisplayAssociation($installedPath, $deviceName, [uint32]$WCS_SCOPE_CURRENT_USER, 0) }
                             Write-SuccessMessage "HDR/advanced-color association ok"
                         }
-                    } catch {
+                    }
+                    catch {
                         Write-NoteMessage "HDR association API not available; skipping."
                     }
-                } else {
+                }
+                else {
                     if ($SkipHdrAssociation) { Write-InfoMessage "SkipHdrAssociation requested; skipping HDR/advanced-color association" } else { Write-NoteMessage "HDR/advanced-color association not enabled; skipping. Use -EnableHdrAssociation to allow." }
                 }
             }
@@ -1299,7 +1597,7 @@ public static class Win32SendMessage {
             [void][Win32SendMessage]::SendMessageTimeout($HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero, 'Color', $SMTO_ABORTIFHUNG, 2000, [ref]$res)
 
             Write-SuccessMessage "done. associated profile '$profileName' with all displays matching '$MonitorNameMatch'."
-            
+
             # =========================================================================
             # AUTO-REAPPLY MONITOR INSTALLATION
             # =========================================================================
@@ -1308,23 +1606,28 @@ public static class Win32SendMessage {
                 Write-StepMessage "installing auto-reapply monitor"
                 try {
                     Install-AutoReapplyMonitor -TaskName $MonitorTaskName -InstallerPath $script:InvocationPath -MonitorMatch $MonitorNameMatch
-                } catch {
+                }
+                catch {
                     Write-WarnMessage "Auto-reapply monitor installation failed: $($_.Exception.Message)"
                     Write-NoteMessage "Profile is installed but won't auto-reapply on reconnection"
                 }
-            } elseif ($SkipMonitor) {
+            }
+            elseif ($SkipMonitor) {
                 Write-NoteMessage "Skipping auto-reapply monitor (-SkipMonitor specified)"
             }
-        } catch {
+        }
+        catch {
             Write-ErrorFull -ErrorRecord $_ -Context "Invoke-Main"
             exit 1
-        } finally {
+        }
+        finally {
             Write-ActionMessage "wrapping up"
             # Delete materialized temp profile (and its unique folder) if applicable
             try {
                 if ($KeepTemp.IsPresent) {
                     Write-NoteMessage ("KeepTemp set; retaining temp files. Path: {0}" -f $script:MaterializedTempProfilePath)
-                } elseif ($script:MaterializedTempProfilePath -and (Test-Path -LiteralPath $script:MaterializedTempProfilePath)) {
+                }
+                elseif ($script:MaterializedTempProfilePath -and (Test-Path -LiteralPath $script:MaterializedTempProfilePath)) {
                     $tempRoot = [IO.Path]::GetTempPath()
                     $full = (Resolve-Path -LiteralPath $script:MaterializedTempProfilePath).Path
                     $tempFull = (Resolve-Path -LiteralPath $tempRoot).Path
@@ -1342,7 +1645,8 @@ public static class Win32SendMessage {
                         Write-DeleteMessage ("deleted temp folder: {0}" -f $script:MaterializedTempProfileDir)
                     }
                 }
-            } catch {
+            }
+            catch {
                 Write-NoteMessage ("temp cleanup skipped: {0}" -f $_.Exception.Message)
             }
             # Emit done as the last status line
@@ -1355,7 +1659,8 @@ public static class Win32SendMessage {
 process {
     if ($script:IsInteractive) {
         Start-TUI
-    } else {
+    }
+    else {
         Invoke-Main
     }
 }
