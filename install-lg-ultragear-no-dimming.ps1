@@ -72,9 +72,9 @@ begin {
     }
 
     # Check if running with no arguments (interactive mode)
-    # Exclude internal _WorkDir parameter from count (passed during elevation)
-    $userParamCount = ($PSBoundParameters.Keys | Where-Object { $_ -ne '_WorkDir' }).Count
-    $script:IsInteractive = $Interactive -or (($userParamCount -eq 0 -and -not $Help) -and -not $NonInteractive)
+    # Exclude internal _WorkDir and Interactive parameters from count (passed during elevation)
+    $userParamCount = ($PSBoundParameters.Keys | Where-Object { $_ -notin @('_WorkDir', 'Interactive') }).Count
+    $script:IsInteractive = $Interactive.IsPresent -or (($userParamCount -eq 0 -and -not $Help.IsPresent) -and -not $NonInteractive.IsPresent)
 
     # Record the launch context so relative paths stay consistent after re-invocation.
     $script:InvocationPath = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Path }
@@ -1026,29 +1026,15 @@ try {
             $argsList += $workingDir
         }
 
-        # Preserve interactive mode after elevation
-        if ($script:IsInteractive) {
-            $argsList += '-Interactive'
-        }
-
-        foreach ($kv in $PSBoundParameters.GetEnumerator()) {
-            # Skip internal parameters and Interactive (already handled above)
-            if ($kv.Key -eq '_WorkDir') { continue }
-            if ($kv.Key -eq 'Interactive') { continue }
-            $name = '-' + $kv.Key
-            $val = $kv.Value
-            if ($val -is [System.Management.Automation.SwitchParameter]) {
-                if ([bool]$val) { $argsList += $name }
-            } elseif ($val -is [bool]) {
-                if ($val) { $argsList += $name }
-            } else {
-                $argsList += $name
-                if ($null -ne $val -and $val -ne '') { $argsList += $val }
-            }
-        }
+        # ALWAYS pass -Interactive to preserve TUI mode after elevation
+        # This is critical because UAC spawns a new process that loses context
+        $argsList += '-Interactive'
 
         # Sanitize: remove null/empty and ensure string[]
         $argsList = @($argsList | Where-Object { $_ -ne $null -and $_ -ne '' } | ForEach-Object { [string]$_ })
+        
+        Write-Host "DEBUG: Launching with args: $($argsList -join ' ')" -ForegroundColor Magenta
+        
         Start-Process -FilePath powershell.exe -ArgumentList $argsList -Verb RunAs | Out-Null
         exit
     }
