@@ -1,4 +1,4 @@
-﻿Set-StrictMode -Version Latest
+Set-StrictMode -Version Latest
 
 # =============================================================================
 # LG UltraGear No-Dimming Fix - Comprehensive Test Suite
@@ -469,10 +469,10 @@ Describe 'WMI Monitor Detection' {
         It 'handles WeekOfManufacture property' {
             # Test mock creation with extended properties
             $monitor = [pscustomobject]@{
-                InstanceName        = 'DISPLAY\GSM7706\1&ABCDEF&0&UID12345'
-                UserFriendlyName    = Get-MockMonitorCharBuffer -Name 'LG ULTRAGEAR'
-                WeekOfManufacture   = 42
-                YearOfManufacture   = 2023
+                InstanceName      = 'DISPLAY\GSM7706\1&ABCDEF&0&UID12345'
+                UserFriendlyName  = Get-MockMonitorCharBuffer -Name 'LG ULTRAGEAR'
+                WeekOfManufacture = 42
+                YearOfManufacture = 2023
             }
             $monitor.WeekOfManufacture | Should -Be 42
             $monitor.YearOfManufacture | Should -Be 2023

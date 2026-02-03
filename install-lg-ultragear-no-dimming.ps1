@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   LG UltraGear No-Auto-Dim installer.
 
@@ -404,7 +404,7 @@ begin {
         }
     }
 
-    function Apply-ToggleSettings {
+    function Invoke-ToggleConfiguration {
         # Apply advanced option toggles to script variables before install
         if ($script:Toggle_HdrAssociation) {
             $script:EnableHdrAssociation = $true
@@ -436,7 +436,7 @@ begin {
                     Show-TUIProcessing -Message "Installing SDR profile + auto-reapply monitor..."
                     $script:SkipMonitor = $false
                     $script:SkipHdrAssociation = -not $script:Toggle_HdrAssociation
-                    Apply-ToggleSettings
+                    Invoke-ToggleConfiguration
                     $script:IsInteractive = $false
                     return "install"
                 }
@@ -444,14 +444,14 @@ begin {
                     Show-TUIProcessing -Message "Installing SDR profile only..."
                     $script:SkipMonitor = $true
                     $script:SkipHdrAssociation = -not $script:Toggle_HdrAssociation
-                    Apply-ToggleSettings
+                    Invoke-ToggleConfiguration
                     $script:IsInteractive = $false
                     return "install"
                 }
                 "3" {
                     Show-TUIProcessing -Message "Installing auto-reapply monitor only..."
                     $script:InstallMonitor = $true
-                    Apply-ToggleSettings
+                    Invoke-ToggleConfiguration
                     $script:IsInteractive = $false
                     return "installmonitor"
                 }
@@ -459,7 +459,7 @@ begin {
                     Show-TUIProcessing -Message "Refreshing installation..."
                     $script:SkipMonitor = $false
                     $script:SkipHdrAssociation = -not $script:Toggle_HdrAssociation
-                    Apply-ToggleSettings
+                    Invoke-ToggleConfiguration
                     $script:IsInteractive = $false
                     return "install"
                 }
@@ -469,7 +469,7 @@ begin {
                     Uninstall-AutoReapplyMonitor -TaskName $MonitorTaskName
                     $script:SkipMonitor = $false
                     $script:SkipHdrAssociation = -not $script:Toggle_HdrAssociation
-                    Apply-ToggleSettings
+                    Invoke-ToggleConfiguration
                     $script:IsInteractive = $false
                     return "install"
                 }
