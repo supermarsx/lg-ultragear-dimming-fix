@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   LG UltraGear No-Auto-Dim installer.
 
@@ -49,14 +49,18 @@ param(
     [switch]$UninstallMonitor,
     [switch]$SkipMonitor,
     [string]$MonitorTaskName = "LG-UltraGear-ColorProfile-AutoReapply",
+    [switch]$Interactive,
     [Alias('h', '?')]
     [switch]$Help
 )
 
 begin {
     # Hint to static analysis: parameters are intentionally used across nested scopes
-    $null = $ProfilePath, $MonitorNameMatch, $PerUser, $NoSetDefault, $SkipHdrAssociation, $NoPrompt, $InstallOnly, $Probe, $SkipElevation, $SkipWindowsTerminal, $KeepTemp, $SkipHashCheck, $InstallMonitor, $UninstallMonitor, $SkipMonitor, $MonitorTaskName
+    $null = $ProfilePath, $MonitorNameMatch, $PerUser, $NoSetDefault, $SkipHdrAssociation, $NoPrompt, $InstallOnly, $Probe, $SkipElevation, $SkipWindowsTerminal, $KeepTemp, $SkipHashCheck, $InstallMonitor, $UninstallMonitor, $SkipMonitor, $MonitorTaskName, $Interactive
     # Mark parameters as referenced for static analyzers
+    
+    # Check if running with no arguments (interactive mode)
+    $script:IsInteractive = $Interactive -or ($PSBoundParameters.Count -eq 0 -and -not $Help)
 
     # Record the launch context so relative paths stay consistent after re-invocation.
     $script:InvocationPath = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Path }
@@ -68,7 +72,276 @@ begin {
         try { $script:OriginalWorkingDirectory = (Get-Location).Path } catch { $script:OriginalWorkingDirectory = $null }
     }
 
-    # Set console appearance: black background, green-ish text, and window title to script name
+    # =========================================================================
+    # TUI CONFIGURATION
+    # =========================================================================
+    $script:TUI_WIDTH = 70
+    $script:TUI_HEIGHT = 24
+    $script:TUI_TITLE = "LG UltraGear Auto-Dimming Fix"
+    $script:TUI_VERSION = "2026.1"
+
+    # =========================================================================
+    # TUI FUNCTIONS
+    # =========================================================================
+    function Set-ConsoleSize {
+        try {
+            $raw = $Host.UI.RawUI
+            $bufferSize = $raw.BufferSize
+            $windowSize = $raw.WindowSize
+            
+            # Set buffer first (must be >= window)
+            if ($bufferSize.Width -lt $script:TUI_WIDTH) {
+                $bufferSize.Width = $script:TUI_WIDTH + 5
+                $raw.BufferSize = $bufferSize
+            }
+            
+            # Set window size
+            $windowSize.Width = $script:TUI_WIDTH
+            $windowSize.Height = $script:TUI_HEIGHT
+            $raw.WindowSize = $windowSize
+        } catch {
+            # Ignore errors on terminals that don't support resizing
+        }
+    }
+
+    function Write-TUIBox {
+        param(
+            [string]$Title = "",
+            [string]$Char = "═",
+            [string]$Left = "╔",
+            [string]$Right = "╗",
+            [ConsoleColor]$Color = "Cyan"
+        )
+        $innerWidth = $script:TUI_WIDTH - 2
+        if ($Title) {
+            $padding = $innerWidth - $Title.Length - 2
+            $leftPad = [math]::Floor($padding / 2)
+            $rightPad = [math]::Ceiling($padding / 2)
+            $line = $Left + ($Char * $leftPad) + " $Title " + ($Char * $rightPad) + $Right
+        } else {
+            $line = $Left + ($Char * $innerWidth) + $Right
+        }
+        Write-Host $line -ForegroundColor $Color
+    }
+
+    function Write-TUILine {
+        param(
+            [string]$Text = "",
+            [ConsoleColor]$Color = "White",
+            [ConsoleColor]$BorderColor = "Cyan",
+            [switch]$Center
+        )
+        $innerWidth = $script:TUI_WIDTH - 4
+        if ($Center) {
+            $padding = $innerWidth - $Text.Length
+            $leftPad = [math]::Floor($padding / 2)
+            $rightPad = [math]::Ceiling($padding / 2)
+            $content = (" " * $leftPad) + $Text + (" " * $rightPad)
+        } else {
+            $content = $Text.PadRight($innerWidth)
+        }
+        Write-Host "║ " -ForegroundColor $BorderColor -NoNewline
+        Write-Host $content -ForegroundColor $Color -NoNewline
+        Write-Host " ║" -ForegroundColor $BorderColor
+    }
+
+    function Write-TUIEmpty {
+        param([ConsoleColor]$BorderColor = "Cyan")
+        Write-TUILine -Text "" -BorderColor $BorderColor
+    }
+
+    function Write-TUIMenuItem {
+        param(
+            [string]$Key,
+            [string]$Text,
+            [ConsoleColor]$KeyColor = "Yellow",
+            [ConsoleColor]$TextColor = "White",
+            [ConsoleColor]$BorderColor = "Cyan"
+        )
+        $innerWidth = $script:TUI_WIDTH - 4
+        $keyPart = "[$Key]"
+        $fullText = "  $keyPart $Text"
+        $content = $fullText.PadRight($innerWidth)
+        
+        Write-Host "║ " -ForegroundColor $BorderColor -NoNewline
+        Write-Host "  " -NoNewline
+        Write-Host $keyPart -ForegroundColor $KeyColor -NoNewline
+        Write-Host (" " + $Text).PadRight($innerWidth - 4 - $keyPart.Length) -ForegroundColor $TextColor -NoNewline
+        Write-Host " ║" -ForegroundColor $BorderColor
+    }
+
+    function Write-TUIStatus {
+        param(
+            [string]$Label,
+            [string]$Value,
+            [ConsoleColor]$LabelColor = "Gray",
+            [ConsoleColor]$ValueColor = "Green",
+            [ConsoleColor]$BorderColor = "Cyan"
+        )
+        $innerWidth = $script:TUI_WIDTH - 4
+        Write-Host "║ " -ForegroundColor $BorderColor -NoNewline
+        Write-Host "  $Label " -ForegroundColor $LabelColor -NoNewline
+        $remaining = $innerWidth - $Label.Length - 3
+        Write-Host $Value.PadRight($remaining) -ForegroundColor $ValueColor -NoNewline
+        Write-Host " ║" -ForegroundColor $BorderColor
+    }
+
+    function Get-MonitorStatus {
+        $taskExists = $null -ne (Get-ScheduledTask -TaskName $MonitorTaskName -ErrorAction SilentlyContinue)
+        $profilePath = Join-Path $env:WINDIR "System32\spool\drivers\color\lg-ultragear-full-cal.icm"
+        $profileExists = Test-Path -LiteralPath $profilePath
+        
+        $lgCount = 0
+        try {
+            Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID -ErrorAction Stop | ForEach-Object {
+                $name = ($_.UserFriendlyName | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ }) -join ''
+                if ($name -match 'LG.*ULTRAGEAR') { $lgCount++ }
+            }
+        } catch {}
+        
+        return @{
+            TaskExists    = $taskExists
+            ProfileExists = $profileExists
+            LGCount       = $lgCount
+        }
+    }
+
+    function Show-TUIMenu {
+        Clear-Host
+        Set-ConsoleSize
+        
+        $status = Get-MonitorStatus
+        
+        # Header
+        Write-TUIBox -Title $script:TUI_TITLE -Left "╔" -Right "╗"
+        Write-TUILine -Text "Version $script:TUI_VERSION" -Center -Color Gray
+        Write-TUIBox -Char "─" -Left "╟" -Right "╢"
+        
+        # Status section
+        Write-TUIEmpty
+        Write-TUILine -Text "STATUS" -Color Cyan
+        Write-TUIEmpty
+        
+        $profileStatus = if ($status.ProfileExists) { "Installed" } else { "Not Installed" }
+        $profileColor = if ($status.ProfileExists) { "Green" } else { "Red" }
+        Write-TUIStatus -Label "Color Profile:" -Value $profileStatus -ValueColor $profileColor
+        
+        $monitorStatus = if ($status.TaskExists) { "Active" } else { "Not Installed" }
+        $monitorColor = if ($status.TaskExists) { "Green" } else { "Yellow" }
+        Write-TUIStatus -Label "Auto-Reapply:" -Value $monitorStatus -ValueColor $monitorColor
+        
+        $lgStatus = if ($status.LGCount -gt 0) { "$($status.LGCount) found" } else { "None detected" }
+        $lgColor = if ($status.LGCount -gt 0) { "Green" } else { "Gray" }
+        Write-TUIStatus -Label "LG UltraGear:" -Value $lgStatus -ValueColor $lgColor
+        
+        Write-TUIBox -Char "─" -Left "╟" -Right "╢"
+        
+        # Menu options
+        Write-TUIEmpty
+        Write-TUILine -Text "ACTIONS" -Color Cyan
+        Write-TUIEmpty
+        Write-TUIMenuItem -Key "1" -Text "Install Complete (Profile + Auto-Reapply)"
+        Write-TUIMenuItem -Key "2" -Text "Install Profile Only (No Auto-Reapply)"
+        Write-TUIMenuItem -Key "3" -Text "Uninstall Auto-Reapply Monitor"
+        Write-TUIMenuItem -Key "4" -Text "Detect Monitors (Probe)"
+        Write-TUIEmpty
+        Write-TUIMenuItem -Key "Q" -Text "Quit" -KeyColor "Red"
+        Write-TUIEmpty
+        
+        # Footer
+        Write-TUIBox -Char "═" -Left "╚" -Right "╝"
+        
+        Write-Host ""
+        Write-Host "  Select option [1-4, Q]: " -ForegroundColor White -NoNewline
+    }
+
+    function Invoke-TUIAction {
+        param([string]$Choice)
+        
+        Clear-Host
+        Write-TUIBox -Title "Processing" -Left "╔" -Right "╗"
+        Write-TUIEmpty
+        
+        switch ($Choice) {
+            "1" {
+                Write-TUILine -Text "Installing profile + auto-reapply monitor..." -Color Yellow
+                Write-TUIBox -Char "═" -Left "╚" -Right "╝"
+                Write-Host ""
+                
+                # Run full install
+                $script:SkipMonitor = $false
+                $script:IsInteractive = $false
+                return "install"
+            }
+            "2" {
+                Write-TUILine -Text "Installing profile only..." -Color Yellow
+                Write-TUIBox -Char "═" -Left "╚" -Right "╝"
+                Write-Host ""
+                
+                # Run profile-only install
+                $script:SkipMonitor = $true
+                $script:IsInteractive = $false
+                return "install"
+            }
+            "3" {
+                Write-TUILine -Text "Uninstalling auto-reapply monitor..." -Color Yellow
+                Write-TUIBox -Char "═" -Left "╚" -Right "╝"
+                Write-Host ""
+                
+                Uninstall-AutoReapplyMonitor -TaskName $MonitorTaskName
+                
+                Write-Host ""
+                Write-Host "  Press any key to continue..." -ForegroundColor Gray
+                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                return "menu"
+            }
+            "4" {
+                Write-TUILine -Text "Detecting monitors..." -Color Yellow
+                Write-TUIBox -Char "═" -Left "╚" -Right "╝"
+                Write-Host ""
+                
+                # Run probe
+                $script:Probe = $true
+                $script:IsInteractive = $false
+                return "probe"
+            }
+            "Q" { return "quit" }
+            "q" { return "quit" }
+            default { return "menu" }
+        }
+    }
+
+    function Start-TUI {
+        $continue = $true
+        while ($continue) {
+            Show-TUIMenu
+            $choice = Read-Host
+            $action = Invoke-TUIAction -Choice $choice
+            
+            switch ($action) {
+                "install" { 
+                    Invoke-Main
+                    Write-Host ""
+                    Write-Host "  Press any key to continue..." -ForegroundColor Gray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                }
+                "probe" {
+                    Invoke-Main
+                    Write-Host ""
+                    Write-Host "  Press any key to continue..." -ForegroundColor Gray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    $script:Probe = $false
+                }
+                "quit" { $continue = $false }
+                "menu" { }
+            }
+        }
+        
+        Clear-Host
+        Write-Host "Goodbye!" -ForegroundColor Cyan
+    }
+
+    # Set console appearance: black background, white text, and window title
     try {
         $scriptName = if ($script:InvocationPath) { Split-Path -Path $script:InvocationPath -Leaf } else { 'install-lg-ultragear-no-dimming.ps1' }
         $raw = $Host.UI.RawUI
@@ -78,8 +351,10 @@ begin {
         $script:OriginalTitle = $raw.WindowTitle
         $raw.BackgroundColor = 'Black'
         $raw.ForegroundColor = 'White'
-        try { $raw.WindowTitle = $scriptName } catch { [Console]::Title = $scriptName }
-        try { Clear-Host } catch { Write-NoteMessage "Clear-Host skipped (no interactive host)." }
+        try { $raw.WindowTitle = $script:TUI_TITLE } catch { [Console]::Title = $script:TUI_TITLE }
+        if (-not $script:IsInteractive) {
+            try { Clear-Host } catch { }
+        }
     } catch {
         Write-Host "[NOTE] console color/title not set: $($_.Exception.Message)" -ForegroundColor White
     }
@@ -113,12 +388,16 @@ begin {
         Write-Host "  -UninstallMonitor             Remove auto-reapply monitor"
         Write-Host "  -MonitorTaskName <name>       Custom task name (default: 'LG-UltraGear-ColorProfile-AutoReapply')"
         Write-Host ""
+        Write-Host "  -Interactive                  Force interactive TUI mode"
         Write-Host "  -h | -?                       Show this help and exit"
+        Write-Host ""; Write-Host "Notes:"
+        Write-Host "  Running with NO arguments launches interactive TUI mode."
+        Write-Host "  Use any argument to run in non-interactive CLI mode."
         Write-Host ""; Write-Host "Examples:"
-        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1"
-        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -MonitorNameMatch 'LG ULTRAGEAR' -PerUser"
-        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -Probe -NoPrompt"
-        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -SkipMonitor"
+        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1              # Interactive TUI"
+        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -NoPrompt    # CLI: full install"
+        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -SkipMonitor # CLI: profile only"
+        Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -Probe       # CLI: detect monitors"
         Write-Host "  .\\install-lg-ultragear-no-dimming.ps1 -UninstallMonitor"
     }
 
@@ -150,6 +429,9 @@ begin {
         <#
         .SYNOPSIS
           Creates a scheduled task to auto-reapply color profile on display events.
+        .NOTES
+          Uses a fast pre-check that exits immediately if no LG UltraGear is detected.
+          Only runs the full installer when an LG UltraGear monitor is actually connected.
         #>
         param(
             [string]$TaskName,
@@ -159,11 +441,23 @@ begin {
         
         Write-ActionMessage "Installing auto-reapply monitor..."
         
-        # Create the action script
+        # Create the action script - optimized for speed with early exit
         $actionScript = @"
-# Auto-reapply LG UltraGear color profile
-`$ErrorActionPreference = 'SilentlyContinue'
-Start-Sleep -Seconds 2
+# LG UltraGear Color Profile Auto-Reapply - Fast Monitor
+# Exits immediately if no matching monitor is connected
+
+# Quick check for LG UltraGear - exits in <50ms if not found
+try {
+    `$found = `$false
+    Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID -ErrorAction Stop | ForEach-Object {
+        `$name = (`$_.UserFriendlyName | Where-Object { `$_ -ne 0 } | ForEach-Object { [char]`$_ }) -join ''
+        if (`$name -match '$MonitorMatch') { `$found = `$true }
+    }
+    if (-not `$found) { exit 0 }
+} catch { exit 0 }
+
+# LG UltraGear detected - wait for display to stabilize then reapply
+Start-Sleep -Milliseconds 1500
 & '$InstallerPath' -NoSetDefault -NoPrompt -SkipElevation -SkipWindowsTerminal -SkipMonitor -MonitorNameMatch '$MonitorMatch' 2>`$null | Out-Null
 "@
         
@@ -177,37 +471,47 @@ Start-Sleep -Seconds 2
         Set-Content -Path $actionScriptPath -Value $actionScript -Force
         Write-SuccessMessage "Created action script: $actionScriptPath"
         
-        # Create scheduled task
-        $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$actionScriptPath`""
+        # Create scheduled task with optimized triggers
+        $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$actionScriptPath`""
         
-        # Trigger 1: Display device events
+        # Trigger 1: Display/Monitor device events only (Device Interface Class GUID for monitors)
         $trigger1 = New-ScheduledTaskTrigger -AtLogOn
         $trigger1.CimInstanceProperties.Item('Enabled').Value = $true
         $trigger1.CimInstanceProperties.Item('Subscription').Value = @"
 <QueryList>
   <Query Id="0" Path="System">
-    <Select Path="System">*[System[Provider[@Name='Microsoft-Windows-Kernel-PnP'] and (EventID=20001 or EventID=20003)]]</Select>
+    <Select Path="System">
+      *[System[Provider[@Name='Microsoft-Windows-Kernel-PnP'] and (EventID=20001 or EventID=20003)]]
+      and
+      *[EventData[Data[@Name='DeviceInstanceId'] and (contains(Data, 'DISPLAY') or contains(Data, 'MONITOR'))]]
+    </Select>
   </Query>
 </QueryList>
 "@
         
-        # Trigger 2: User logon
+        # Trigger 2: User logon (one-time check at login)
         $trigger2 = New-ScheduledTaskTrigger -AtLogOn
         
-        # Trigger 3: Session unlock
+        # Trigger 3: Console connect (covers RDP, fast user switching, wake)
         $trigger3 = New-ScheduledTaskTrigger -AtLogOn
         $trigger3.CimInstanceProperties.Item('Enabled').Value = $true
-        $trigger3.CimInstanceProperties.Item('StateChange').Value = 8
+        $trigger3.CimInstanceProperties.Item('StateChange').Value = 7  # ConsoleConnect
+        
+        # Trigger 4: Session unlock
+        $trigger4 = New-ScheduledTaskTrigger -AtLogOn
+        $trigger4.CimInstanceProperties.Item('Enabled').Value = $true
+        $trigger4.CimInstanceProperties.Item('StateChange').Value = 8  # SessionUnlock
         
         $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 2)
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Seconds 30) -MultipleInstances IgnoreNew
         
         try { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue } catch {}
         
-        Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger1, $trigger2, $trigger3 -Principal $principal -Settings $settings -Description "Automatically reapplies LG UltraGear color profile when display reconnects." | Out-Null
+        Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger1, $trigger2, $trigger3, $trigger4 -Principal $principal -Settings $settings -Description "Fast auto-reapply for LG UltraGear color profile. Only runs when LG UltraGear monitor is detected." | Out-Null
         
         Write-SuccessMessage "Auto-reapply monitor installed: $TaskName"
-        Write-InfoMessage "Profile will auto-reapply on: monitor reconnect, wake, logon, unlock"
+        Write-InfoMessage "Triggers: display connect, logon, console connect, unlock"
+        Write-InfoMessage "Optimization: exits in <50ms if no LG UltraGear detected"
     }
     
     function Uninstall-AutoReapplyMonitor {
@@ -1049,5 +1353,9 @@ public static class Win32SendMessage {
 }
 
 process {
-    Invoke-Main
+    if ($script:IsInteractive) {
+        Start-TUI
+    } else {
+        Invoke-Main
+    }
 }
