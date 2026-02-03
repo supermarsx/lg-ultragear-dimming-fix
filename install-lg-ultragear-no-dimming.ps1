@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   LG UltraGear No-Auto-Dim installer.
 
@@ -72,7 +72,9 @@ begin {
     }
 
     # Check if running with no arguments (interactive mode)
-    $script:IsInteractive = $Interactive -or (($PSBoundParameters.Count -eq 0 -and -not $Help) -and -not $NonInteractive)
+    # Exclude internal _WorkDir parameter from count (passed during elevation)
+    $userParamCount = ($PSBoundParameters.Keys | Where-Object { $_ -ne '_WorkDir' }).Count
+    $script:IsInteractive = $Interactive -or (($userParamCount -eq 0 -and -not $Help) -and -not $NonInteractive)
 
     # Record the launch context so relative paths stay consistent after re-invocation.
     $script:InvocationPath = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Path }
@@ -1024,9 +1026,15 @@ try {
             $argsList += $workingDir
         }
 
+        # Preserve interactive mode after elevation
+        if ($script:IsInteractive) {
+            $argsList += '-Interactive'
+        }
+
         foreach ($kv in $PSBoundParameters.GetEnumerator()) {
-            # Skip internal _WorkDir parameter
+            # Skip internal parameters and Interactive (already handled above)
             if ($kv.Key -eq '_WorkDir') { continue }
+            if ($kv.Key -eq 'Interactive') { continue }
             $name = '-' + $kv.Key
             $val = $kv.Value
             if ($val -is [System.Management.Automation.SwitchParameter]) {
@@ -1685,7 +1693,7 @@ public static class Win32SendMessage {
             # =========================================================================
             if (-not $SkipMonitor -and -not $Probe -and -not $InstallOnly -and -not $DryRun) {
                 Write-Host ""
-                Write-StepMessage "installing auto-reapply monitor"
+                Write-ActionMessage "installing auto-reapply monitor"
                 try {
                     Install-AutoReapplyMonitor -TaskName $MonitorTaskName -InstallerPath $script:InvocationPath -MonitorMatch $MonitorNameMatch
                 } catch {
