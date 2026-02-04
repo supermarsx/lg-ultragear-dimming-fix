@@ -116,6 +116,7 @@ begin {
     $script:Toggle_DryRun = $false
     $script:Toggle_SkipElevation = $false
     $script:Toggle_GenericDefault = $false
+    $script:Toggle_ReapplyToast = $true
 
     # =========================================================================
     # TUI FUNCTIONS
@@ -323,6 +324,7 @@ begin {
         if ($script:Toggle_GenericDefault) { $activeToggles += "GenericDef" }
         if ($script:Toggle_DryRun) { $activeToggles += "DryRun" }
         if ($script:Toggle_SkipElevation) { $activeToggles += "NoAdmin" }
+        if (-not $script:Toggle_ReapplyToast) { $activeToggles += "NoToast" }
 
         if ($activeToggles.Count -gt 0) {
             $toggleText = "Advanced Options (" + ($activeToggles -join ", ") + ")"
@@ -377,9 +379,12 @@ begin {
         Write-TUIToggle -Key "2" -Text "Per-User Install (User scope, not system)" -Enabled $script:Toggle_PerUser
         Write-TUIToggle -Key "3" -Text "Generic Default (Legacy default profile API)" -Enabled $script:Toggle_GenericDefault
         Write-TUIEmpty
+        Write-TUILine -Text "  AUTO-REAPPLY OPTIONS" -Color Cyan
+        Write-TUIToggle -Key "4" -Text "Toast Notifications (Show reapply alerts)" -Enabled $script:Toggle_ReapplyToast
+        Write-TUIEmpty
         Write-TUILine -Text "  TESTING" -Color Cyan
-        Write-TUIToggle -Key "4" -Text "Dry Run (Simulate without changes)" -Enabled $script:Toggle_DryRun
-        Write-TUIToggle -Key "5" -Text "Skip Elevation (Run without admin)" -Enabled $script:Toggle_SkipElevation
+        Write-TUIToggle -Key "5" -Text "Dry Run (Simulate without changes)" -Enabled $script:Toggle_DryRun
+        Write-TUIToggle -Key "6" -Text "Skip Elevation (Run without admin)" -Enabled $script:Toggle_SkipElevation
         Write-TUIEmpty
         Write-TUILine -Text "  These toggles affect main menu install options" -Color DarkGray
         Write-TUIEmpty
@@ -531,10 +536,14 @@ begin {
                     return "advanced"
                 }
                 "4" {
-                    $script:Toggle_DryRun = -not $script:Toggle_DryRun
+                    $script:Toggle_ReapplyToast = -not $script:Toggle_ReapplyToast
                     return "advanced"
                 }
                 "5" {
+                    $script:Toggle_DryRun = -not $script:Toggle_DryRun
+                    return "advanced"
+                }
+                "6" {
                     $script:Toggle_SkipElevation = -not $script:Toggle_SkipElevation
                     return "advanced"
                 }
@@ -595,7 +604,7 @@ begin {
                 }
                 "installmonitor" {
                     try {
-                        Install-AutoReapplyMonitor -TaskName $MonitorTaskName -InstallerPath $script:InvocationPath -MonitorMatch $MonitorNameMatch
+                        Install-AutoReapplyMonitor -TaskName $MonitorTaskName -InstallerPath $script:InvocationPath -MonitorMatch $MonitorNameMatch -ShowToast $script:Toggle_ReapplyToast
                     } catch {
                         Write-Host "  [ERR ] Failed: $($_.Exception.Message)" -ForegroundColor Red
                     }
@@ -754,10 +763,33 @@ begin {
         param(
             [string]$TaskName,
             [string]$InstallerPath,
-            [string]$MonitorMatch
+            [string]$MonitorMatch,
+            [bool]$ShowToast = $true
         )
 
         Write-ActionMessage "Installing auto-reapply monitor..."
+
+        # Toast notification code block (conditionally included)
+        $toastBlock = @"
+
+# Show toast notification
+try {
+    [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+    [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+
+    `$template = '<toast duration="long"><visual><binding template="ToastGeneric"><text>LG UltraGear</text><text>Color profile reapplied</text></binding></visual></toast>'
+
+    `$xml = [Windows.Data.Xml.Dom.XmlDocument]::new()
+    `$xml.LoadXml(`$template)
+    `$toast = [Windows.UI.Notifications.ToastNotification]::new(`$xml)
+
+    # Use PowerShell's registered AppUserModelId for reliable notifications
+    `$appId = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
+    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier(`$appId).Show(`$toast)
+} catch {
+    # Notification failed silently - not critical
+}
+"@
 
         # Create the action script - optimized for speed with early exit
         $actionScript = @"
@@ -777,24 +809,7 @@ try {
 # LG UltraGear detected - wait for display to stabilize then reapply
 Start-Sleep -Milliseconds 1500
 & '$InstallerPath' -NoSetDefault -NoPrompt -SkipElevation -SkipWindowsTerminal -SkipMonitor -MonitorNameMatch '$MonitorMatch' 2>`$null | Out-Null
-
-# Show toast notification
-try {
-    [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
-    [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
-
-    `$template = '<toast duration="long"><visual><binding template="ToastGeneric"><text>LG UltraGear</text><text>Color profile reapplied</text></binding></visual></toast>'
-
-    `$xml = [Windows.Data.Xml.Dom.XmlDocument]::new()
-    `$xml.LoadXml(`$template)
-    `$toast = [Windows.UI.Notifications.ToastNotification]::new(`$xml)
-
-    # Use PowerShell's registered AppUserModelId for reliable notifications
-    `$appId = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
-    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier(`$appId).Show(`$toast)
-} catch {
-    # Notification failed silently - not critical
-}
+$(if ($ShowToast) { $toastBlock } else { '' })
 "@
 
         $actionScriptPath = "$env:ProgramData\LG-UltraGear-Monitor\reapply-profile.ps1"
@@ -1488,7 +1503,7 @@ public static class Win32SendMessage {
         }
 
         if ($InstallMonitor) {
-            Install-AutoReapplyMonitor -TaskName $MonitorTaskName -InstallerPath $script:InvocationPath -MonitorMatch $MonitorNameMatch
+            Install-AutoReapplyMonitor -TaskName $MonitorTaskName -InstallerPath $script:InvocationPath -MonitorMatch $MonitorNameMatch -ShowToast $script:Toggle_ReapplyToast
             Show-ExitPrompt
             return
         }
@@ -1675,7 +1690,7 @@ public static class Win32SendMessage {
                 Write-Host ""
                 Write-ActionMessage "installing auto-reapply monitor"
                 try {
-                    Install-AutoReapplyMonitor -TaskName $MonitorTaskName -InstallerPath $script:InvocationPath -MonitorMatch $MonitorNameMatch
+                    Install-AutoReapplyMonitor -TaskName $MonitorTaskName -InstallerPath $script:InvocationPath -MonitorMatch $MonitorNameMatch -ShowToast $script:Toggle_ReapplyToast
                 } catch {
                     Write-WarnMessage "Auto-reapply monitor installation failed: $($_.Exception.Message)"
                     Write-NoteMessage "Profile is installed but won't auto-reapply on reconnection"

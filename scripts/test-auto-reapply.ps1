@@ -1,69 +1,102 @@
 <#
 .SYNOPSIS
-  Test the auto-reapply monitor logic.
+  Standalone auto-reapply script for LG UltraGear color profile.
 .DESCRIPTION
-  Simulates what the scheduled task does: checks for LG UltraGear monitor and reapplies the color profile.
-  Useful for verifying the auto-reapply works correctly without waiting for a trigger event.
-.PARAMETER ShowNotification
-  Show a toast notification after reapplying (default: true).
+  Checks for LG UltraGear monitor, reapplies the color profile, and shows a toast notification.
+  This is a self-contained script that can be run independently or by the scheduled task.
+.PARAMETER NoNotification
+  Skip the toast notification after reapplying.
+.PARAMETER MonitorMatch
+  Pattern to match monitor names (default: 'LG UltraGear').
 #>
 [CmdletBinding()]
 param(
-    [switch]$NoNotification
+    [switch]$NoNotification,
+    [string]$MonitorMatch = 'LG UltraGear'
 )
 
-$MonitorMatch = 'LG UltraGear'
+$ErrorActionPreference = 'Stop'
 
-Write-Host "Testing auto-reapply monitor..." -ForegroundColor Cyan
-Write-Host ""
+# ============================================================================
+# MONITOR DETECTION
+# ============================================================================
 
-# Quick check for LG UltraGear
-Write-Host "[STEP] Checking for LG UltraGear monitor..." -ForegroundColor White
 $found = $false
 try {
     Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID -ErrorAction Stop | ForEach-Object {
         $name = ($_.UserFriendlyName | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ }) -join ''
-        Write-Host "       Found: $name" -ForegroundColor Gray
         if ($name -match $MonitorMatch) {
             $found = $true
-            Write-Host "       ^ Matches '$MonitorMatch'" -ForegroundColor Green
         }
     }
 } catch {
-    Write-Host "[FAIL] Could not enumerate monitors: $($_.Exception.Message)" -ForegroundColor Red
-    exit 1
+    exit 0  # Can't enumerate monitors, exit silently
 }
 
-# Check if LG UltraGear was found
 if (-not $found) {
-    Write-Host ""
-    Write-Host "[SKIP] No LG UltraGear monitor detected - auto-reapply would exit early" -ForegroundColor Yellow
-    exit 0
+    exit 0  # No matching monitor, exit silently
 }
 
-Write-Host ""
-Write-Host "[STEP] LG UltraGear detected - reapplying color profile..." -ForegroundColor White
+# ============================================================================
+# COLOR PROFILE APPLICATION
+# ============================================================================
 
-# Get the installer path
-$installerPath = Join-Path $PSScriptRoot "..\install-lg-ultragear-no-dimming.ps1"
-if (-not (Test-Path $installerPath)) {
-    Write-Host "[FAIL] Installer not found at: $installerPath" -ForegroundColor Red
-    exit 1
+$profileName = 'lg-ultragear-full-cal.icm'
+$profilePath = Join-Path $env:WINDIR "System32\spool\drivers\color\$profileName"
+
+if (-not (Test-Path -LiteralPath $profilePath)) {
+    exit 1  # Profile not installed
 }
 
-# Run the installer in reapply mode (same flags as the scheduled task action)
-try {
-    & $installerPath -NoSetDefault -NoPrompt -SkipElevation -SkipWindowsTerminal -SkipMonitor -MonitorNameMatch $MonitorMatch 2>$null | Out-Null
-    Write-Host "[ OK ] Color profile reapplied" -ForegroundColor Green
-} catch {
-    Write-Host "[FAIL] Reapply failed: $($_.Exception.Message)" -ForegroundColor Red
-    exit 1
+# Load WCS API for color profile association
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class WcsAssociate {
+    [DllImport("mscms.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool WcsAssociateColorProfileWithDevice(
+        uint scope, [MarshalAs(UnmanagedType.LPWStr)] string profileName,
+        [MarshalAs(UnmanagedType.LPWStr)] string deviceName);
+}
+'@ -ErrorAction SilentlyContinue
+
+# Get matching monitor device IDs and associate profile
+$WCS_SCOPE_SYSTEM_WIDE = 2
+Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID -ErrorAction SilentlyContinue | ForEach-Object {
+    $name = ($_.UserFriendlyName | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ }) -join ''
+    if ($name -match $MonitorMatch) {
+        $deviceKey = $_.InstanceName -replace '_0$', ''
+        try {
+            [void][WcsAssociate]::WcsAssociateColorProfileWithDevice($WCS_SCOPE_SYSTEM_WIDE, $profilePath, $deviceKey)
+        } catch {
+            # Association failed, continue silently
+        }
+    }
 }
 
-# Show toast notification
+# Broadcast settings change to refresh color
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class Win32Msg {
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    public static extern IntPtr SendMessageTimeout(
+        IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam,
+        uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+}
+'@ -ErrorAction SilentlyContinue
+
+$HWND_BROADCAST = [IntPtr]0xffff
+$WM_SETTINGCHANGE = 0x1A
+$SMTO_ABORTIFHUNG = 0x0002
+[UIntPtr]$res = [UIntPtr]::Zero
+[void][Win32Msg]::SendMessageTimeout($HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero, 'Color', $SMTO_ABORTIFHUNG, 2000, [ref]$res)
+
+# ============================================================================
+# TOAST NOTIFICATION
+# ============================================================================
+
 if (-not $NoNotification) {
-    Write-Host ""
-    Write-Host "[STEP] Showing notification..." -ForegroundColor White
     try {
         [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
         [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
@@ -77,11 +110,7 @@ if (-not $NoNotification) {
         # Use PowerShell's registered AppUserModelId for reliable notifications
         $appId = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
         [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)
-        Write-Host "[ OK ] Notification sent" -ForegroundColor Green
     } catch {
-        Write-Host "[WARN] Notification failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        # Notification failed silently - not critical
     }
 }
-
-Write-Host ""
-Write-Host "[DONE] Auto-reapply test complete" -ForegroundColor Cyan
