@@ -34,6 +34,7 @@ try {
     exit 1
 }
 
+# Check if LG UltraGear was found
 if (-not $found) {
     Write-Host ""
     Write-Host "[SKIP] No LG UltraGear monitor detected - auto-reapply would exit early" -ForegroundColor Yellow
