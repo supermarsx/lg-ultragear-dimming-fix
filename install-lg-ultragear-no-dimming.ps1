@@ -859,23 +859,38 @@ foreach (`$deviceKey in `$matchedDevices) {
     }
 }
 
-# Broadcast settings change to refresh color
+# Force display refresh using multiple Windows APIs for maximum reliability
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
-public class Win32Msg {
+public class Win32Display {
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
     public static extern IntPtr SendMessageTimeout(
         IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam,
         uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    public static extern int ChangeDisplaySettingsEx(
+        string lpszDeviceName, IntPtr lpDevMode, IntPtr hwnd,
+        uint dwflags, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    public static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
 }
 '@ -ErrorAction SilentlyContinue
 
+# Method 1: ChangeDisplaySettingsEx with null - triggers full display refresh
+[void][Win32Display]::ChangeDisplaySettingsEx(`$null, [IntPtr]::Zero, [IntPtr]::Zero, 0, [IntPtr]::Zero)
+
+# Method 2: Broadcast WM_SETTINGCHANGE with "Color" parameter
 `$HWND_BROADCAST = [IntPtr]0xffff
 `$WM_SETTINGCHANGE = 0x1A
 `$SMTO_ABORTIFHUNG = 0x0002
 [UIntPtr]`$res = [UIntPtr]::Zero
-[void][Win32Msg]::SendMessageTimeout(`$HWND_BROADCAST, `$WM_SETTINGCHANGE, [UIntPtr]::Zero, 'Color', `$SMTO_ABORTIFHUNG, 2000, [ref]`$res)
+[void][Win32Display]::SendMessageTimeout(`$HWND_BROADCAST, `$WM_SETTINGCHANGE, [UIntPtr]::Zero, 'Color', `$SMTO_ABORTIFHUNG, 2000, [ref]`$res)
+
+# Method 3: Invalidate all windows to force repaint with new color profile
+[void][Win32Display]::InvalidateRect([IntPtr]::Zero, [IntPtr]::Zero, `$true)
 $(if ($ShowToast) { $toastBlock } else { '' })
 "@
 
