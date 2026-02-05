@@ -53,6 +53,7 @@ param(
     [switch]$NonInteractive,
     [switch]$Uninstall,
     [switch]$UninstallFull,
+    [switch]$UninstallProfile,
     [switch]$Reinstall,
     [switch]$Refresh,
     # Internal: working directory passed during elevation (hidden from help)
@@ -313,7 +314,8 @@ begin {
         Write-TUIEmpty
         Write-TUILine -Text "  UNINSTALL" -Color Cyan
         Write-TUIMenuItem -Key "7" -Text "Remove Auto-Reapply (Keep profile)"
-        Write-TUIMenuItem -Key "8" -Text "Full Uninstall (Remove everything)"
+        Write-TUIMenuItem -Key "8" -Text "Remove Profile Only (Keep auto-reapply)"
+        Write-TUIMenuItem -Key "9" -Text "Full Uninstall (Remove everything)"
         Write-TUIEmpty
         Write-TUILine -Text "  ADVANCED" -Color Cyan
 
@@ -500,9 +502,7 @@ begin {
                     return "menu"
                 }
                 "8" {
-                    Show-TUIProcessing -Message "Performing full uninstall..."
-                    Uninstall-AutoReapplyMonitor -TaskName $MonitorTaskName
-                    # Remove profile from system
+                    Show-TUIProcessing -Message "Removing color profile..."
                     $profilePath = Join-Path $env:WINDIR "System32\spool\drivers\color\lg-ultragear-full-cal.icm"
                     if (Test-Path -LiteralPath $profilePath) {
                         try {
@@ -514,6 +514,12 @@ begin {
                     } else {
                         Write-Host "  [NOTE] Profile not found (already removed)" -ForegroundColor Gray
                     }
+                    Wait-TUIKeyPress
+                    return "menu"
+                }
+                "9" {
+                    Show-TUIProcessing -Message "Performing full uninstall..."
+                    Uninstall-AutoReapplyMonitor -TaskName $MonitorTaskName -RemoveProfile
                     Wait-TUIKeyPress
                     return "menu"
                 }
@@ -874,7 +880,10 @@ $(if ($ShowToast) { $toastBlock } else { '' })
     }
 
     function Uninstall-AutoReapplyMonitor {
-        param([string]$TaskName)
+        param(
+            [string]$TaskName,
+            [switch]$RemoveProfile
+        )
 
         Write-ActionMessage "Removing auto-reapply monitor..."
         try {
@@ -891,6 +900,20 @@ $(if ($ShowToast) { $toastBlock } else { '' })
                 Write-NoteMessage "Task '$TaskName' not found (already removed)"
             } else {
                 Write-WarnMessage "Failed to remove task: $($_.Exception.Message)"
+            }
+        }
+
+        if ($RemoveProfile) {
+            $profilePath = Join-Path $env:WINDIR "System32\spool\drivers\color\lg-ultragear-full-cal.icm"
+            if (Test-Path -LiteralPath $profilePath) {
+                try {
+                    Remove-Item -LiteralPath $profilePath -Force -ErrorAction Stop
+                    Write-SuccessMessage "Removed color profile"
+                } catch {
+                    Write-WarnMessage "Could not remove profile: $($_.Exception.Message)"
+                }
+            } else {
+                Write-NoteMessage "Profile not found (already removed)"
             }
         }
     }
@@ -1472,7 +1495,14 @@ public static class Win32SendMessage {
         # Handle uninstall operations first
         if ($UninstallFull) {
             Write-ActionMessage "Performing full uninstall..."
-            Uninstall-AutoReapplyMonitor -TaskName $MonitorTaskName
+            Uninstall-AutoReapplyMonitor -TaskName $MonitorTaskName -RemoveProfile
+            Write-DoneMessage "Full uninstall complete"
+            Show-ExitPrompt
+            return
+        }
+
+        if ($UninstallProfile) {
+            Write-ActionMessage "Removing color profile..."
             $profilePath = Join-Path $env:WINDIR "System32\spool\drivers\color\lg-ultragear-full-cal.icm"
             if (Test-Path -LiteralPath $profilePath) {
                 try {
@@ -1484,7 +1514,6 @@ public static class Win32SendMessage {
             } else {
                 Write-NoteMessage "Profile not found (already removed)"
             }
-            Write-DoneMessage "Full uninstall complete"
             Show-ExitPrompt
             return
         }
