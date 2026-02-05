@@ -940,7 +940,9 @@ $(if ($ShowToast) { $toastBlock } else { '' })
             StateChange = [int]8  # SessionUnlock
         }
 
-        $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+        # Run as current user with highest privileges (admin) - NOT SYSTEM
+        # SYSTEM runs in Session 0 and cannot access user's display/color APIs
+        $principal = New-ScheduledTaskPrincipal -GroupId "BUILTIN\Administrators" -RunLevel Highest
         $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Seconds 30) -MultipleInstances IgnoreNew
 
         try { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue } catch {

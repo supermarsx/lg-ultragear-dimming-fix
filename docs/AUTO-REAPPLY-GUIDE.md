@@ -74,7 +74,7 @@ Start-ScheduledTask -TaskName "LG-UltraGear-ColorProfile-AutoReapply"
 - Reapply script: `%ProgramData%\LG-UltraGear-Monitor\reapply-profile.ps1`
 - Scheduled task: `LG-UltraGear-ColorProfile-AutoReapply`
 
-**Runs as:** SYSTEM (highest privilege for reliability)
+**Runs as:** Administrators group (user session, elevated) - required to access display APIs
 
 **Execution:** Hidden window, no user interruption
 
