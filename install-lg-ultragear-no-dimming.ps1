@@ -798,23 +798,84 @@ try {
 "@
 
         # Create the action script - optimized for speed with early exit
+        # Uses toggle approach: disassociate then reassociate to force Windows to refresh
         $actionScript = @"
 # LG UltraGear Color Profile Auto-Reapply - Fast Monitor
 # Exits immediately if no matching monitor is connected
+# Runs as SYSTEM with highest privileges
 
-# Quick check for LG UltraGear - exits in <50ms if not found
+`$ErrorActionPreference = 'Stop'
+`$profilePath = Join-Path `$env:WINDIR "System32\spool\drivers\color\lg-ultragear-full-cal.icm"
+
+# Quick check for LG UltraGear and profile - exits fast if not found
+if (-not (Test-Path -LiteralPath `$profilePath)) { exit 0 }
+
+`$matchedDevices = @()
 try {
-    `$found = `$false
     Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID -ErrorAction Stop | ForEach-Object {
         `$name = (`$_.UserFriendlyName | Where-Object { `$_ -ne 0 } | ForEach-Object { [char]`$_ }) -join ''
-        if (`$name -match '$MonitorMatch') { `$found = `$true }
+        if (`$name -match '$MonitorMatch') {
+            `$matchedDevices += `$_.InstanceName -replace '_0`$', ''
+        }
     }
-    if (-not `$found) { exit 0 }
+    if (`$matchedDevices.Count -eq 0) { exit 0 }
 } catch { exit 0 }
 
-# LG UltraGear detected - wait for display to stabilize then reapply
+# LG UltraGear detected - wait for display to stabilize
 Start-Sleep -Milliseconds 1500
-& '$InstallerPath' -NoSetDefault -NoPrompt -SkipElevation -SkipWindowsTerminal -SkipMonitor -MonitorNameMatch '$MonitorMatch' 2>`$null | Out-Null
+
+# Load WCS API for color profile toggle
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class WcsProfile {
+    [DllImport("mscms.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool WcsAssociateColorProfileWithDevice(
+        uint scope, [MarshalAs(UnmanagedType.LPWStr)] string profileName,
+        [MarshalAs(UnmanagedType.LPWStr)] string deviceName);
+
+    [DllImport("mscms.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool WcsDisassociateColorProfileFromDevice(
+        uint scope, [MarshalAs(UnmanagedType.LPWStr)] string profileName,
+        [MarshalAs(UnmanagedType.LPWStr)] string deviceName);
+}
+'@ -ErrorAction SilentlyContinue
+
+# Toggle approach: disassociate (reverts to default) then reassociate (applies fix)
+# This forces Windows to actually refresh the color profile
+`$WCS_SCOPE_SYSTEM_WIDE = 2
+foreach (`$deviceKey in `$matchedDevices) {
+    try {
+        # Step 1: Disassociate the fix profile (reverts to default)
+        [void][WcsProfile]::WcsDisassociateColorProfileFromDevice(`$WCS_SCOPE_SYSTEM_WIDE, `$profilePath, `$deviceKey)
+
+        # Step 2: Brief pause to let Windows process the change
+        Start-Sleep -Milliseconds 100
+
+        # Step 3: Re-associate the fix profile
+        [void][WcsProfile]::WcsAssociateColorProfileWithDevice(`$WCS_SCOPE_SYSTEM_WIDE, `$profilePath, `$deviceKey)
+    } catch {
+        # Association failed, continue silently
+    }
+}
+
+# Broadcast settings change to refresh color
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class Win32Msg {
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    public static extern IntPtr SendMessageTimeout(
+        IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam,
+        uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+}
+'@ -ErrorAction SilentlyContinue
+
+`$HWND_BROADCAST = [IntPtr]0xffff
+`$WM_SETTINGCHANGE = 0x1A
+`$SMTO_ABORTIFHUNG = 0x0002
+[UIntPtr]`$res = [UIntPtr]::Zero
+[void][Win32Msg]::SendMessageTimeout(`$HWND_BROADCAST, `$WM_SETTINGCHANGE, [UIntPtr]::Zero, 'Color', `$SMTO_ABORTIFHUNG, 2000, [ref]`$res)
 $(if ($ShowToast) { $toastBlock } else { '' })
 "@
 

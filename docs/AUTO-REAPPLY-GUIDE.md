@@ -33,7 +33,9 @@ install-full-auto.bat
 1. **Scheduled Task**: Creates `LG-UltraGear-ColorProfile-AutoReapply` task
 2. **Event Triggers**: Monitors Windows Event Log for display device events
 3. **Zero Overhead**: No polling, no background services - only activates on actual events
-4. **Triggers On**:
+4. **Toggle Reapply**: Disassociates the profile first, then re-associates it to force Windows to refresh
+5. **Runs as SYSTEM**: Highest privilege level ensures reliable color profile changes
+6. **Triggers On**:
    - Display device plug/unplug (Event ID 20001, 20003)
    - System unlock/wake
    - User logon

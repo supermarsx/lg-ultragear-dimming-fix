@@ -43,31 +43,45 @@ if (-not $found) {
 
 $profileName = 'lg-ultragear-full-cal.icm'
 $profilePath = Join-Path $env:WINDIR "System32\spool\drivers\color\$profileName"
+$defaultProfilePath = Join-Path $env:WINDIR "System32\spool\drivers\color\sRGB Color Space Profile.icm"
 
 if (-not (Test-Path -LiteralPath $profilePath)) {
     exit 1  # Profile not installed
 }
 
-# Load WCS API for color profile association
+# Load WCS API for color profile association and disassociation
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
-public class WcsAssociate {
+public class WcsProfile {
     [DllImport("mscms.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     public static extern bool WcsAssociateColorProfileWithDevice(
+        uint scope, [MarshalAs(UnmanagedType.LPWStr)] string profileName,
+        [MarshalAs(UnmanagedType.LPWStr)] string deviceName);
+
+    [DllImport("mscms.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool WcsDisassociateColorProfileFromDevice(
         uint scope, [MarshalAs(UnmanagedType.LPWStr)] string profileName,
         [MarshalAs(UnmanagedType.LPWStr)] string deviceName);
 }
 '@ -ErrorAction SilentlyContinue
 
-# Get matching monitor device IDs and associate profile
+# Get matching monitor device IDs - first switch to default, then reapply fix
+# This forces Windows to actually refresh the color profile
 $WCS_SCOPE_SYSTEM_WIDE = 2
 Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID -ErrorAction SilentlyContinue | ForEach-Object {
     $name = ($_.UserFriendlyName | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ }) -join ''
     if ($name -match $MonitorMatch) {
         $deviceKey = $_.InstanceName -replace '_0$', ''
         try {
-            [void][WcsAssociate]::WcsAssociateColorProfileWithDevice($WCS_SCOPE_SYSTEM_WIDE, $profilePath, $deviceKey)
+            # Step 1: Disassociate the fix profile (reverts to default)
+            [void][WcsProfile]::WcsDisassociateColorProfileFromDevice($WCS_SCOPE_SYSTEM_WIDE, $profilePath, $deviceKey)
+
+            # Step 2: Brief pause to let Windows process the change
+            Start-Sleep -Milliseconds 100
+
+            # Step 3: Re-associate the fix profile
+            [void][WcsProfile]::WcsAssociateColorProfileWithDevice($WCS_SCOPE_SYSTEM_WIDE, $profilePath, $deviceKey)
         } catch {
             # Association failed, continue silently
         }
