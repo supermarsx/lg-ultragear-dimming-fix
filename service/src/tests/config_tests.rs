@@ -46,6 +46,12 @@ fn default_config_toggle_delay() {
 }
 
 #[test]
+fn default_config_reapply_delay() {
+    let cfg = Config::default();
+    assert_eq!(cfg.reapply_delay_ms, 12000);
+}
+
+#[test]
 fn default_config_all_refresh_methods_enabled() {
     let cfg = Config::default();
     assert!(cfg.refresh_display_settings);
@@ -176,6 +182,7 @@ fn serialize_roundtrip() {
         toast_body: "B".to_string(),
         stabilize_delay_ms: 999,
         toggle_delay_ms: 50,
+        reapply_delay_ms: 8000,
         refresh_display_settings: false,
         refresh_broadcast_color: true,
         refresh_invalidate: false,
@@ -273,6 +280,7 @@ fn to_toml_commented_roundtrip_preserves_values() {
         toast_body: "Applied".to_string(),
         stabilize_delay_ms: 5000,
         toggle_delay_ms: 250,
+        reapply_delay_ms: 15000,
         refresh_display_settings: false,
         refresh_broadcast_color: false,
         refresh_invalidate: true,

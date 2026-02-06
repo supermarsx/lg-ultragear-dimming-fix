@@ -8,12 +8,12 @@
 
 .EXAMPLE
     pwsh -File scripts\service-build.ps1
-    pwsh -File scripts\service-build.ps1 -Debug
+    pwsh -File scripts\service-build.ps1 -DebugBuild
 #>
 
 [CmdletBinding()]
 param(
-    [switch]$Debug
+    [switch]$DebugBuild
 )
 
 $ErrorActionPreference = 'Stop'
@@ -44,7 +44,7 @@ Tag -Tag '[STRT]' -Color Cyan -Message 'Building Rust service'
 
 Push-Location $ServiceDir
 try {
-    if ($Debug) {
+    if ($DebugBuild) {
         Tag -Tag '[STEP]' -Color Yellow -Message 'cargo build (debug)'
         cargo build 2>&1 | Write-Host
     } else {
@@ -57,7 +57,7 @@ try {
         exit $LASTEXITCODE
     }
 
-    if ($Debug) {
+    if ($DebugBuild) {
         $bin = Join-Path $ServiceDir 'target\debug\lg-ultragear-color-svc.exe'
     } else {
         $bin = Join-Path $ServiceDir 'target\release\lg-ultragear-color-svc.exe'
@@ -66,6 +66,16 @@ try {
     if (Test-Path $bin) {
         $size = [math]::Round((Get-Item $bin).Length / 1KB, 1)
         Tag -Tag '[ OK ]' -Color Green -Message "Built: $bin ($size KB)"
+
+        # ── Copy to dist/ ─────────────────────────────────────────
+        $DistDir = Join-Path $RepoRoot 'dist'
+        if (-not (Test-Path $DistDir)) {
+            New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
+        }
+        $DistBin = Join-Path $DistDir 'lg-ultragear-color-svc.exe'
+        Copy-Item -LiteralPath $bin -Destination $DistBin -Force
+        $distSize = [math]::Round((Get-Item $DistBin).Length / 1KB, 1)
+        Tag -Tag '[ OK ]' -Color Green -Message "Copied to: $DistBin ($distSize KB)"
     } else {
         Tag -Tag '[WARN]' -Color Yellow -Message "Binary not found at expected path: $bin"
     }

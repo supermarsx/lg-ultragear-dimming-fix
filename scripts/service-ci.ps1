@@ -114,6 +114,15 @@ try {
         if (Test-Path $bin) {
             $size = [math]::Round((Get-Item $bin).Length / 1KB, 1)
             Tag -Tag '[ OK ]' -Color Green -Message "Release build: $bin ($size KB)"
+
+            # ── Copy to dist/ ─────────────────────────────────────
+            $DistDir = Join-Path $RepoRoot 'dist'
+            if (-not (Test-Path $DistDir)) {
+                New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
+            }
+            $DistBin = Join-Path $DistDir 'lg-ultragear-color-svc.exe'
+            Copy-Item -LiteralPath $bin -Destination $DistBin -Force
+            Tag -Tag '[ OK ]' -Color Green -Message "Copied to: $DistBin"
         } else {
             Tag -Tag '[ OK ]' -Color Green -Message 'Release build succeeded'
         }

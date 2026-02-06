@@ -191,3 +191,255 @@ fn thread_config_can_be_updated() {
         *c.borrow_mut() = Config::default();
     });
 }
+
+// ── Debounce epoch counter ───────────────────────────────────────
+
+#[test]
+fn debounce_epoch_starts_at_zero() {
+    DEBOUNCE_EPOCH.store(0, Ordering::SeqCst);
+    assert_eq!(DEBOUNCE_EPOCH.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn debounce_epoch_fetch_add_returns_previous() {
+    DEBOUNCE_EPOCH.store(5, Ordering::SeqCst);
+    let prev = DEBOUNCE_EPOCH.fetch_add(1, Ordering::SeqCst);
+    assert_eq!(prev, 5);
+    assert_eq!(DEBOUNCE_EPOCH.load(Ordering::SeqCst), 6);
+    DEBOUNCE_EPOCH.store(0, Ordering::SeqCst);
+}
+
+#[test]
+fn debounce_epoch_increments_sequentially() {
+    DEBOUNCE_EPOCH.store(0, Ordering::SeqCst);
+    for i in 1..=5 {
+        let epoch = DEBOUNCE_EPOCH.fetch_add(1, Ordering::SeqCst) + 1;
+        assert_eq!(epoch, i);
+    }
+    assert_eq!(DEBOUNCE_EPOCH.load(Ordering::SeqCst), 5);
+    DEBOUNCE_EPOCH.store(0, Ordering::SeqCst);
+}
+
+#[test]
+fn debounce_stale_epoch_detected() {
+    DEBOUNCE_EPOCH.store(0, Ordering::SeqCst);
+    let epoch_a = DEBOUNCE_EPOCH.fetch_add(1, Ordering::SeqCst) + 1;
+    let _epoch_b = DEBOUNCE_EPOCH.fetch_add(1, Ordering::SeqCst) + 1;
+    let current = DEBOUNCE_EPOCH.load(Ordering::SeqCst);
+    assert_ne!(epoch_a, current, "Stale epoch should differ from current");
+    DEBOUNCE_EPOCH.store(0, Ordering::SeqCst);
+}
+
+#[test]
+fn debounce_latest_epoch_proceeds() {
+    DEBOUNCE_EPOCH.store(0, Ordering::SeqCst);
+    let epoch = DEBOUNCE_EPOCH.fetch_add(1, Ordering::SeqCst) + 1;
+    let current = DEBOUNCE_EPOCH.load(Ordering::SeqCst);
+    assert_eq!(epoch, current, "Latest epoch should match current");
+    DEBOUNCE_EPOCH.store(0, Ordering::SeqCst);
+}
+
+// ── Event flag constants ─────────────────────────────────────────
+
+#[test]
+fn event_flags_are_distinct_bits() {
+    let all = [
+        EVENT_DEVICE_ARRIVAL,
+        EVENT_DEVNODES_CHANGED,
+        EVENT_SESSION_LOGON,
+        EVENT_SESSION_UNLOCK,
+        EVENT_CONSOLE_CONNECT,
+    ];
+    // Each flag should be a single bit, no overlaps
+    for (i, &a) in all.iter().enumerate() {
+        assert!(a.count_ones() == 1, "Flag 0b{:08b} is not a single bit", a);
+        for &b in &all[i + 1..] {
+            assert_eq!(a & b, 0, "Flags 0b{:08b} and 0b{:08b} overlap", a, b);
+        }
+    }
+}
+
+#[test]
+fn event_mask_device_covers_device_flags() {
+    assert_ne!(EVENT_MASK_DEVICE & EVENT_DEVICE_ARRIVAL, 0);
+    assert_ne!(EVENT_MASK_DEVICE & EVENT_DEVNODES_CHANGED, 0);
+    // Should not cover session flags
+    assert_eq!(EVENT_MASK_DEVICE & EVENT_SESSION_LOGON, 0);
+    assert_eq!(EVENT_MASK_DEVICE & EVENT_SESSION_UNLOCK, 0);
+    assert_eq!(EVENT_MASK_DEVICE & EVENT_CONSOLE_CONNECT, 0);
+}
+
+#[test]
+fn event_mask_session_covers_session_flags() {
+    assert_ne!(EVENT_MASK_SESSION & EVENT_SESSION_LOGON, 0);
+    assert_ne!(EVENT_MASK_SESSION & EVENT_SESSION_UNLOCK, 0);
+    assert_ne!(EVENT_MASK_SESSION & EVENT_CONSOLE_CONNECT, 0);
+    // Should not cover device flags
+    assert_eq!(EVENT_MASK_SESSION & EVENT_DEVICE_ARRIVAL, 0);
+    assert_eq!(EVENT_MASK_SESSION & EVENT_DEVNODES_CHANGED, 0);
+}
+
+#[test]
+fn event_masks_are_disjoint() {
+    assert_eq!(
+        EVENT_MASK_DEVICE & EVENT_MASK_SESSION,
+        0,
+        "Device and session masks must not overlap"
+    );
+}
+
+// ── Debounce event accumulator ───────────────────────────────────
+
+#[test]
+fn debounce_events_starts_empty() {
+    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
+    assert_eq!(DEBOUNCE_EVENTS.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn debounce_events_accumulates_single_flag() {
+    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
+    DEBOUNCE_EVENTS.fetch_or(EVENT_DEVICE_ARRIVAL, Ordering::SeqCst);
+    let events = DEBOUNCE_EVENTS.load(Ordering::SeqCst);
+    assert_ne!(events & EVENT_DEVICE_ARRIVAL, 0);
+    assert_eq!(events & EVENT_SESSION_LOGON, 0);
+    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
+}
+
+#[test]
+fn debounce_events_accumulates_multiple_flags() {
+    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
+    DEBOUNCE_EVENTS.fetch_or(EVENT_DEVICE_ARRIVAL, Ordering::SeqCst);
+    DEBOUNCE_EVENTS.fetch_or(EVENT_DEVNODES_CHANGED, Ordering::SeqCst);
+    DEBOUNCE_EVENTS.fetch_or(EVENT_SESSION_UNLOCK, Ordering::SeqCst);
+    let events = DEBOUNCE_EVENTS.load(Ordering::SeqCst);
+    assert_ne!(events & EVENT_MASK_DEVICE, 0, "Should have device events");
+    assert_ne!(events & EVENT_MASK_SESSION, 0, "Should have session events");
+    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
+}
+
+#[test]
+fn debounce_events_or_is_idempotent() {
+    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
+    DEBOUNCE_EVENTS.fetch_or(EVENT_DEVICE_ARRIVAL, Ordering::SeqCst);
+    DEBOUNCE_EVENTS.fetch_or(EVENT_DEVICE_ARRIVAL, Ordering::SeqCst);
+    DEBOUNCE_EVENTS.fetch_or(EVENT_DEVICE_ARRIVAL, Ordering::SeqCst);
+    let events = DEBOUNCE_EVENTS.load(Ordering::SeqCst);
+    assert_eq!(
+        events, EVENT_DEVICE_ARRIVAL,
+        "ORing same flag should be idempotent"
+    );
+    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
+}
+
+#[test]
+fn debounce_events_swap_drains_all() {
+    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
+    DEBOUNCE_EVENTS.fetch_or(EVENT_DEVICE_ARRIVAL | EVENT_SESSION_LOGON, Ordering::SeqCst);
+    let drained = DEBOUNCE_EVENTS.swap(0, Ordering::SeqCst);
+    assert_ne!(drained & EVENT_DEVICE_ARRIVAL, 0);
+    assert_ne!(drained & EVENT_SESSION_LOGON, 0);
+    assert_eq!(
+        DEBOUNCE_EVENTS.load(Ordering::SeqCst),
+        0,
+        "Should be empty after drain"
+    );
+    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
+}
+
+#[test]
+fn debounce_events_device_only_no_session() {
+    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
+    DEBOUNCE_EVENTS.fetch_or(
+        EVENT_DEVICE_ARRIVAL | EVENT_DEVNODES_CHANGED,
+        Ordering::SeqCst,
+    );
+    let events = DEBOUNCE_EVENTS.swap(0, Ordering::SeqCst);
+    let has_device = events & EVENT_MASK_DEVICE != 0;
+    let has_session = events & EVENT_MASK_SESSION != 0;
+    assert!(has_device);
+    assert!(
+        !has_session,
+        "Device-only burst should not have session flag"
+    );
+}
+
+#[test]
+fn debounce_events_session_only_no_device() {
+    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
+    DEBOUNCE_EVENTS.fetch_or(EVENT_SESSION_UNLOCK, Ordering::SeqCst);
+    let events = DEBOUNCE_EVENTS.swap(0, Ordering::SeqCst);
+    let has_device = events & EVENT_MASK_DEVICE != 0;
+    let has_session = events & EVENT_MASK_SESSION != 0;
+    assert!(
+        !has_device,
+        "Session-only event should not have device flag"
+    );
+    assert!(has_session);
+}
+
+#[test]
+fn debounce_events_mixed_storm() {
+    // Simulate: monitor plug + session unlock happening together
+    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
+    DEBOUNCE_EVENTS.fetch_or(EVENT_DEVICE_ARRIVAL, Ordering::SeqCst);
+    DEBOUNCE_EVENTS.fetch_or(EVENT_DEVNODES_CHANGED, Ordering::SeqCst);
+    DEBOUNCE_EVENTS.fetch_or(EVENT_SESSION_UNLOCK, Ordering::SeqCst);
+    let events = DEBOUNCE_EVENTS.swap(0, Ordering::SeqCst);
+    let has_device = events & EVENT_MASK_DEVICE != 0;
+    let has_session = events & EVENT_MASK_SESSION != 0;
+    assert!(
+        has_device && has_session,
+        "Mixed storm should have both flags"
+    );
+}
+
+// ── Device event filtering ───────────────────────────────────────
+
+#[test]
+fn is_monitor_device_event_null_lparam_is_false() {
+    let result = unsafe { is_monitor_device_event(LPARAM(0)) };
+    assert!(
+        !result,
+        "Null LPARAM should not be treated as monitor event"
+    );
+}
+
+#[test]
+fn is_monitor_device_event_monitor_guid_is_true() {
+    let filter = DevBroadcastDeviceInterface {
+        dbcc_size: std::mem::size_of::<DevBroadcastDeviceInterface>() as u32,
+        dbcc_devicetype: DBT_DEVTYP_DEVICEINTERFACE,
+        dbcc_reserved: 0,
+        dbcc_classguid: GUID_DEVINTERFACE_MONITOR,
+        dbcc_name: [0],
+    };
+    let result = unsafe { is_monitor_device_event(LPARAM(&filter as *const _ as isize)) };
+    assert!(result, "Monitor GUID should match");
+}
+
+#[test]
+fn is_monitor_device_event_wrong_guid_is_false() {
+    let filter = DevBroadcastDeviceInterface {
+        dbcc_size: std::mem::size_of::<DevBroadcastDeviceInterface>() as u32,
+        dbcc_devicetype: DBT_DEVTYP_DEVICEINTERFACE,
+        dbcc_reserved: 0,
+        dbcc_classguid: windows::core::GUID::from_values(0x12345678, 0, 0, [0; 8]),
+        dbcc_name: [0],
+    };
+    let result = unsafe { is_monitor_device_event(LPARAM(&filter as *const _ as isize)) };
+    assert!(!result, "Non-monitor GUID should not match");
+}
+
+#[test]
+fn is_monitor_device_event_wrong_device_type_is_false() {
+    let filter = DevBroadcastDeviceInterface {
+        dbcc_size: std::mem::size_of::<DevBroadcastDeviceInterface>() as u32,
+        dbcc_devicetype: 99, // Not DBT_DEVTYP_DEVICEINTERFACE
+        dbcc_reserved: 0,
+        dbcc_classguid: GUID_DEVINTERFACE_MONITOR,
+        dbcc_name: [0],
+    };
+    let result = unsafe { is_monitor_device_event(LPARAM(&filter as *const _ as isize)) };
+    assert!(!result, "Wrong device type should not match");
+}

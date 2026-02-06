@@ -13,7 +13,7 @@ use log::{error, info, warn};
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::os::windows::ffi::OsStrExt;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{mem, ptr, thread};
@@ -81,6 +81,35 @@ struct DevBroadcastDeviceInterface {
 
 const DBT_DEVTYP_DEVICEINTERFACE: u32 = 5;
 const DEVICE_NOTIFY_WINDOW_HANDLE: u32 = 0;
+
+/// Debounce epoch counter — each new event increments this, and the handler
+/// thread only proceeds if no newer event has arrived during the debounce window.
+/// This is a true debounce: rapid events keep resetting the timer, and the
+/// reapply only fires once the storm has fully settled.
+static DEBOUNCE_EPOCH: AtomicU64 = AtomicU64::new(0);
+
+/// Accumulated event flags during the current debounce window.
+/// Each event ORs its type into this; after the window settles the handler
+/// drains the flags and validates whether the events still warrant action.
+static DEBOUNCE_EVENTS: AtomicU8 = AtomicU8::new(0);
+
+// ── Event type bitflags ──────────────────────────────────────────
+
+/// A monitor device interface was plugged in (GUID-filtered).
+const EVENT_DEVICE_ARRIVAL: u8 = 0b0000_0001;
+/// Generic devnode topology change (could be any device class).
+const EVENT_DEVNODES_CHANGED: u8 = 0b0000_0010;
+/// User logged on to a new session.
+const EVENT_SESSION_LOGON: u8 = 0b0000_0100;
+/// User unlocked an existing session.
+const EVENT_SESSION_UNLOCK: u8 = 0b0000_1000;
+/// A console was connected (e.g. Remote Desktop switch).
+const EVENT_CONSOLE_CONNECT: u8 = 0b0001_0000;
+
+/// Mask: any device-related event.
+const EVENT_MASK_DEVICE: u8 = EVENT_DEVICE_ARRIVAL | EVENT_DEVNODES_CHANGED;
+/// Mask: any session-related event.
+const EVENT_MASK_SESSION: u8 = EVENT_SESSION_LOGON | EVENT_SESSION_UNLOCK | EVENT_CONSOLE_CONNECT;
 
 // FFI for RegisterDeviceNotificationW (not always in windows crate metadata)
 #[link(name = "user32")]
@@ -265,11 +294,8 @@ fn run_event_loop(
 
     info!("Event loop started, listening for display and session events");
 
-    // Do an initial profile apply on startup
-    THREAD_CONFIG.with(|c| {
-        let cfg = c.borrow().clone();
-        handle_profile_reapply(&cfg);
-    });
+    // Initial profile apply on startup (no stabilize delay needed)
+    handle_profile_reapply(config);
 
     // Message pump
     unsafe {
@@ -304,7 +330,123 @@ fn run_event_loop(
     Ok(())
 }
 
+/// Check if a `DBT_DEVICEARRIVAL` event is for a monitor device interface.
+/// Reads the broadcast header from LPARAM to compare the class GUID.
+unsafe fn is_monitor_device_event(lparam: LPARAM) -> bool {
+    if lparam.0 == 0 {
+        return false; // No broadcast data
+    }
+    let header = lparam.0 as *const DevBroadcastDeviceInterface;
+    (*header).dbcc_devicetype == DBT_DEVTYP_DEVICEINTERFACE
+        && (*header).dbcc_classguid == GUID_DEVINTERFACE_MONITOR
+}
+
+/// Schedule a profile reapply with event-aware debounce.
+///
+/// Each call accumulates the event type into `DEBOUNCE_EVENTS` and increments
+/// the epoch counter. The spawned thread sleeps for the debounce window, then:
+///   1. Checks epoch — if a newer event arrived, this thread exits (superseded).
+///   2. Drains the accumulated event flags and validates them:
+///      - Device-only: WMI quick-check for matching monitors.
+///        If none found, skip the 12s+ wait entirely.
+///      - Session: always valid (user just arrived).
+///      - Both: session guarantees relevance, proceed.
+///   3. If validated, waits `reapply_delay_ms` for display to fully initialize.
+///   4. Runs the reapply pipeline.
+///
+/// Timeline for a typical monitor plug + session unlock:
+///   t=0ms     DBT_DEVICEARRIVAL     → epoch 1, flags |= DEVICE_ARRIVAL
+///   t=50ms    DBT_DEVNODES_CHANGED  → epoch 2, flags |= DEVNODES_CHANGED
+///   t=80ms    WTS_SESSION_UNLOCK    → epoch 3, flags |= SESSION_UNLOCK
+///   t=1580ms  thread C wakes, epoch 3 = 3 → drains flags (DEVICE|SESSION)
+///             session present → skip WMI quick-check, proceed
+///             wait reapply_delay_ms (12s) → t≈13.6s → ICC profile applied
+fn schedule_reapply(config: &Config, event_flag: u8) {
+    DEBOUNCE_EVENTS.fetch_or(event_flag, Ordering::SeqCst);
+    let epoch = DEBOUNCE_EPOCH.fetch_add(1, Ordering::SeqCst) + 1;
+    info!(
+        "Event received (flag=0b{:08b}), debounce epoch={}",
+        event_flag, epoch
+    );
+
+    let cfg = config.clone();
+    thread::spawn(move || {
+        // Phase 1: Debounce window — wait for event storm to settle
+        thread::sleep(Duration::from_millis(cfg.stabilize_delay_ms));
+
+        let current = DEBOUNCE_EPOCH.load(Ordering::SeqCst);
+        if current != epoch {
+            info!(
+                "Debounce: epoch {} superseded by {}, skipping",
+                epoch, current
+            );
+            return;
+        }
+
+        // Phase 2: Drain accumulated events and validate
+        let events = DEBOUNCE_EVENTS.swap(0, Ordering::SeqCst);
+        let has_device = events & EVENT_MASK_DEVICE != 0;
+        let has_session = events & EVENT_MASK_SESSION != 0;
+
+        info!(
+            "Debounce settled (epoch={}): flags=0b{:08b}, device={}, session={}",
+            epoch, events, has_device, has_session
+        );
+
+        if !has_device && !has_session {
+            info!("No actionable events accumulated, skipping");
+            return;
+        }
+
+        // For device-only events, do a quick WMI check BEFORE the long wait.
+        // This one ~5ms WMI query can save the entire reapply_delay_ms (12s+)
+        // if the monitor was unplugged during the debounce window.
+        if has_device && !has_session {
+            match monitor::find_matching_monitors(&cfg.monitor_match) {
+                Ok(devices) if devices.is_empty() => {
+                    info!("Post-debounce: device event but no matching monitors found, skipping");
+                    return;
+                }
+                Ok(devices) => {
+                    info!(
+                        "Post-debounce: {} matching monitor(s) confirmed",
+                        devices.len()
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        "Post-debounce monitor check failed: {}, proceeding anyway",
+                        e
+                    );
+                }
+            }
+        }
+        // Session events always proceed — user just arrived, display needs profile.
+
+        // Phase 3: Post-settle delay — let the display fully initialize
+        // (backlight ramp, scaler sync, color pipeline ready)
+        if cfg.reapply_delay_ms > 0 {
+            info!(
+                "Display settled, waiting {}ms for full initialization",
+                cfg.reapply_delay_ms
+            );
+            thread::sleep(Duration::from_millis(cfg.reapply_delay_ms));
+        }
+
+        // Phase 4: Apply the profile
+        handle_profile_reapply(&cfg);
+    });
+}
+
 /// Window procedure — handles device change and session change messages.
+///
+/// Event filtering order (cheapest first):
+///   1. Message type match (instant — integer compare)
+///   2. Sub-event match for DEVICECHANGE/SESSION (instant — integer compare)
+///   3. Device GUID filter for DBT_DEVICEARRIVAL (instant — GUID compare,
+///      skips USB keyboards, audio devices, etc.)
+///   4. Accumulate event flag + debounce epoch bump (instant — atomic ops)
+///   5. Only then: spawn handler thread → debounce → validate → delay → reapply
 unsafe extern "system" fn wnd_proc(
     hwnd: HWND,
     msg: u32,
@@ -314,33 +456,29 @@ unsafe extern "system" fn wnd_proc(
     match msg {
         WM_DEVICECHANGE => {
             let event = wparam.0 as u32;
-            if event == DBT_DEVICEARRIVAL || event == DBT_DEVNODES_CHANGED {
+            let flag = match event {
+                DBT_DEVICEARRIVAL if is_monitor_device_event(lparam) => Some(EVENT_DEVICE_ARRIVAL),
+                DBT_DEVNODES_CHANGED => Some(EVENT_DEVNODES_CHANGED),
+                _ => None,
+            };
+            if let Some(f) = flag {
                 info!("Device change detected (event=0x{:04X})", event);
-                thread::spawn(|| {
-                    THREAD_CONFIG.with(|c| {
-                        let cfg = c.borrow().clone();
-                        thread::sleep(Duration::from_millis(cfg.stabilize_delay_ms));
-                        handle_profile_reapply(&cfg);
-                    });
-                });
+                THREAD_CONFIG.with(|c| schedule_reapply(&c.borrow(), f));
             }
             LRESULT(0)
         }
 
         WM_WTSSESSION_CHANGE => {
             let session_event = wparam.0 as u32;
-            match session_event {
-                WTS_CONSOLE_CONNECT | WTS_SESSION_LOGON | WTS_SESSION_UNLOCK => {
-                    info!("Session change detected (event=0x{:04X})", session_event);
-                    thread::spawn(|| {
-                        THREAD_CONFIG.with(|c| {
-                            let cfg = c.borrow().clone();
-                            thread::sleep(Duration::from_millis(cfg.stabilize_delay_ms));
-                            handle_profile_reapply(&cfg);
-                        });
-                    });
-                }
-                _ => {}
+            let flag = match session_event {
+                WTS_CONSOLE_CONNECT => Some(EVENT_CONSOLE_CONNECT),
+                WTS_SESSION_LOGON => Some(EVENT_SESSION_LOGON),
+                WTS_SESSION_UNLOCK => Some(EVENT_SESSION_UNLOCK),
+                _ => None,
+            };
+            if let Some(f) = flag {
+                info!("Session change detected (event=0x{:04X})", session_event);
+                THREAD_CONFIG.with(|c| schedule_reapply(&c.borrow(), f));
             }
             LRESULT(0)
         }
@@ -355,12 +493,36 @@ unsafe extern "system" fn wnd_proc(
 }
 
 /// Detect matching monitors and reapply the profile, then optionally toast.
+///
+/// Check order (cheapest → most expensive):
+///   1. Config string validation (nanoseconds — in-memory compare)
+///   2. Profile file existence (microseconds — single filesystem stat)
+///   3. WMI monitor enumeration (milliseconds — COM init + WQL query)
+///   4. Profile toggle per device (milliseconds — mscms.dll FFI)
+///   5. Display refresh (milliseconds — Win32 broadcast)
+///   6. Calibration loader (tens of ms — spawns schtasks.exe)
+///   7. Toast notification (hundreds of ms — spawns PowerShell)
 fn handle_profile_reapply(config: &Config) {
-    if !profile::is_profile_installed(config) {
-        warn!("ICC profile not found, skipping reapply");
+    // ── Cheapest: in-memory config validation (nanoseconds) ─────────
+    if config.monitor_match.is_empty() {
+        warn!("Monitor match pattern is empty, skipping reapply");
+        return;
+    }
+    if config.profile_name.is_empty() {
+        warn!("Profile name is empty, skipping reapply");
         return;
     }
 
+    // ── Cheap: single filesystem stat (microseconds) ────────────────
+    if !profile::is_profile_installed(config) {
+        warn!(
+            "ICC profile not found: {}, skipping reapply",
+            config.profile_path().display()
+        );
+        return;
+    }
+
+    // ── Expensive: COM init + WMI WQL query (milliseconds) ──────────
     match monitor::find_matching_monitors(&config.monitor_match) {
         Ok(devices) if devices.is_empty() => {
             info!("No matching monitors found, skipping");

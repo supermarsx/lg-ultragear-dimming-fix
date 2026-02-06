@@ -46,6 +46,11 @@ pub struct Config {
     /// Gives Windows time to process the profile removal.
     pub toggle_delay_ms: u64,
 
+    /// Milliseconds to wait after the event storm settles before reapplying.
+    /// This gives the display time to fully initialize (backlight ramp,
+    /// scaler sync, color pipeline). Default 12000 (12 seconds).
+    pub reapply_delay_ms: u64,
+
     /// Whether to call `ChangeDisplaySettingsExW` as part of the refresh.
     pub refresh_display_settings: bool,
 
@@ -72,6 +77,7 @@ impl Default for Config {
             toast_body: "Color profile reapplied ✓".to_string(),
             stabilize_delay_ms: 1500,
             toggle_delay_ms: 100,
+            reapply_delay_ms: 12000,
             refresh_display_settings: true,
             refresh_broadcast_color: true,
             refresh_invalidate: true,
@@ -166,6 +172,11 @@ stabilize_delay_ms = {stabilize_delay_ms}
 # The "toggle" forces Windows to actually reload the ICC data.
 toggle_delay_ms = {toggle_delay_ms}
 
+# Delay after events settle before reapplying the profile (ms).
+# Lets the display fully power on (backlight, scaler, color pipeline).
+# 12000 = 12 seconds. Increase to 15000 for slow-wake monitors.
+reapply_delay_ms = {reapply_delay_ms}
+
 # ─── Refresh Methods ─────────────────────────────────────────────────
 # Which display refresh methods to use after toggling the profile.
 # All enabled by default for maximum reliability.
@@ -185,6 +196,7 @@ verbose = {verbose}
             toast_body = cfg.toast_body,
             stabilize_delay_ms = cfg.stabilize_delay_ms,
             toggle_delay_ms = cfg.toggle_delay_ms,
+            reapply_delay_ms = cfg.reapply_delay_ms,
             refresh_display_settings = cfg.refresh_display_settings,
             refresh_broadcast_color = cfg.refresh_broadcast_color,
             refresh_invalidate = cfg.refresh_invalidate,
