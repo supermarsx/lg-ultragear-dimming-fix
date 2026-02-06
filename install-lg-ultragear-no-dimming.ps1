@@ -891,7 +891,16 @@ public class Win32Display {
 
 # Method 3: Invalidate all windows to force repaint with new color profile
 [void][Win32Display]::InvalidateRect([IntPtr]::Zero, [IntPtr]::Zero, `$true)
+
+# Method 4: Trigger Windows Calibration Loader - this is the key to reloading ICC profiles
+try {
+    Start-ScheduledTask -TaskPath "\Microsoft\Windows\WindowsColorSystem\" -TaskName "Calibration Loader" -ErrorAction SilentlyContinue
+} catch {
+    # Task may not exist on all systems
+}
 $(if ($ShowToast) { $toastBlock } else { '' })
+
+exit 0
 "@
 
         $actionScriptPath = "$env:ProgramData\LG-UltraGear-Monitor\reapply-profile.ps1"

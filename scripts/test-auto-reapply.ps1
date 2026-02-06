@@ -121,6 +121,13 @@ $SMTO_ABORTIFHUNG = 0x0002
 # Method 3: Invalidate all windows to force repaint with new color profile
 [void][Win32Display]::InvalidateRect([IntPtr]::Zero, [IntPtr]::Zero, $true)
 
+# Method 4: Trigger Windows Calibration Loader - this is the key to reloading ICC profiles
+try {
+    Start-ScheduledTask -TaskPath "\Microsoft\Windows\WindowsColorSystem\" -TaskName "Calibration Loader" -ErrorAction SilentlyContinue
+} catch {
+    # Task may not exist on all systems
+}
+
 # ============================================================================
 # TOAST NOTIFICATION
 # ============================================================================
@@ -143,3 +150,5 @@ if (-not $NoNotification) {
         # Notification failed silently - not critical
     }
 }
+
+exit 0
