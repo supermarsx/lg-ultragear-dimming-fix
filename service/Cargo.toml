@@ -1,0 +1,39 @@
+[package]
+name = "lg-ultragear-color-svc"
+version = "1.0.0"
+edition = "2021"
+description = "Windows service that monitors LG UltraGear display connections and reapplies the no-dimming ICC color profile."
+authors = ["LG UltraGear Dimming Fix Contributors"]
+license = "MIT"
+
+[[bin]]
+name = "lg-ultragear-color-svc"
+path = "src/main.rs"
+
+[dependencies]
+windows-service = "0.7"
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_ColorSystem",
+    "Win32_Graphics_Gdi",
+    "Win32_System_RemoteDesktop",
+    "Win32_Security",
+] }
+wmi = "0.14"
+serde = { version = "1", features = ["derive"] }
+log = "0.4"
+winlog = "0.2"
+winreg = "0.55"
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+codegen-units = 1

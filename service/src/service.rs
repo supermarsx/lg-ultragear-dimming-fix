@@ -1,0 +1,494 @@
+//! Windows Service implementation with device notification and session change handling.
+//!
+//! Architecture:
+//!   - Service main thread registers with SCM via `windows-service` crate
+//!   - Creates a hidden message-only window on a worker thread in the user's session
+//!   - Window receives `WM_DEVICECHANGE` (monitor plug/unplug) and
+//!     `WM_WTSSESSION_CHANGE` (logon, unlock, console connect)
+//!   - On relevant events, triggers the profile reapply pipeline
+//!   - Service stop signal cleanly destroys the window and exits
+
+use crate::{config, config::Config, monitor, profile, toast};
+use log::{error, info, warn};
+use std::error::Error;
+use std::ffi::{OsStr, OsString};
+use std::os::windows::ffi::OsStrExt;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+use std::{mem, ptr, thread};
+
+use windows::core::PCWSTR;
+use windows::Win32::Foundation::{BOOL, HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::System::RemoteDesktop::{
+    WTSRegisterSessionNotification, WTSUnRegisterSessionNotification, NOTIFY_FOR_ALL_SESSIONS,
+};
+use windows::Win32::UI::WindowsAndMessaging::*;
+
+use windows_service::service::{
+    ServiceAccess, ServiceControl, ServiceControlAccept, ServiceErrorControl, ServiceExitCode,
+    ServiceInfo, ServiceStartType, ServiceState, ServiceStatus, ServiceType,
+};
+use windows_service::service_control_handler::{self, ServiceControlHandlerResult};
+use windows_service::service_dispatcher;
+use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const SERVICE_NAME: &str = "lg-ultragear-color-svc";
+const SERVICE_DISPLAY_NAME: &str = "LG UltraGear Color Profile Service";
+const SERVICE_DESCRIPTION: &str =
+    "Monitors display connections and reapplies the LG UltraGear no-dimming ICC color profile.";
+
+/// Registry key where we store the monitor match pattern.
+const CONFIG_REG_KEY: &str = r"SYSTEM\CurrentControlSet\Services\lg-ultragear-color-svc\Parameters";
+const CONFIG_REG_VALUE: &str = "MonitorMatch";
+
+/// Custom window message to signal shutdown.
+const WM_QUIT_SERVICE: u32 = WM_USER + 1;
+
+/// GUID for display device interface notifications.
+/// GUID_DEVINTERFACE_MONITOR = {E6F07B5F-EE97-4a90-B076-33F57BF4EAA7}
+const GUID_DEVINTERFACE_MONITOR: windows::core::GUID = windows::core::GUID::from_values(
+    0xE6F07B5F,
+    0xEE97,
+    0x4A90,
+    [0xB0, 0x76, 0x33, 0xF5, 0x7B, 0xF4, 0xEA, 0xA7],
+);
+
+/// WM_DEVICECHANGE constants.
+const WM_DEVICECHANGE: u32 = 0x0219;
+const DBT_DEVICEARRIVAL: u32 = 0x8000;
+const DBT_DEVNODES_CHANGED: u32 = 0x0007;
+
+/// WM_WTSSESSION_CHANGE constants.
+const WM_WTSSESSION_CHANGE: u32 = 0x02B1;
+const WTS_CONSOLE_CONNECT: u32 = 0x1;
+const WTS_SESSION_LOGON: u32 = 0x5;
+const WTS_SESSION_UNLOCK: u32 = 0x8;
+
+/// DEV_BROADCAST_DEVICEINTERFACE_W for RegisterDeviceNotificationW.
+#[repr(C)]
+struct DevBroadcastDeviceInterface {
+    dbcc_size: u32,
+    dbcc_devicetype: u32,
+    dbcc_reserved: u32,
+    dbcc_classguid: windows::core::GUID,
+    dbcc_name: [u16; 1],
+}
+
+const DBT_DEVTYP_DEVICEINTERFACE: u32 = 5;
+const DEVICE_NOTIFY_WINDOW_HANDLE: u32 = 0;
+
+// FFI for RegisterDeviceNotificationW (not always in windows crate metadata)
+#[link(name = "user32")]
+extern "system" {
+    fn RegisterDeviceNotificationW(
+        recipient: HWND,
+        notification_filter: *const DevBroadcastDeviceInterface,
+        flags: u32,
+    ) -> *mut std::ffi::c_void;
+
+    fn UnregisterDeviceNotification(handle: *mut std::ffi::c_void) -> BOOL;
+}
+
+// ============================================================================
+// Service dispatch (called by SCM)
+// ============================================================================
+
+/// Entry point when launched by the Service Control Manager.
+pub fn run() -> Result<(), Box<dyn Error>> {
+    service_dispatcher::start(SERVICE_NAME, ffi_service_main)?;
+    Ok(())
+}
+
+windows_service::define_windows_service!(ffi_service_main, service_main);
+
+fn service_main(arguments: Vec<OsString>) {
+    if let Err(e) = run_service(arguments) {
+        error!("Service error: {}", e);
+    }
+}
+
+fn run_service(_arguments: Vec<OsString>) -> Result<(), Box<dyn Error>> {
+    // Load config from file (falls back to defaults)
+    let cfg = Config::load();
+    info!(
+        "Service starting. Monitor pattern: \"{}\", toast: {}, profile: {}",
+        cfg.monitor_match, cfg.toast_enabled, cfg.profile_name
+    );
+
+    let running = Arc::new(AtomicBool::new(true));
+    let running_clone = running.clone();
+
+    // We'll store the message window handle so we can post WM_QUIT_SERVICE from the control handler
+    let hwnd: Arc<std::sync::Mutex<Option<isize>>> = Arc::new(std::sync::Mutex::new(None));
+    let hwnd_clone = hwnd.clone();
+
+    // Register service control handler
+    let status_handle = service_control_handler::register(
+        SERVICE_NAME,
+        move |control| -> ServiceControlHandlerResult {
+            match control {
+                ServiceControl::Stop | ServiceControl::Shutdown => {
+                    info!("Service stop/shutdown requested");
+                    running_clone.store(false, Ordering::SeqCst);
+
+                    // Post quit message to the window loop
+                    if let Some(h) = *hwnd_clone.lock().unwrap() {
+                        unsafe {
+                            let _ =
+                                PostMessageW(HWND(h as _), WM_QUIT_SERVICE, WPARAM(0), LPARAM(0));
+                        }
+                    }
+
+                    ServiceControlHandlerResult::NoError
+                }
+                ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
+                _ => ServiceControlHandlerResult::NotImplemented,
+            }
+        },
+    )?;
+
+    // Report running
+    status_handle.set_service_status(ServiceStatus {
+        service_type: ServiceType::OWN_PROCESS,
+        current_state: ServiceState::Running,
+        controls_accepted: ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN,
+        exit_code: ServiceExitCode::Win32(0),
+        checkpoint: 0,
+        wait_hint: Duration::default(),
+        process_id: None,
+    })?;
+
+    // Run the event loop
+    let result = run_event_loop(&cfg, &running, &hwnd);
+
+    if let Err(ref e) = result {
+        error!("Event loop error: {}", e);
+    }
+
+    // Report stopped
+    status_handle.set_service_status(ServiceStatus {
+        service_type: ServiceType::OWN_PROCESS,
+        current_state: ServiceState::Stopped,
+        controls_accepted: ServiceControlAccept::empty(),
+        exit_code: ServiceExitCode::Win32(0),
+        checkpoint: 0,
+        wait_hint: Duration::default(),
+        process_id: None,
+    })?;
+
+    info!("Service stopped");
+    Ok(())
+}
+
+// ============================================================================
+// Event loop with hidden message window
+// ============================================================================
+
+// Thread-local storage for the config used by the window proc.
+thread_local! {
+    static THREAD_CONFIG: std::cell::RefCell<Config> = std::cell::RefCell::new(Config::default());
+}
+
+fn run_event_loop(
+    config: &Config,
+    running: &Arc<AtomicBool>,
+    hwnd_out: &Arc<std::sync::Mutex<Option<isize>>>,
+) -> Result<(), Box<dyn Error>> {
+    // Set thread-local config for window proc
+    THREAD_CONFIG.with(|c| *c.borrow_mut() = config.clone());
+
+    // Register window class
+    let class_name = to_wide("LGUltraGearColorSvcWnd");
+    let wc = WNDCLASSEXW {
+        cbSize: mem::size_of::<WNDCLASSEXW>() as u32,
+        lpfnWndProc: Some(wnd_proc),
+        hInstance: unsafe {
+            windows::Win32::System::LibraryLoader::GetModuleHandleW(PCWSTR(ptr::null()))?
+        }
+        .into(),
+        lpszClassName: PCWSTR(class_name.as_ptr()),
+        ..Default::default()
+    };
+
+    let atom = unsafe { RegisterClassExW(&wc) };
+    if atom == 0 {
+        return Err("Failed to register window class".into());
+    }
+
+    // Create message-only window (HWND_MESSAGE parent = invisible, no desktop interaction)
+    let hwnd = unsafe {
+        CreateWindowExW(
+            Default::default(),
+            PCWSTR(class_name.as_ptr()),
+            PCWSTR(class_name.as_ptr()),
+            Default::default(),
+            0,
+            0,
+            0,
+            0,
+            HWND_MESSAGE,
+            None,
+            wc.hInstance,
+            None,
+        )?
+    };
+
+    // Store handle for service control handler
+    *hwnd_out.lock().unwrap() = Some(hwnd.0 as isize);
+
+    // Register for device interface notifications (monitor connect/disconnect)
+    let filter = DevBroadcastDeviceInterface {
+        dbcc_size: mem::size_of::<DevBroadcastDeviceInterface>() as u32,
+        dbcc_devicetype: DBT_DEVTYP_DEVICEINTERFACE,
+        dbcc_reserved: 0,
+        dbcc_classguid: GUID_DEVINTERFACE_MONITOR,
+        dbcc_name: [0],
+    };
+
+    let notify_handle =
+        unsafe { RegisterDeviceNotificationW(hwnd, &filter, DEVICE_NOTIFY_WINDOW_HANDLE) };
+    if notify_handle.is_null() {
+        warn!("RegisterDeviceNotificationW failed — will rely on session events only");
+    }
+
+    // Register for session change notifications
+    let session_registered =
+        unsafe { WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_ALL_SESSIONS).is_ok() };
+    if !session_registered {
+        warn!("WTSRegisterSessionNotification failed — will rely on device events only");
+    }
+
+    info!("Event loop started, listening for display and session events");
+
+    // Do an initial profile apply on startup
+    THREAD_CONFIG.with(|c| {
+        let cfg = c.borrow().clone();
+        handle_profile_reapply(&cfg);
+    });
+
+    // Message pump
+    unsafe {
+        let mut msg = MSG::default();
+        while running.load(Ordering::SeqCst) {
+            let ret = GetMessageW(&mut msg, HWND::default(), 0, 0);
+            if ret == BOOL(0) || ret == BOOL(-1) {
+                break;
+            }
+            if msg.message == WM_QUIT_SERVICE {
+                break;
+            }
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+
+    // Cleanup
+    if session_registered {
+        let _ = unsafe { WTSUnRegisterSessionNotification(hwnd) };
+    }
+    if !notify_handle.is_null() {
+        unsafe {
+            let _ = UnregisterDeviceNotification(notify_handle);
+        }
+    }
+    unsafe {
+        let _ = DestroyWindow(hwnd);
+        let _ = UnregisterClassW(PCWSTR(class_name.as_ptr()), wc.hInstance);
+    }
+
+    Ok(())
+}
+
+/// Window procedure — handles device change and session change messages.
+unsafe extern "system" fn wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    match msg {
+        WM_DEVICECHANGE => {
+            let event = wparam.0 as u32;
+            if event == DBT_DEVICEARRIVAL || event == DBT_DEVNODES_CHANGED {
+                info!("Device change detected (event=0x{:04X})", event);
+                thread::spawn(|| {
+                    THREAD_CONFIG.with(|c| {
+                        let cfg = c.borrow().clone();
+                        thread::sleep(Duration::from_millis(cfg.stabilize_delay_ms));
+                        handle_profile_reapply(&cfg);
+                    });
+                });
+            }
+            LRESULT(0)
+        }
+
+        WM_WTSSESSION_CHANGE => {
+            let session_event = wparam.0 as u32;
+            match session_event {
+                WTS_CONSOLE_CONNECT | WTS_SESSION_LOGON | WTS_SESSION_UNLOCK => {
+                    info!("Session change detected (event=0x{:04X})", session_event);
+                    thread::spawn(|| {
+                        THREAD_CONFIG.with(|c| {
+                            let cfg = c.borrow().clone();
+                            thread::sleep(Duration::from_millis(cfg.stabilize_delay_ms));
+                            handle_profile_reapply(&cfg);
+                        });
+                    });
+                }
+                _ => {}
+            }
+            LRESULT(0)
+        }
+
+        WM_QUIT_SERVICE => {
+            PostQuitMessage(0);
+            LRESULT(0)
+        }
+
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
+/// Detect matching monitors and reapply the profile, then optionally toast.
+fn handle_profile_reapply(config: &Config) {
+    if !profile::is_profile_installed(config) {
+        warn!("ICC profile not found, skipping reapply");
+        return;
+    }
+
+    match monitor::find_matching_monitors(&config.monitor_match) {
+        Ok(devices) if devices.is_empty() => {
+            info!("No matching monitors found, skipping");
+        }
+        Ok(devices) => {
+            for device in &devices {
+                info!(
+                    "Reapplying profile for: {} ({})",
+                    device.name, device.device_key
+                );
+                if let Err(e) = profile::reapply_profile(&device.device_key, config) {
+                    error!("Failed to reapply for {}: {}", device.name, e);
+                }
+            }
+            profile::refresh_display(config);
+            profile::trigger_calibration_loader(config);
+            toast::show_reapply_toast(config);
+            info!("Profile reapply complete for {} monitor(s)", devices.len());
+        }
+        Err(e) => {
+            error!("Monitor enumeration failed: {}", e);
+        }
+    }
+}
+
+// ============================================================================
+// Service install/uninstall/start/stop/status
+// ============================================================================
+
+pub fn install(monitor_match: &str) -> Result<(), Box<dyn Error>> {
+    let manager = ServiceManager::local_computer(
+        None::<&str>,
+        ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
+    )?;
+
+    let exe_path = std::env::current_exe()?;
+
+    let service_info = ServiceInfo {
+        name: SERVICE_NAME.into(),
+        display_name: SERVICE_DISPLAY_NAME.into(),
+        service_type: ServiceType::OWN_PROCESS,
+        start_type: ServiceStartType::AutoStart,
+        error_control: ServiceErrorControl::Normal,
+        executable_path: exe_path,
+        launch_arguments: vec![],
+        dependencies: vec![],
+        account_name: None, // LocalSystem
+        account_password: None,
+    };
+
+    let service = manager.create_service(
+        &service_info,
+        ServiceAccess::CHANGE_CONFIG | ServiceAccess::START,
+    )?;
+    service.set_description(SERVICE_DESCRIPTION)?;
+
+    // Store monitor match pattern in registry
+    write_monitor_match(monitor_match)?;
+
+    info!("Service installed successfully");
+    Ok(())
+}
+
+pub fn uninstall() -> Result<(), Box<dyn Error>> {
+    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
+    let service =
+        manager.open_service(SERVICE_NAME, ServiceAccess::STOP | ServiceAccess::DELETE)?;
+
+    // Try to stop first
+    let _ = service.stop();
+    thread::sleep(Duration::from_secs(1));
+
+    service.delete()?;
+    info!("Service uninstalled");
+    Ok(())
+}
+
+pub fn start_service() -> Result<(), Box<dyn Error>> {
+    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
+    let service = manager.open_service(SERVICE_NAME, ServiceAccess::START)?;
+    service.start::<&str>(&[])?;
+    Ok(())
+}
+
+pub fn stop_service() -> Result<(), Box<dyn Error>> {
+    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
+    let service = manager.open_service(SERVICE_NAME, ServiceAccess::STOP)?;
+    service.stop()?;
+    Ok(())
+}
+
+pub fn print_status() -> Result<(), Box<dyn Error>> {
+    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
+    let service = manager.open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS)?;
+    let status = service.query_status()?;
+    let cfg = Config::load();
+    println!("Service: {}", SERVICE_NAME);
+    println!("State:   {:?}", status.current_state);
+    println!("PID:     {:?}", status.process_id);
+    println!("Config:  {}", config::config_path().display());
+    println!("Monitor: {}", cfg.monitor_match);
+    println!("Profile: {}", cfg.profile_name);
+    println!("Toast:   {}", if cfg.toast_enabled { "on" } else { "off" });
+    Ok(())
+}
+
+// ============================================================================
+// Registry helpers for config persistence
+// ============================================================================
+
+fn write_monitor_match(pattern: &str) -> Result<(), Box<dyn Error>> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    let (key, _) = hklm.create_subkey(CONFIG_REG_KEY)?;
+    key.set_value(CONFIG_REG_VALUE, &pattern)?;
+    Ok(())
+}
+
+/// Convert a Rust string to a null-terminated wide string (UTF-16).
+fn to_wide(s: &str) -> Vec<u16> {
+    OsStr::new(s)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
+}
+
+#[cfg(test)]
+#[path = "tests/service_tests.rs"]
+mod tests;
