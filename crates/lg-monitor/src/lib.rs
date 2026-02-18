@@ -1,7 +1,7 @@
 //! Monitor detection via WMI.
 //!
 //! Enumerates connected monitors using `WmiMonitorID` and matches against
-//! the user-configured friendly name pattern (e.g. "LG ULTRAGEAR").
+//! a user-configured friendly name pattern (e.g. "LG ULTRAGEAR").
 
 use serde::Deserialize;
 use std::error::Error;

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Full CI pipeline for the Rust Windows service.
+    Full CI pipeline for the Rust workspace.
 
 .DESCRIPTION
     Runs format check → clippy lint → tests → release build in sequence.
@@ -37,26 +37,25 @@ function Ensure-Cargo {
 
 $ScriptRoot = Split-Path -Parent $PSCommandPath
 $RepoRoot = Resolve-Path (Join-Path $ScriptRoot '..')
-$ServiceDir = Join-Path $RepoRoot 'service'
 
-if (-not (Test-Path -LiteralPath (Join-Path $ServiceDir 'Cargo.toml'))) {
-    throw "service/Cargo.toml not found at: $ServiceDir"
+if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot 'Cargo.toml'))) {
+    throw "Cargo.toml not found at: $RepoRoot"
 }
 
 Ensure-Cargo
 
-Tag -Tag '[STRT]' -Color Cyan -Message 'Rust service CI: format → lint → test → build'
+Tag -Tag '[STRT]' -Color Cyan -Message 'Rust workspace CI: format → lint → test → build'
 
 $stepCount = 0
 $startTime = Get-Date
 
-Push-Location $ServiceDir
+Push-Location $RepoRoot
 try {
     # ── Step 1: Format Check ──────────────────────────────────────
     if (-not $NoFormat) {
         $stepCount++
-        Tag -Tag '[STEP]' -Color Magenta -Message "[$stepCount] cargo fmt --check"
-        cargo fmt --check 2>&1 | Write-Host
+        Tag -Tag '[STEP]' -Color Magenta -Message "[$stepCount] cargo fmt --all --check"
+        cargo fmt --all --check 2>&1 | Write-Host
         if ($LASTEXITCODE -ne 0) {
             Tag -Tag '[FAIL]' -Color Red -Message 'Format check failed. Run: pwsh -File scripts\service-format.ps1 -Fix'
             exit 1
@@ -69,7 +68,7 @@ try {
     # ── Step 2: Clippy Lint ───────────────────────────────────────
     if (-not $NoLint) {
         $stepCount++
-        $clippyArgs = @('clippy', '--all-targets')
+        $clippyArgs = @('clippy', '--workspace', '--all-targets')
         if (-not $AllowWarnings) {
             $clippyArgs += '--'
             $clippyArgs += '-D'
@@ -89,8 +88,8 @@ try {
     # ── Step 3: Tests ─────────────────────────────────────────────
     if (-not $NoTest) {
         $stepCount++
-        Tag -Tag '[STEP]' -Color Magenta -Message "[$stepCount] cargo test"
-        cargo test 2>&1 | Write-Host
+        Tag -Tag '[STEP]' -Color Magenta -Message "[$stepCount] cargo test --workspace"
+        cargo test --workspace 2>&1 | Write-Host
         if ($LASTEXITCODE -ne 0) {
             Tag -Tag '[FAIL]' -Color Red -Message 'Tests failed'
             exit 3
@@ -110,7 +109,7 @@ try {
             exit 4
         }
 
-        $bin = Join-Path $ServiceDir 'target\release\lg-ultragear-color-svc.exe'
+        $bin = Join-Path $RepoRoot 'target\release\lg-ultragear.exe'
         if (Test-Path $bin) {
             $size = [math]::Round((Get-Item $bin).Length / 1KB, 1)
             Tag -Tag '[ OK ]' -Color Green -Message "Release build: $bin ($size KB)"
@@ -120,7 +119,7 @@ try {
             if (-not (Test-Path $DistDir)) {
                 New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
             }
-            $DistBin = Join-Path $DistDir 'lg-ultragear-color-svc.exe'
+            $DistBin = Join-Path $DistDir 'lg-ultragear.exe'
             Copy-Item -LiteralPath $bin -Destination $DistBin -Force
             Tag -Tag '[ OK ]' -Color Green -Message "Copied to: $DistBin"
         } else {
@@ -134,5 +133,5 @@ try {
 }
 
 $elapsed = [math]::Round(((Get-Date) - $startTime).TotalSeconds, 1)
-Tag -Tag '[DONE]' -Color Cyan -Message "Rust service CI finished ($stepCount steps, ${elapsed}s)"
+Tag -Tag '[DONE]' -Color Cyan -Message "Rust workspace CI finished ($stepCount steps, ${elapsed}s)"
 exit 0

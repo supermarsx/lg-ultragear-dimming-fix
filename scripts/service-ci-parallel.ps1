@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Parallel CI pipeline for the Rust Windows service.
+    Parallel CI pipeline for the Rust workspace.
 
 .DESCRIPTION
     Runs format check, clippy lint, and tests in PARALLEL, then does a
@@ -43,16 +43,15 @@ function Ensure-Cargo {
 
 $ScriptRoot  = Split-Path -Parent $PSCommandPath
 $RepoRoot    = Resolve-Path (Join-Path $ScriptRoot '..')
-$ServiceDir  = Join-Path $RepoRoot 'service'
 
-if (-not (Test-Path -LiteralPath (Join-Path $ServiceDir 'Cargo.toml'))) {
-    throw "service/Cargo.toml not found at: $ServiceDir"
+if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot 'Cargo.toml'))) {
+    throw "Cargo.toml not found at: $RepoRoot"
 }
 
 Ensure-Cargo
 
 $startTime = Get-Date
-Tag -Tag '[STRT]' -Color Cyan -Message 'Rust service CI (parallel): fmt + clippy + test → build'
+Tag -Tag '[STRT]' -Color Cyan -Message 'Rust workspace CI (parallel): fmt + clippy + test → build'
 
 # ── Phase 1 — Parallel: format, lint, test ────────────────────────
 
@@ -62,10 +61,10 @@ if (-not $NoFormat) {
     $jobs += Start-Job -Name 'fmt' -ScriptBlock {
         param($dir)
         Set-Location $dir
-        $out = cargo fmt --check 2>&1
+        $out = cargo fmt --all --check 2>&1
         $code = $LASTEXITCODE
         [PSCustomObject]@{ Name = 'Format'; ExitCode = $code; Output = ($out -join "`n") }
-    } -ArgumentList $ServiceDir
+    } -ArgumentList $RepoRoot
 }
 
 if (-not $NoLint) {
@@ -74,23 +73,23 @@ if (-not $NoLint) {
         param($dir, $strict)
         Set-Location $dir
         if ($strict) {
-            $out = cargo clippy --all-targets -- -D warnings 2>&1
+            $out = cargo clippy --workspace --all-targets -- -D warnings 2>&1
         } else {
-            $out = cargo clippy --all-targets 2>&1
+            $out = cargo clippy --workspace --all-targets 2>&1
         }
         $code = $LASTEXITCODE
         [PSCustomObject]@{ Name = 'Clippy'; ExitCode = $code; Output = ($out -join "`n") }
-    } -ArgumentList $ServiceDir, (-not $AllowWarnings)
+    } -ArgumentList $RepoRoot, (-not $AllowWarnings)
 }
 
 if (-not $NoTest) {
     $jobs += Start-Job -Name 'test' -ScriptBlock {
         param($dir)
         Set-Location $dir
-        $out = cargo test 2>&1
+        $out = cargo test --workspace 2>&1
         $code = $LASTEXITCODE
         [PSCustomObject]@{ Name = 'Test'; ExitCode = $code; Output = ($out -join "`n") }
-    } -ArgumentList $ServiceDir
+    } -ArgumentList $RepoRoot
 }
 
 # Wait for all parallel jobs
@@ -131,7 +130,7 @@ Tag -Tag '[ OK ]' -Color Green -Message 'Parallel phase passed'
 if (-not $NoBuild) {
     Tag -Tag '[STEP]' -Color Magenta -Message 'cargo build --release'
 
-    Push-Location $ServiceDir
+    Push-Location $RepoRoot
     try {
         cargo build --release 2>&1 | Write-Host
         if ($LASTEXITCODE -ne 0) {
@@ -139,7 +138,7 @@ if (-not $NoBuild) {
             exit 2
         }
 
-        $bin = Join-Path $ServiceDir 'target\release\lg-ultragear-color-svc.exe'
+        $bin = Join-Path $RepoRoot 'target\release\lg-ultragear.exe'
         if (Test-Path $bin) {
             $size = [math]::Round((Get-Item $bin).Length / 1KB, 1)
             Tag -Tag '[ OK ]' -Color Green -Message "Release build: $bin ($size KB)"
@@ -149,7 +148,7 @@ if (-not $NoBuild) {
             if (-not (Test-Path $DistDir)) {
                 New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
             }
-            $DistBin = Join-Path $DistDir 'lg-ultragear-color-svc.exe'
+            $DistBin = Join-Path $DistDir 'lg-ultragear.exe'
             Copy-Item -LiteralPath $bin -Destination $DistBin -Force
             $distSize = [math]::Round((Get-Item $DistBin).Length / 1KB, 1)
             Tag -Tag '[ OK ]' -Color Green -Message "Copied to: $DistBin ($distSize KB)"
@@ -166,5 +165,5 @@ if (-not $NoBuild) {
 # ── Done ──────────────────────────────────────────────────────────
 
 $elapsed = [math]::Round(((Get-Date) - $startTime).TotalSeconds, 1)
-Tag -Tag '[DONE]' -Color Cyan -Message "Rust service CI (parallel) finished (${elapsed}s)"
+Tag -Tag '[DONE]' -Color Cyan -Message "Rust workspace CI (parallel) finished (${elapsed}s)"
 exit 0

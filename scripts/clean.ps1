@@ -35,10 +35,10 @@ Tag -Tag '[STRT]' -Color Cyan -Message 'cleaning artifacts'
 $folders = @('dist', 'TestResults', 'coverage', '.coverage')
 foreach ($f in $folders) { Remove-Safe $f }
 
-# Rust service build artifacts
-$serviceTarget = Join-Path (Split-Path -Parent $PSCommandPath) '..\service\target'
-$serviceTarget = Resolve-Path $serviceTarget -ErrorAction SilentlyContinue
-if ($serviceTarget) { Remove-Safe $serviceTarget.Path }
+# Rust workspace build artifacts (workspace-level target/)
+$workspaceTarget = Join-Path (Split-Path -Parent $PSCommandPath) '..\target'
+$workspaceTarget = Resolve-Path $workspaceTarget -ErrorAction SilentlyContinue
+if ($workspaceTarget) { Remove-Safe $workspaceTarget.Path }
 
 # Common files
 $files = @('*.trx', '*.testlog', '*.coverage', '*.log', '*.nupkg')

@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-    Build the Rust Windows service binary (release mode).
+    Build the Rust workspace binary (release mode).
 
 .DESCRIPTION
-    Runs `cargo build --release` inside the service/ directory.
-    Outputs the binary to service/target/release/lg-ultragear-color-svc.exe
+    Runs `cargo build --release` from the workspace root.
+    Outputs the binary to target/release/lg-ultragear.exe
 
 .EXAMPLE
     pwsh -File scripts\service-build.ps1
@@ -32,17 +32,16 @@ function Ensure-Cargo {
 
 $ScriptRoot = Split-Path -Parent $PSCommandPath
 $RepoRoot = Resolve-Path (Join-Path $ScriptRoot '..')
-$ServiceDir = Join-Path $RepoRoot 'service'
 
-if (-not (Test-Path -LiteralPath (Join-Path $ServiceDir 'Cargo.toml'))) {
-    throw "service/Cargo.toml not found at: $ServiceDir"
+if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot 'Cargo.toml'))) {
+    throw "Cargo.toml not found at: $RepoRoot"
 }
 
 Ensure-Cargo
 
-Tag -Tag '[STRT]' -Color Cyan -Message 'Building Rust service'
+Tag -Tag '[STRT]' -Color Cyan -Message 'Building Rust workspace'
 
-Push-Location $ServiceDir
+Push-Location $RepoRoot
 try {
     if ($DebugBuild) {
         Tag -Tag '[STEP]' -Color Yellow -Message 'cargo build (debug)'
@@ -58,9 +57,9 @@ try {
     }
 
     if ($DebugBuild) {
-        $bin = Join-Path $ServiceDir 'target\debug\lg-ultragear-color-svc.exe'
+        $bin = Join-Path $RepoRoot 'target\debug\lg-ultragear.exe'
     } else {
-        $bin = Join-Path $ServiceDir 'target\release\lg-ultragear-color-svc.exe'
+        $bin = Join-Path $RepoRoot 'target\release\lg-ultragear.exe'
     }
 
     if (Test-Path $bin) {
@@ -72,7 +71,7 @@ try {
         if (-not (Test-Path $DistDir)) {
             New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
         }
-        $DistBin = Join-Path $DistDir 'lg-ultragear-color-svc.exe'
+        $DistBin = Join-Path $DistDir 'lg-ultragear.exe'
         Copy-Item -LiteralPath $bin -Destination $DistBin -Force
         $distSize = [math]::Round((Get-Item $DistBin).Length / 1KB, 1)
         Tag -Tag '[ OK ]' -Color Green -Message "Copied to: $DistBin ($distSize KB)"

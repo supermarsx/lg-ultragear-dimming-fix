@@ -32,7 +32,6 @@ fn decode_friendly_name_only_null() {
 
 #[test]
 fn decode_friendly_name_null_terminated_mid_string() {
-    // "AB\0CD" should produce "AB"
     let input = vec![65, 66, 0, 67, 68];
     let result = decode_friendly_name(&Some(input));
     assert_eq!(result, "AB");
@@ -40,7 +39,6 @@ fn decode_friendly_name_null_terminated_mid_string() {
 
 #[test]
 fn decode_friendly_name_no_null_terminator() {
-    // Without null, should decode all characters
     let input: Vec<u16> = "HELLO".encode_utf16().collect();
     let result = decode_friendly_name(&Some(input));
     assert_eq!(result, "HELLO");
@@ -107,7 +105,6 @@ fn matched_monitor_debug_format() {
 
 #[test]
 fn wmi_monitor_id_defaults() {
-    // Ensure the struct can be created with None fields
     let id = WmiMonitorId {
         user_friendly_name: None,
         instance_name: None,
@@ -126,7 +123,7 @@ fn wmi_monitor_id_with_values() {
     assert_eq!(id.instance_name.unwrap(), "DISPLAY\\LGS\\001_0");
 }
 
-// ── Instance name trimming (logic from find_matching_monitors) ──
+// ── Instance name trimming ───────────────────────────────────────
 
 #[test]
 fn instance_name_trim_trailing_zero() {

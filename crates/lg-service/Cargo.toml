@@ -1,0 +1,18 @@
+[package]
+name = "lg-service"
+description = "Windows service implementation for the LG UltraGear color profile tool."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+ctrlc.workspace = true
+lg-core.workspace = true
+lg-monitor.workspace = true
+lg-notify.workspace = true
+lg-profile.workspace = true
+log.workspace = true
+windows.workspace = true
+windows-service.workspace = true
+winreg.workspace = true

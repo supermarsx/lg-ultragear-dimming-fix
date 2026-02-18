@@ -1,5 +1,5 @@
 use super::*;
-use crate::config::Config;
+use std::path::PathBuf;
 
 // ── to_wide helper ───────────────────────────────────────────────
 
@@ -26,16 +26,14 @@ fn to_wide_path() {
     let result = to_wide(r"C:\Windows\System32\spool\drivers\color\test.icm");
     assert!(!result.is_empty());
     assert_eq!(*result.last().unwrap(), 0u16);
-    // First char should be 'C'
-    assert_eq!(result[0], 67u16);
+    assert_eq!(result[0], 67u16); // 'C'
 }
 
 #[test]
 fn to_wide_unicode() {
     let result = to_wide("日本語");
     assert_eq!(*result.last().unwrap(), 0u16);
-    // Should have 3 chars + null
-    assert_eq!(result.len(), 4);
+    assert_eq!(result.len(), 4); // 3 chars + null
 }
 
 #[test]
@@ -49,18 +47,17 @@ fn to_wide_spaces_and_special() {
 
 #[test]
 fn is_profile_installed_nonexistent_profile() {
-    let cfg = Config {
-        profile_name: "this-profile-definitely-does-not-exist-12345.icm".to_string(),
-        ..Config::default()
-    };
-    assert!(!is_profile_installed(&cfg));
+    let path = PathBuf::from(
+        r"C:\Windows\System32\spool\drivers\color\this-profile-definitely-does-not-exist-12345.icm",
+    );
+    assert!(!is_profile_installed(&path));
 }
 
 #[test]
-fn is_profile_installed_default_config() {
-    let cfg = Config::default();
+fn is_profile_installed_default_path() {
     // May or may not exist on the test machine — just verify no panic
-    let _ = is_profile_installed(&cfg);
+    let path = PathBuf::from(r"C:\Windows\System32\spool\drivers\color\lg-ultragear-full-cal.icm");
+    let _ = is_profile_installed(&path);
 }
 
 // ── WCS scope constant ───────────────────────────────────────────
@@ -70,15 +67,14 @@ fn wcs_scope_system_wide_value() {
     assert_eq!(WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE, 2);
 }
 
-// ── Config integration ───────────────────────────────────────────
+// ── Profile reapply ──────────────────────────────────────────────
 
 #[test]
 fn reapply_profile_fails_with_missing_profile() {
-    let cfg = Config {
-        profile_name: "nonexistent-test-profile-00000.icm".to_string(),
-        ..Config::default()
-    };
-    let result = reapply_profile(r"DISPLAY\TEST\001", &cfg);
+    let path = PathBuf::from(
+        r"C:\Windows\System32\spool\drivers\color\nonexistent-test-profile-00000.icm",
+    );
+    let result = reapply_profile(r"DISPLAY\TEST\001", &path, 100);
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
     assert!(
@@ -90,34 +86,19 @@ fn reapply_profile_fails_with_missing_profile() {
 
 #[test]
 fn refresh_display_with_all_methods_disabled_does_not_panic() {
-    let cfg = Config {
-        refresh_display_settings: false,
-        refresh_broadcast_color: false,
-        refresh_invalidate: false,
-        ..Config::default()
-    };
-    // Should be a no-op, no panic
-    refresh_display(&cfg);
+    // All false = complete no-op
+    refresh_display(false, false, false);
 }
 
 #[test]
 fn trigger_calibration_loader_disabled_does_not_panic() {
-    let cfg = Config {
-        refresh_calibration_loader: false,
-        ..Config::default()
-    };
-    // Should return immediately
-    trigger_calibration_loader(&cfg);
+    trigger_calibration_loader(false);
 }
 
 // ── Profile path validation ──────────────────────────────────────
 
 #[test]
 fn profile_path_for_reapply_check() {
-    let cfg = Config {
-        profile_name: "test.icm".to_string(),
-        ..Config::default()
-    };
-    let path = cfg.profile_path();
+    let path = PathBuf::from(r"C:\Windows\System32\spool\drivers\color\test.icm");
     assert!(path.to_string_lossy().ends_with("test.icm"));
 }

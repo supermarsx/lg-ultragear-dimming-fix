@@ -2,13 +2,16 @@
 //!
 //! Uses `mscms.dll` (WCS APIs) directly via the `windows` crate for reliable
 //! color profile toggling, plus display refresh via `user32.dll`.
+//!
+//! All functions take raw parameters (no Config dependency) so this crate
+//! can be used independently.
 
-use crate::config::Config;
 use log::{info, warn};
 use std::error::Error;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::process::CommandExt;
+use std::path::Path;
 use std::{ptr, thread, time::Duration};
 use windows::core::{HSTRING, PCWSTR};
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, WPARAM};
@@ -40,21 +43,29 @@ extern "system" {
     ) -> BOOL;
 }
 
-/// Check if the ICC profile is installed (using config or default).
-pub fn is_profile_installed(config: &Config) -> bool {
-    config.profile_path().exists()
+/// Check if the ICC profile is installed at the given path.
+pub fn is_profile_installed(profile_path: &Path) -> bool {
+    profile_path.exists()
 }
 
 /// Reapply the color profile for a single monitor device key using the toggle
 /// approach: disassociate (reverts to default) → pause → reassociate (applies fix).
 /// This forces Windows to actually reload the ICC profile.
-pub fn reapply_profile(device_key: &str, config: &Config) -> Result<(), Box<dyn Error>> {
-    let profile = config.profile_path();
-    if !profile.exists() {
-        return Err(format!("Profile not found: {}", profile.display()).into());
+///
+/// # Arguments
+/// * `device_key` — WMI device instance path (e.g. `DISPLAY\LGS\001`)
+/// * `profile_path` — Full path to the ICC profile file
+/// * `toggle_delay_ms` — Pause between disassociate and reassociate (ms)
+pub fn reapply_profile(
+    device_key: &str,
+    profile_path: &Path,
+    toggle_delay_ms: u64,
+) -> Result<(), Box<dyn Error>> {
+    if !profile_path.exists() {
+        return Err(format!("Profile not found: {}", profile_path.display()).into());
     }
 
-    let profile_str = profile.to_string_lossy().to_string();
+    let profile_str = profile_path.to_string_lossy().to_string();
     let profile_wide = to_wide(&profile_str);
     let device_wide = to_wide(device_key);
 
@@ -73,7 +84,7 @@ pub fn reapply_profile(device_key: &str, config: &Config) -> Result<(), Box<dyn 
         }
 
         // Step 2: Configurable pause to let Windows process the change
-        thread::sleep(Duration::from_millis(config.toggle_delay_ms));
+        thread::sleep(Duration::from_millis(toggle_delay_ms));
 
         // Step 3: Re-associate (applies the fix profile)
         let result = WcsAssociateColorProfileWithDevice(
@@ -93,11 +104,16 @@ pub fn reapply_profile(device_key: &str, config: &Config) -> Result<(), Box<dyn 
     Ok(())
 }
 
-/// Force display refresh using configured Windows APIs.
-pub fn refresh_display(config: &Config) {
+/// Force display refresh using the specified Windows APIs.
+///
+/// # Arguments
+/// * `display_settings` — Call `ChangeDisplaySettingsExW` (full display refresh)
+/// * `broadcast_color` — Broadcast `WM_SETTINGCHANGE` with "Color" parameter
+/// * `invalidate` — Call `InvalidateRect` to force window repaint
+pub fn refresh_display(display_settings: bool, broadcast_color: bool, invalidate: bool) {
     unsafe {
         // Method 1: ChangeDisplaySettingsEx with null — triggers full display mode refresh
-        if config.refresh_display_settings {
+        if display_settings {
             let _ = ChangeDisplaySettingsExW(
                 PCWSTR(ptr::null()),
                 None,
@@ -108,7 +124,7 @@ pub fn refresh_display(config: &Config) {
         }
 
         // Method 2: Broadcast WM_SETTINGCHANGE with "Color" parameter
-        if config.refresh_broadcast_color {
+        if broadcast_color {
             let color = HSTRING::from("Color");
             let mut _result = 0usize;
             let _ = SendMessageTimeoutW(
@@ -123,7 +139,7 @@ pub fn refresh_display(config: &Config) {
         }
 
         // Method 3: Invalidate all windows to force repaint
-        if config.refresh_invalidate {
+        if invalidate {
             let _ = InvalidateRect(HWND::default(), None, true);
         }
     }
@@ -131,9 +147,11 @@ pub fn refresh_display(config: &Config) {
     info!("Display refresh broadcast sent");
 }
 
-/// Trigger the built-in Windows Calibration Loader task — the key to ICC reload.
-pub fn trigger_calibration_loader(config: &Config) {
-    if !config.refresh_calibration_loader {
+/// Trigger the built-in Windows Calibration Loader scheduled task.
+///
+/// If `enabled` is false, returns immediately.
+pub fn trigger_calibration_loader(enabled: bool) {
+    if !enabled {
         return;
     }
 

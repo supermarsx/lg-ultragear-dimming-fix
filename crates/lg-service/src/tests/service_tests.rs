@@ -104,7 +104,6 @@ fn guid_devinterface_monitor_data4() {
 #[test]
 fn dev_broadcast_struct_size() {
     let size = std::mem::size_of::<DevBroadcastDeviceInterface>();
-    // Should be at least 28 bytes (4 + 4 + 4 + 16 + 2, with padding)
     assert!(size >= 28, "DevBroadcastDeviceInterface size: {}", size);
 }
 
@@ -144,7 +143,6 @@ fn to_wide_backslash_path() {
 
 #[test]
 fn service_type_own_process() {
-    // Verify we're using OWN_PROCESS (not shared)
     let st = ServiceType::OWN_PROCESS;
     assert_eq!(st, ServiceType::OWN_PROCESS);
 }
@@ -171,7 +169,6 @@ fn running_flag_can_be_set_false() {
 fn thread_config_default_accessible() {
     THREAD_CONFIG.with(|c| {
         let cfg = c.borrow();
-        // Should be default config
         assert_eq!(cfg.monitor_match, "LG ULTRAGEAR");
     });
 }
@@ -250,7 +247,6 @@ fn event_flags_are_distinct_bits() {
         EVENT_SESSION_UNLOCK,
         EVENT_CONSOLE_CONNECT,
     ];
-    // Each flag should be a single bit, no overlaps
     for (i, &a) in all.iter().enumerate() {
         assert!(a.count_ones() == 1, "Flag 0b{:08b} is not a single bit", a);
         for &b in &all[i + 1..] {
@@ -263,7 +259,6 @@ fn event_flags_are_distinct_bits() {
 fn event_mask_device_covers_device_flags() {
     assert_ne!(EVENT_MASK_DEVICE & EVENT_DEVICE_ARRIVAL, 0);
     assert_ne!(EVENT_MASK_DEVICE & EVENT_DEVNODES_CHANGED, 0);
-    // Should not cover session flags
     assert_eq!(EVENT_MASK_DEVICE & EVENT_SESSION_LOGON, 0);
     assert_eq!(EVENT_MASK_DEVICE & EVENT_SESSION_UNLOCK, 0);
     assert_eq!(EVENT_MASK_DEVICE & EVENT_CONSOLE_CONNECT, 0);
@@ -274,7 +269,6 @@ fn event_mask_session_covers_session_flags() {
     assert_ne!(EVENT_MASK_SESSION & EVENT_SESSION_LOGON, 0);
     assert_ne!(EVENT_MASK_SESSION & EVENT_SESSION_UNLOCK, 0);
     assert_ne!(EVENT_MASK_SESSION & EVENT_CONSOLE_CONNECT, 0);
-    // Should not cover device flags
     assert_eq!(EVENT_MASK_SESSION & EVENT_DEVICE_ARRIVAL, 0);
     assert_eq!(EVENT_MASK_SESSION & EVENT_DEVNODES_CHANGED, 0);
 }
@@ -380,7 +374,6 @@ fn debounce_events_session_only_no_device() {
 
 #[test]
 fn debounce_events_mixed_storm() {
-    // Simulate: monitor plug + session unlock happening together
     DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
     DEBOUNCE_EVENTS.fetch_or(EVENT_DEVICE_ARRIVAL, Ordering::SeqCst);
     DEBOUNCE_EVENTS.fetch_or(EVENT_DEVNODES_CHANGED, Ordering::SeqCst);
@@ -435,7 +428,7 @@ fn is_monitor_device_event_wrong_guid_is_false() {
 fn is_monitor_device_event_wrong_device_type_is_false() {
     let filter = DevBroadcastDeviceInterface {
         dbcc_size: std::mem::size_of::<DevBroadcastDeviceInterface>() as u32,
-        dbcc_devicetype: 99, // Not DBT_DEVTYP_DEVICEINTERFACE
+        dbcc_devicetype: 99,
         dbcc_reserved: 0,
         dbcc_classguid: GUID_DEVINTERFACE_MONITOR,
         dbcc_name: [0],

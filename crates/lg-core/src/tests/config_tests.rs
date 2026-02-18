@@ -108,7 +108,6 @@ fn parse_partial_toml_fills_defaults() {
 
     let cfg: Config = toml::from_str(toml_str).unwrap();
     assert_eq!(cfg.monitor_match, "DELL");
-    // All other fields should be default
     assert_eq!(cfg.profile_name, "lg-ultragear-full-cal.icm");
     assert!(cfg.toast_enabled);
     assert_eq!(cfg.stabilize_delay_ms, 1500);
@@ -142,13 +141,8 @@ fn parse_toml_with_extra_fields_is_ok() {
         some_future_field = 42
         another_field = "hello"
     "#;
-    // serde(default) should ignore unknown fields — but serde+toml denies them by default.
-    // This test documents the behaviour.
-    let result = toml::from_str::<Config>(toml_str);
-    // toml crate with serde by default rejects unknown fields
-    // unless we add #[serde(deny_unknown_fields)] (we don't have it, so it depends on toml version)
-    // either way, this should not panic
-    let _ = result;
+    // serde+toml behaviour with unknown fields — should not panic
+    let _ = toml::from_str::<Config>(toml_str);
 }
 
 #[test]
@@ -162,7 +156,6 @@ fn parse_toml_wrong_type_for_field_fails() {
 
 #[test]
 fn parse_toml_negative_delay_fails() {
-    // u64 can't be negative in TOML
     let toml_str = r#"
         stabilize_delay_ms = -1
     "#;
@@ -261,7 +254,6 @@ fn to_toml_commented_contains_section_headers() {
 fn to_toml_commented_is_valid_toml() {
     let cfg = Config::default();
     let output = Config::to_toml_commented(&cfg);
-    // The commented TOML should be parseable (comments are valid TOML)
     let parsed: Result<Config, _> = toml::from_str(&output);
     assert!(
         parsed.is_ok(),
@@ -323,11 +315,9 @@ fn profile_path_ends_with_profile_name() {
 
 #[test]
 fn profile_path_uses_windir_env() {
-    // This test verifies the path starts with a Windows directory
     let cfg = Config::default();
     let path = cfg.profile_path();
     let path_lower = path.to_string_lossy().to_lowercase();
-    // Should start with WINDIR or fallback C:\Windows
     assert!(
         path_lower.contains("windows"),
         "Path should reference Windows dir: {}",
@@ -364,7 +354,6 @@ fn write_default_creates_file() {
     let tmp = tempfile::tempdir().unwrap();
     let cfg_path = tmp.path().join("config.toml");
 
-    // We can't easily override config_path(), so test to_toml_commented + fs::write
     let cfg = Config::default();
     let content = Config::to_toml_commented(&cfg);
     fs::write(&cfg_path, &content).unwrap();

@@ -2,13 +2,16 @@
 //!
 //! Architecture:
 //!   - Service main thread registers with SCM via `windows-service` crate
-//!   - Creates a hidden message-only window on a worker thread in the user's session
+//!   - Creates a hidden message-only window on a worker thread
 //!   - Window receives `WM_DEVICECHANGE` (monitor plug/unplug) and
 //!     `WM_WTSSESSION_CHANGE` (logon, unlock, console connect)
 //!   - On relevant events, triggers the profile reapply pipeline
 //!   - Service stop signal cleanly destroys the window and exits
+//!
+//! Also provides a `watch()` entry point for foreground console mode
+//! (same event loop, Ctrl+C to stop).
 
-use crate::{config, config::Config, monitor, profile, toast};
+use lg_core::config::{self, Config};
 use log::{error, info, warn};
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
@@ -42,7 +45,7 @@ const SERVICE_DISPLAY_NAME: &str = "LG UltraGear Color Profile Service";
 const SERVICE_DESCRIPTION: &str =
     "Monitors display connections and reapplies the LG UltraGear no-dimming ICC color profile.";
 
-/// Registry key where we store the monitor match pattern.
+/// Registry key where we store the monitor match pattern (informational).
 const CONFIG_REG_KEY: &str = r"SYSTEM\CurrentControlSet\Services\lg-ultragear-color-svc\Parameters";
 const CONFIG_REG_VALUE: &str = "MonitorMatch";
 
@@ -84,13 +87,9 @@ const DEVICE_NOTIFY_WINDOW_HANDLE: u32 = 0;
 
 /// Debounce epoch counter — each new event increments this, and the handler
 /// thread only proceeds if no newer event has arrived during the debounce window.
-/// This is a true debounce: rapid events keep resetting the timer, and the
-/// reapply only fires once the storm has fully settled.
 static DEBOUNCE_EPOCH: AtomicU64 = AtomicU64::new(0);
 
 /// Accumulated event flags during the current debounce window.
-/// Each event ORs its type into this; after the window settles the handler
-/// drains the flags and validates whether the events still warrant action.
 static DEBOUNCE_EVENTS: AtomicU8 = AtomicU8::new(0);
 
 // ── Event type bitflags ──────────────────────────────────────────
@@ -152,7 +151,6 @@ fn run_service(_arguments: Vec<OsString>) -> Result<(), Box<dyn Error>> {
     let running = Arc::new(AtomicBool::new(true));
     let running_clone = running.clone();
 
-    // We'll store the message window handle so we can post WM_QUIT_SERVICE from the control handler
     let hwnd: Arc<std::sync::Mutex<Option<isize>>> = Arc::new(std::sync::Mutex::new(None));
     let hwnd_clone = hwnd.clone();
 
@@ -165,7 +163,6 @@ fn run_service(_arguments: Vec<OsString>) -> Result<(), Box<dyn Error>> {
                     info!("Service stop/shutdown requested");
                     running_clone.store(false, Ordering::SeqCst);
 
-                    // Post quit message to the window loop
                     if let Some(h) = *hwnd_clone.lock().unwrap() {
                         unsafe {
                             let _ =
@@ -215,6 +212,42 @@ fn run_service(_arguments: Vec<OsString>) -> Result<(), Box<dyn Error>> {
 }
 
 // ============================================================================
+// Watch mode (foreground console)
+// ============================================================================
+
+/// Run the event watcher in foreground console mode.
+///
+/// Listens for the same display and session events as the service,
+/// but runs interactively with Ctrl+C to stop. Useful for testing.
+pub fn watch(config: &Config) -> Result<(), Box<dyn Error>> {
+    let running = Arc::new(AtomicBool::new(true));
+    let running_for_handler = running.clone();
+    let hwnd: Arc<std::sync::Mutex<Option<isize>>> = Arc::new(std::sync::Mutex::new(None));
+    let hwnd_for_handler = hwnd.clone();
+
+    ctrlc::set_handler(move || {
+        println!("\n[WATCH] Shutting down...");
+        running_for_handler.store(false, Ordering::SeqCst);
+        if let Some(h) = *hwnd_for_handler.lock().unwrap() {
+            unsafe {
+                let _ = PostMessageW(HWND(h as _), WM_QUIT_SERVICE, WPARAM(0), LPARAM(0));
+            }
+        }
+    })?;
+
+    println!("[WATCH] Starting event watcher (Ctrl+C to stop)");
+    println!(
+        "[WATCH] Monitor: \"{}\"  Profile: {}  Toast: {}",
+        config.monitor_match,
+        config.profile_name,
+        if config.toast_enabled { "on" } else { "off" }
+    );
+    println!();
+
+    run_event_loop(config, &running, &hwnd)
+}
+
+// ============================================================================
 // Event loop with hidden message window
 // ============================================================================
 
@@ -249,7 +282,7 @@ fn run_event_loop(
         return Err("Failed to register window class".into());
     }
 
-    // Create message-only window (HWND_MESSAGE parent = invisible, no desktop interaction)
+    // Create message-only window (HWND_MESSAGE parent = invisible)
     let hwnd = unsafe {
         CreateWindowExW(
             Default::default(),
@@ -267,7 +300,7 @@ fn run_event_loop(
         )?
     };
 
-    // Store handle for service control handler
+    // Store handle for control/shutdown
     *hwnd_out.lock().unwrap() = Some(hwnd.0 as isize);
 
     // Register for device interface notifications (monitor connect/disconnect)
@@ -331,10 +364,9 @@ fn run_event_loop(
 }
 
 /// Check if a `DBT_DEVICEARRIVAL` event is for a monitor device interface.
-/// Reads the broadcast header from LPARAM to compare the class GUID.
 unsafe fn is_monitor_device_event(lparam: LPARAM) -> bool {
     if lparam.0 == 0 {
-        return false; // No broadcast data
+        return false;
     }
     let header = lparam.0 as *const DevBroadcastDeviceInterface;
     (*header).dbcc_devicetype == DBT_DEVTYP_DEVICEINTERFACE
@@ -346,21 +378,9 @@ unsafe fn is_monitor_device_event(lparam: LPARAM) -> bool {
 /// Each call accumulates the event type into `DEBOUNCE_EVENTS` and increments
 /// the epoch counter. The spawned thread sleeps for the debounce window, then:
 ///   1. Checks epoch — if a newer event arrived, this thread exits (superseded).
-///   2. Drains the accumulated event flags and validates them:
-///      - Device-only: WMI quick-check for matching monitors.
-///        If none found, skip the 12s+ wait entirely.
-///      - Session: always valid (user just arrived).
-///      - Both: session guarantees relevance, proceed.
+///   2. Drains accumulated event flags and validates them.
 ///   3. If validated, waits `reapply_delay_ms` for display to fully initialize.
 ///   4. Runs the reapply pipeline.
-///
-/// Timeline for a typical monitor plug + session unlock:
-///   t=0ms     DBT_DEVICEARRIVAL     → epoch 1, flags |= DEVICE_ARRIVAL
-///   t=50ms    DBT_DEVNODES_CHANGED  → epoch 2, flags |= DEVNODES_CHANGED
-///   t=80ms    WTS_SESSION_UNLOCK    → epoch 3, flags |= SESSION_UNLOCK
-///   t=1580ms  thread C wakes, epoch 3 = 3 → drains flags (DEVICE|SESSION)
-///             session present → skip WMI quick-check, proceed
-///             wait reapply_delay_ms (12s) → t≈13.6s → ICC profile applied
 fn schedule_reapply(config: &Config, event_flag: u8) {
     DEBOUNCE_EVENTS.fetch_or(event_flag, Ordering::SeqCst);
     let epoch = DEBOUNCE_EPOCH.fetch_add(1, Ordering::SeqCst) + 1;
@@ -371,7 +391,7 @@ fn schedule_reapply(config: &Config, event_flag: u8) {
 
     let cfg = config.clone();
     thread::spawn(move || {
-        // Phase 1: Debounce window — wait for event storm to settle
+        // Phase 1: Debounce window
         thread::sleep(Duration::from_millis(cfg.stabilize_delay_ms));
 
         let current = DEBOUNCE_EPOCH.load(Ordering::SeqCst);
@@ -398,11 +418,9 @@ fn schedule_reapply(config: &Config, event_flag: u8) {
             return;
         }
 
-        // For device-only events, do a quick WMI check BEFORE the long wait.
-        // This one ~5ms WMI query can save the entire reapply_delay_ms (12s+)
-        // if the monitor was unplugged during the debounce window.
+        // For device-only events, do a quick WMI check BEFORE the long wait
         if has_device && !has_session {
-            match monitor::find_matching_monitors(&cfg.monitor_match) {
+            match lg_monitor::find_matching_monitors(&cfg.monitor_match) {
                 Ok(devices) if devices.is_empty() => {
                     info!("Post-debounce: device event but no matching monitors found, skipping");
                     return;
@@ -421,10 +439,8 @@ fn schedule_reapply(config: &Config, event_flag: u8) {
                 }
             }
         }
-        // Session events always proceed — user just arrived, display needs profile.
 
-        // Phase 3: Post-settle delay — let the display fully initialize
-        // (backlight ramp, scaler sync, color pipeline ready)
+        // Phase 3: Post-settle delay
         if cfg.reapply_delay_ms > 0 {
             info!(
                 "Display settled, waiting {}ms for full initialization",
@@ -439,14 +455,6 @@ fn schedule_reapply(config: &Config, event_flag: u8) {
 }
 
 /// Window procedure — handles device change and session change messages.
-///
-/// Event filtering order (cheapest first):
-///   1. Message type match (instant — integer compare)
-///   2. Sub-event match for DEVICECHANGE/SESSION (instant — integer compare)
-///   3. Device GUID filter for DBT_DEVICEARRIVAL (instant — GUID compare,
-///      skips USB keyboards, audio devices, etc.)
-///   4. Accumulate event flag + debounce epoch bump (instant — atomic ops)
-///   5. Only then: spawn handler thread → debounce → validate → delay → reapply
 unsafe extern "system" fn wnd_proc(
     hwnd: HWND,
     msg: u32,
@@ -492,18 +500,8 @@ unsafe extern "system" fn wnd_proc(
     }
 }
 
-/// Detect matching monitors and reapply the profile, then optionally toast.
-///
-/// Check order (cheapest → most expensive):
-///   1. Config string validation (nanoseconds — in-memory compare)
-///   2. Profile file existence (microseconds — single filesystem stat)
-///   3. WMI monitor enumeration (milliseconds — COM init + WQL query)
-///   4. Profile toggle per device (milliseconds — mscms.dll FFI)
-///   5. Display refresh (milliseconds — Win32 broadcast)
-///   6. Calibration loader (tens of ms — spawns schtasks.exe)
-///   7. Toast notification (hundreds of ms — spawns PowerShell)
+/// Detect matching monitors and reapply the profile, then refresh and toast.
 fn handle_profile_reapply(config: &Config) {
-    // ── Cheapest: in-memory config validation (nanoseconds) ─────────
     if config.monitor_match.is_empty() {
         warn!("Monitor match pattern is empty, skipping reapply");
         return;
@@ -513,17 +511,16 @@ fn handle_profile_reapply(config: &Config) {
         return;
     }
 
-    // ── Cheap: single filesystem stat (microseconds) ────────────────
-    if !profile::is_profile_installed(config) {
+    let profile_path = config.profile_path();
+    if !lg_profile::is_profile_installed(&profile_path) {
         warn!(
             "ICC profile not found: {}, skipping reapply",
-            config.profile_path().display()
+            profile_path.display()
         );
         return;
     }
 
-    // ── Expensive: COM init + WMI WQL query (milliseconds) ──────────
-    match monitor::find_matching_monitors(&config.monitor_match) {
+    match lg_monitor::find_matching_monitors(&config.monitor_match) {
         Ok(devices) if devices.is_empty() => {
             info!("No matching monitors found, skipping");
         }
@@ -533,13 +530,26 @@ fn handle_profile_reapply(config: &Config) {
                     "Reapplying profile for: {} ({})",
                     device.name, device.device_key
                 );
-                if let Err(e) = profile::reapply_profile(&device.device_key, config) {
+                if let Err(e) = lg_profile::reapply_profile(
+                    &device.device_key,
+                    &profile_path,
+                    config.toggle_delay_ms,
+                ) {
                     error!("Failed to reapply for {}: {}", device.name, e);
                 }
             }
-            profile::refresh_display(config);
-            profile::trigger_calibration_loader(config);
-            toast::show_reapply_toast(config);
+            lg_profile::refresh_display(
+                config.refresh_display_settings,
+                config.refresh_broadcast_color,
+                config.refresh_invalidate,
+            );
+            lg_profile::trigger_calibration_loader(config.refresh_calibration_loader);
+            lg_notify::show_reapply_toast(
+                config.toast_enabled,
+                &config.toast_title,
+                &config.toast_body,
+                config.verbose,
+            );
             info!("Profile reapply complete for {} monitor(s)", devices.len());
         }
         Err(e) => {
@@ -567,7 +577,8 @@ pub fn install(monitor_match: &str) -> Result<(), Box<dyn Error>> {
         start_type: ServiceStartType::AutoStart,
         error_control: ServiceErrorControl::Normal,
         executable_path: exe_path,
-        launch_arguments: vec![],
+        // Tell SCM to pass "service run" so clap dispatches to service mode
+        launch_arguments: vec!["service".into(), "run".into()],
         dependencies: vec![],
         account_name: None, // LocalSystem
         account_password: None,
@@ -579,7 +590,7 @@ pub fn install(monitor_match: &str) -> Result<(), Box<dyn Error>> {
     )?;
     service.set_description(SERVICE_DESCRIPTION)?;
 
-    // Store monitor match pattern in registry
+    // Store monitor match pattern in registry (informational)
     write_monitor_match(monitor_match)?;
 
     info!("Service installed successfully");
@@ -630,7 +641,7 @@ pub fn print_status() -> Result<(), Box<dyn Error>> {
 }
 
 // ============================================================================
-// Registry helpers for config persistence
+// Helpers
 // ============================================================================
 
 fn write_monitor_match(pattern: &str) -> Result<(), Box<dyn Error>> {

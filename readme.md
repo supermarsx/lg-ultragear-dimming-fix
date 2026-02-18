@@ -74,12 +74,22 @@ This dimming behavior is frustrating for gamers and professionals because:
 - **`install-lg-ultragear-no-dimming.ps1`** — Complete installer (profile + auto-reapply monitor)
 - **`lg-ultragear-full-cal.icm`** — The color profile that fixes dimming
 
+### CLI Tool (Rust Workspace)
+- **`crates/lg-cli`** — Full CLI binary (`lg-ultragear.exe`): detect, apply, watch, config, service
+- **`crates/lg-core`** — Shared config loading/saving (TOML)
+- **`crates/lg-monitor`** — WMI-based monitor detection
+- **`crates/lg-profile`** — Color profile WCS APIs (install, associate, refresh)
+- **`crates/lg-notify`** — Toast notifications (PowerShell + Session 0 fallback)
+- **`crates/lg-service`** — Windows service runtime + foreground watch mode
+
 ### Documentation
 - `docs/` — Additional guides and documentation
 
 ### Build Tools
 - `scripts/` — Helper scripts:
   - `scripts/local-ci.ps1` — run format, lint, test, build locally (skips steps if tools not installed)
+  - `scripts/service-ci.ps1` — Rust workspace CI: fmt → clippy → test → build
+  - `scripts/service-ci-parallel.ps1` — Parallel Rust CI (fmt + clippy + test in parallel, then build)
   - `scripts/clean.ps1` — clean common build/test artifacts (dist, logs, coverage, etc.)
   - `scripts/embedder.ps1` — regenerate and embed the profile (Base64 + SHA256) into the installer
 
@@ -217,7 +227,7 @@ if you prefer not to run any scripts, you can apply the profile manually using t
 
 ## dev scripts (local)
 
-**local dev helpers**
+**local dev helpers (PowerShell)**
 
 ```powershell
 # run all (format, lint, test, build)
@@ -234,6 +244,23 @@ pwsh -File scripts/embedder.ps1 -ProfilePath .\lg-ultragear-full-cal.icm
 
 # or specify a different main script path
 pwsh -File scripts/embedder.ps1 -ProfilePath C:\path\to\your.icm -MainScriptPath .\install-lg-ultragear-no-dimming.ps1
+```
+
+**Rust workspace helpers**
+
+```powershell
+# full Rust CI: format → clippy → test → release build
+pwsh -File scripts/service-ci.ps1
+
+# parallel Rust CI (faster)
+pwsh -File scripts/service-ci-parallel.ps1
+
+# individual steps
+pwsh -File scripts/service-format.ps1        # check formatting
+pwsh -File scripts/service-format.ps1 -Fix   # auto-fix formatting
+pwsh -File scripts/service-lint.ps1           # clippy lint
+pwsh -File scripts/service-test.ps1           # run tests
+pwsh -File scripts/service-build.ps1          # release build → dist/lg-ultragear.exe
 ```
 
 **idempotency**

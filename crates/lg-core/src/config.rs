@@ -146,7 +146,7 @@ impl Config {
     /// Serialize config to a TOML string with helpful comments.
     fn to_toml_commented(cfg: &Config) -> String {
         format!(
-            r##"# LG UltraGear Color Profile Service — Configuration
+            r##"# LG UltraGear Color Profile Tool — Configuration
 # Location: %ProgramData%\LG-UltraGear-Monitor\config.toml
 # Changes take effect on next service restart (or next event trigger).
 

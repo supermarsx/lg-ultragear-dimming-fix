@@ -1,7 +1,7 @@
-//! Integration tests for the LG UltraGear Color Profile Service.
+//! Integration tests for the LG UltraGear CLI tool.
 //!
-//! These tests exercise the public API surface across module boundaries
-//! and verify the binary's CLI behaviour.
+//! These tests exercise the binary's CLI behaviour and cross-crate
+//! data flow.
 
 use std::process::Command;
 
@@ -11,7 +11,6 @@ use std::process::Command;
 
 /// Get the path to the built binary.
 fn binary_path() -> std::path::PathBuf {
-    // cargo test builds in target/debug
     let mut path = std::env::current_exe()
         .unwrap()
         .parent()
@@ -19,7 +18,7 @@ fn binary_path() -> std::path::PathBuf {
         .parent()
         .unwrap()
         .to_path_buf();
-    path.push("lg-ultragear-color-svc.exe");
+    path.push("lg-ultragear.exe");
     path
 }
 
@@ -42,25 +41,41 @@ fn unknown_command_exits_with_error() {
     );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
+    // clap reports unrecognized subcommands
     assert!(
-        stderr.contains("Unknown command"),
-        "stderr should mention unknown command: {}",
+        stderr.contains("unrecognized") || stderr.contains("error"),
+        "stderr should mention error: {}",
         stderr
     );
 }
 
 #[test]
-fn unknown_command_shows_usage() {
+fn help_flag_shows_usage() {
     let output = Command::new(binary_path())
-        .arg("bogus-command")
+        .arg("--help")
         .output()
         .expect("Failed to run binary");
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stderr.contains("Usage:"),
-        "stderr should show usage info: {}",
-        stderr
+        stdout.contains("Usage") || stdout.contains("usage"),
+        "should show usage info: {}",
+        stdout
+    );
+}
+
+#[test]
+fn version_flag_shows_version() {
+    let output = Command::new(binary_path())
+        .arg("--version")
+        .output()
+        .expect("Failed to run binary");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("lg-ultragear"),
+        "should show binary name: {}",
+        stdout
     );
 }
 
@@ -96,14 +111,28 @@ fn config_path_contains_programdata() {
 }
 
 #[test]
-fn config_command_shows_config_info() {
+fn config_show_command_displays_config() {
+    let output = Command::new(binary_path())
+        .args(["config", "show"])
+        .output()
+        .expect("Failed to run binary");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("monitor_match") || stdout.contains("Monitor Detection"),
+        "config show should display config info: {}",
+        stdout
+    );
+}
+
+#[test]
+fn config_command_without_subcommand_shows_config() {
     let output = Command::new(binary_path())
         .arg("config")
         .output()
         .expect("Failed to run binary");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // Should show config details (even if using defaults)
     assert!(
         stdout.contains("Config") || stdout.contains("config") || stdout.contains("monitor_match"),
         "config command should show config info: {}",
@@ -122,7 +151,6 @@ fn config_toml_roundtrip_via_tempfile() {
     let tmp = tempfile::tempdir().unwrap();
     let cfg_path = tmp.path().join("config.toml");
 
-    // Write a custom config
     let custom_toml = r#"
 monitor_match = "INTEGRATION TEST"
 profile_name = "test-integration.icm"
@@ -140,7 +168,6 @@ verbose = true
 
     fs::write(&cfg_path, custom_toml).unwrap();
 
-    // Read it back
     let contents = fs::read_to_string(&cfg_path).unwrap();
     assert!(contents.contains("INTEGRATION TEST"));
     assert!(contents.contains("test-integration.icm"));
@@ -151,7 +178,6 @@ verbose = true
 
 #[test]
 fn config_toml_partial_file_parse() {
-    // A minimal TOML file with just one field
     let toml_str = r#"monitor_match = "PARTIAL""#;
 
     #[derive(serde::Deserialize)]
@@ -176,9 +202,9 @@ fn config_toml_partial_file_parse() {
 
     let cfg: TestConfig = toml::from_str(toml_str).unwrap();
     assert_eq!(cfg.monitor_match, "PARTIAL");
-    assert_eq!(cfg.profile_name, "default.icm"); // default
-    assert!(cfg.toast_enabled); // default
-    assert_eq!(cfg.stabilize_delay_ms, 1500); // default
+    assert_eq!(cfg.profile_name, "default.icm");
+    assert!(cfg.toast_enabled);
+    assert_eq!(cfg.stabilize_delay_ms, 1500);
 }
 
 // ============================================================================
@@ -187,7 +213,6 @@ fn config_toml_partial_file_parse() {
 
 #[test]
 fn profile_path_construction_uses_config_profile_name() {
-    // Verify the path construction logic (mirrors Config::profile_path)
     let profile_name = "test-cross-module.icm";
     let windir = std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".to_string());
     let path = std::path::PathBuf::from(&windir)
@@ -212,9 +237,7 @@ fn wide_string_encoding_consistent() {
         .chain(std::iter::once(0))
         .collect();
 
-    // Should be null-terminated
     assert_eq!(*wide.last().unwrap(), 0u16);
-    // Length = string chars + null
     assert_eq!(wide.len(), input.len() + 1);
 }
 

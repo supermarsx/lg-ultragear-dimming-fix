@@ -1,0 +1,63 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/lg-core",
+    "crates/lg-monitor",
+    "crates/lg-profile",
+    "crates/lg-notify",
+    "crates/lg-service",
+    "crates/lg-cli",
+]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+license = "MIT"
+authors = ["LG UltraGear Dimming Fix Contributors"]
+
+[workspace.dependencies]
+# Internal crates
+lg-core = { path = "crates/lg-core" }
+lg-monitor = { path = "crates/lg-monitor" }
+lg-profile = { path = "crates/lg-profile" }
+lg-notify = { path = "crates/lg-notify" }
+lg-service = { path = "crates/lg-service" }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+ctrlc = "3"
+env_logger = "0.11"
+
+# Logging
+log = "0.4"
+winlog = "0.2"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+# Windows APIs
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_ColorSystem",
+    "Win32_Graphics_Gdi",
+    "Win32_System_RemoteDesktop",
+    "Win32_Security",
+] }
+windows-service = "0.7"
+winreg = "0.55"
+
+# WMI
+wmi = "0.14"
+
+# Testing
+tempfile = "3"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+codegen-units = 1

@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-    Run Rust tests for the Windows service.
+    Run Rust tests for the workspace.
 
 .DESCRIPTION
-    Runs `cargo test` inside the service/ directory.
-    Includes unit tests and integration tests.
+    Runs `cargo test --workspace` from the workspace root.
+    Includes unit tests and integration tests across all crates.
 
 .EXAMPLE
     pwsh -File scripts\service-test.ps1
@@ -32,19 +32,18 @@ function Ensure-Cargo {
 
 $ScriptRoot = Split-Path -Parent $PSCommandPath
 $RepoRoot = Resolve-Path (Join-Path $ScriptRoot '..')
-$ServiceDir = Join-Path $RepoRoot 'service'
 
-if (-not (Test-Path -LiteralPath (Join-Path $ServiceDir 'Cargo.toml'))) {
-    throw "service/Cargo.toml not found at: $ServiceDir"
+if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot 'Cargo.toml'))) {
+    throw "Cargo.toml not found at: $RepoRoot"
 }
 
 Ensure-Cargo
 
-Tag -Tag '[STRT]' -Color Cyan -Message 'Running Rust service tests'
+Tag -Tag '[STRT]' -Color Cyan -Message 'Running Rust workspace tests'
 
-Push-Location $ServiceDir
+Push-Location $RepoRoot
 try {
-    $cargoArgs = @('test')
+    $cargoArgs = @('test', '--workspace')
     if ($Nocapture) {
         $cargoArgs += '--'
         $cargoArgs += '--nocapture'

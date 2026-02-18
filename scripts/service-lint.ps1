@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    Run Clippy linter on the Rust service.
+    Run Clippy linter on the Rust workspace.
 
 .DESCRIPTION
-    Runs `cargo clippy` inside the service/ directory.
+    Runs `cargo clippy --workspace` from the workspace root.
     Treats all warnings as errors by default.
 
 .EXAMPLE
@@ -40,20 +40,19 @@ function Ensure-Clippy {
 
 $ScriptRoot = Split-Path -Parent $PSCommandPath
 $RepoRoot = Resolve-Path (Join-Path $ScriptRoot '..')
-$ServiceDir = Join-Path $RepoRoot 'service'
 
-if (-not (Test-Path -LiteralPath (Join-Path $ServiceDir 'Cargo.toml'))) {
-    throw "service/Cargo.toml not found at: $ServiceDir"
+if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot 'Cargo.toml'))) {
+    throw "Cargo.toml not found at: $RepoRoot"
 }
 
 Ensure-Cargo
 Ensure-Clippy
 
-Tag -Tag '[STRT]' -Color Cyan -Message 'Linting Rust service (clippy)'
+Tag -Tag '[STRT]' -Color Cyan -Message 'Linting Rust workspace (clippy)'
 
-Push-Location $ServiceDir
+Push-Location $RepoRoot
 try {
-    $cargoArgs = @('clippy', '--all-targets')
+    $cargoArgs = @('clippy', '--workspace', '--all-targets')
     if (-not $AllowWarnings) {
         $cargoArgs += '--'
         $cargoArgs += '-D'
