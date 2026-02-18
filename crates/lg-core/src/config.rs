@@ -189,11 +189,11 @@ refresh_calibration_loader = {refresh_calibration_loader} # Trigger Calibration 
 # Log every event and action (useful for troubleshooting).
 verbose = {verbose}
 "##,
-            monitor_match = cfg.monitor_match,
-            profile_name = cfg.profile_name,
+            monitor_match = escape_toml_string(&cfg.monitor_match),
+            profile_name = escape_toml_string(&cfg.profile_name),
             toast_enabled = cfg.toast_enabled,
-            toast_title = cfg.toast_title,
-            toast_body = cfg.toast_body,
+            toast_title = escape_toml_string(&cfg.toast_title),
+            toast_body = escape_toml_string(&cfg.toast_body),
             stabilize_delay_ms = cfg.stabilize_delay_ms,
             toggle_delay_ms = cfg.toggle_delay_ms,
             reapply_delay_ms = cfg.reapply_delay_ms,
@@ -207,6 +207,7 @@ verbose = {verbose}
 
     /// Get the full path to the ICC profile in the Windows color store.
     pub fn profile_path(&self) -> PathBuf {
+
         let windir = std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".to_string());
         PathBuf::from(windir)
             .join("System32")
@@ -215,6 +216,25 @@ verbose = {verbose}
             .join("color")
             .join(&self.profile_name)
     }
+}
+
+/// Escape a string for safe inclusion inside a TOML basic string (`"..."`).
+///
+/// Handles backslashes, double-quotes, and common control characters that
+/// would otherwise break the TOML output from `to_toml_commented()`.
+fn escape_toml_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 #[cfg(test)]

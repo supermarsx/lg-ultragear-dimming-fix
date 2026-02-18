@@ -28,9 +28,10 @@ pub fn find_matching_monitors(pattern: &str) -> Result<Vec<MatchedMonitor>, Box<
     let com = COMLibrary::new()?;
     let wmi = WMIConnection::with_namespace_path("root\\wmi", com)?;
 
-    let monitors: Vec<WmiMonitorId> = wmi.raw_query("SELECT * FROM WmiMonitorID")?;
+    let monitors: Vec<WmiMonitorId> =
+        wmi.raw_query("SELECT UserFriendlyName, InstanceName FROM WmiMonitorID")?;
     let pattern_upper = pattern.to_uppercase();
-    let mut matched = Vec::new();
+    let mut matched = Vec::with_capacity(2);
 
     for mon in monitors {
         let name = decode_friendly_name(&mon.user_friendly_name);

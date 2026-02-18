@@ -65,12 +65,16 @@ pub fn reapply_profile(
         return Err(format!("Profile not found: {}", profile_path.display()).into());
     }
 
-    let profile_str = profile_path.to_string_lossy().to_string();
-    let profile_wide = to_wide(&profile_str);
+    let profile_wide: Vec<u16> = profile_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
     let device_wide = to_wide(device_key);
 
     unsafe {
         // Step 1: Disassociate (reverts to default profile)
+        // Failure here is non-fatal — the profile may not be currently associated.
         let result = WcsDisassociateColorProfileFromDevice(
             WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE,
             PCWSTR(profile_wide.as_ptr()),
@@ -78,7 +82,7 @@ pub fn reapply_profile(
         );
         if !result.as_bool() {
             warn!(
-                "WcsDisassociateColorProfileFromDevice failed for {}",
+                "WcsDisassociateColorProfileFromDevice failed for {} (non-fatal)",
                 device_key
             );
         }
@@ -87,16 +91,18 @@ pub fn reapply_profile(
         thread::sleep(Duration::from_millis(toggle_delay_ms));
 
         // Step 3: Re-associate (applies the fix profile)
+        // Failure here IS fatal — the profile was NOT applied.
         let result = WcsAssociateColorProfileWithDevice(
             WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE,
             PCWSTR(profile_wide.as_ptr()),
             PCWSTR(device_wide.as_ptr()),
         );
         if !result.as_bool() {
-            warn!(
+            return Err(format!(
                 "WcsAssociateColorProfileWithDevice failed for {}",
                 device_key
-            );
+            )
+            .into());
         }
     }
 

@@ -455,3 +455,140 @@ fn config_debug_format() {
     assert!(debug_str.contains("Config"));
     assert!(debug_str.contains("monitor_match"));
 }
+
+// ── escape_toml_string ───────────────────────────────────────────
+
+#[test]
+fn escape_toml_string_plain_text_unchanged() {
+    assert_eq!(escape_toml_string("hello world"), "hello world");
+}
+
+#[test]
+fn escape_toml_string_escapes_backslash() {
+    assert_eq!(escape_toml_string(r"C:\path"), r"C:\\path");
+}
+
+#[test]
+fn escape_toml_string_escapes_double_quote() {
+    assert_eq!(escape_toml_string(r#"say "hi""#), r#"say \"hi\""#);
+}
+
+#[test]
+fn escape_toml_string_escapes_newline() {
+    assert_eq!(escape_toml_string("line1\nline2"), r"line1\nline2");
+}
+
+#[test]
+fn escape_toml_string_escapes_tab() {
+    assert_eq!(escape_toml_string("col1\tcol2"), r"col1\tcol2");
+}
+
+#[test]
+fn escape_toml_string_preserves_unicode() {
+    assert_eq!(escape_toml_string("Color profile reapplied ✓"), "Color profile reapplied ✓");
+}
+
+#[test]
+fn escape_toml_string_empty() {
+    assert_eq!(escape_toml_string(""), "");
+}
+
+#[test]
+fn escape_toml_string_combined() {
+    assert_eq!(
+        escape_toml_string("a\\b\"c\nd"),
+        r#"a\\b\"c\nd"#
+    );
+}
+
+// ── TOML injection prevention ────────────────────────────────────
+
+#[test]
+fn to_toml_commented_with_quotes_in_values_is_valid() {
+    let cfg = Config {
+        monitor_match: r#"LG "ULTRAGEAR""#.to_string(),
+        toast_title: r#"Title with "quotes""#.to_string(),
+        toast_body: "Body with 'apostrophes'".to_string(),
+        ..Config::default()
+    };
+    let output = Config::to_toml_commented(&cfg);
+    let parsed: Result<Config, _> = toml::from_str(&output);
+    assert!(
+        parsed.is_ok(),
+        "TOML with escaped quotes should parse: {:?}",
+        parsed.err()
+    );
+    let parsed = parsed.unwrap();
+    assert_eq!(parsed.monitor_match, r#"LG "ULTRAGEAR""#);
+    assert_eq!(parsed.toast_title, r#"Title with "quotes""#);
+}
+
+#[test]
+fn to_toml_commented_with_backslashes_in_values_is_valid() {
+    let cfg = Config {
+        monitor_match: r"DISPLAY\LG\001".to_string(),
+        profile_name: r"path\to\file.icm".to_string(),
+        ..Config::default()
+    };
+    let output = Config::to_toml_commented(&cfg);
+    let parsed: Result<Config, _> = toml::from_str(&output);
+    assert!(
+        parsed.is_ok(),
+        "TOML with escaped backslashes should parse: {:?}",
+        parsed.err()
+    );
+    let parsed = parsed.unwrap();
+    assert_eq!(parsed.monitor_match, r"DISPLAY\LG\001");
+    assert_eq!(parsed.profile_name, r"path\to\file.icm");
+}
+
+#[test]
+fn to_toml_commented_with_newlines_in_values_is_valid() {
+    let cfg = Config {
+        toast_body: "Line 1\nLine 2".to_string(),
+        ..Config::default()
+    };
+    let output = Config::to_toml_commented(&cfg);
+    let parsed: Result<Config, _> = toml::from_str(&output);
+    assert!(
+        parsed.is_ok(),
+        "TOML with escaped newlines should parse: {:?}",
+        parsed.err()
+    );
+    let parsed = parsed.unwrap();
+    assert_eq!(parsed.toast_body, "Line 1\nLine 2");
+}
+
+// ── parse_full_toml reapply_delay_ms coverage ────────────────────
+
+#[test]
+fn parse_toml_with_reapply_delay() {
+    let toml_str = r#"
+        reapply_delay_ms = 15000
+    "#;
+    let cfg: Config = toml::from_str(toml_str).unwrap();
+    assert_eq!(cfg.reapply_delay_ms, 15000);
+}
+
+#[test]
+fn parse_full_toml_including_reapply_delay() {
+    let toml_str = r#"
+        monitor_match = "TEST"
+        profile_name = "test.icm"
+        toast_enabled = false
+        toast_title = "T"
+        toast_body = "B"
+        stabilize_delay_ms = 2000
+        toggle_delay_ms = 200
+        reapply_delay_ms = 18000
+        refresh_display_settings = false
+        refresh_broadcast_color = false
+        refresh_invalidate = false
+        refresh_calibration_loader = false
+        verbose = true
+    "#;
+    let cfg: Config = toml::from_str(toml_str).unwrap();
+    assert_eq!(cfg.reapply_delay_ms, 18000);
+    assert_eq!(cfg.stabilize_delay_ms, 2000);
+    assert_eq!(cfg.toggle_delay_ms, 200);
+}

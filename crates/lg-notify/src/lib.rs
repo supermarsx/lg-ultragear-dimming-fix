@@ -68,8 +68,15 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\WindowsPowerShell\v1.0\powers
                     stderr.trim()
                 );
             }
-            // Fallback: try via schtasks to run in user's session
-            show_toast_via_schtasks(title, body, verbose);
+            // Fallback: try via schtasks to run in user's session.
+            // Spawned on a dedicated thread to avoid blocking the caller
+            // (the debounce worker) during the 2-second cleanup sleep.
+            let title = title.to_owned();
+            let body = body.to_owned();
+            std::thread::Builder::new()
+                .name("toast-schtasks".into())
+                .spawn(move || show_toast_via_schtasks(&title, &body, verbose))
+                .ok();
         }
         Err(e) => {
             if verbose {

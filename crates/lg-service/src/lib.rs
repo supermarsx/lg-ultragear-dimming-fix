@@ -16,9 +16,9 @@ use log::{error, info, warn};
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::os::windows::ffi::OsStrExt;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::{mpsc, Arc};
+use std::time::{Duration, Instant};
 use std::{mem, ptr, thread};
 
 use windows::core::PCWSTR;
@@ -85,13 +85,6 @@ struct DevBroadcastDeviceInterface {
 const DBT_DEVTYP_DEVICEINTERFACE: u32 = 5;
 const DEVICE_NOTIFY_WINDOW_HANDLE: u32 = 0;
 
-/// Debounce epoch counter — each new event increments this, and the handler
-/// thread only proceeds if no newer event has arrived during the debounce window.
-static DEBOUNCE_EPOCH: AtomicU64 = AtomicU64::new(0);
-
-/// Accumulated event flags during the current debounce window.
-static DEBOUNCE_EVENTS: AtomicU8 = AtomicU8::new(0);
-
 // ── Event type bitflags ──────────────────────────────────────────
 
 /// A monitor device interface was plugged in (GUID-filtered).
@@ -151,7 +144,7 @@ fn run_service(_arguments: Vec<OsString>) -> Result<(), Box<dyn Error>> {
     let running = Arc::new(AtomicBool::new(true));
     let running_clone = running.clone();
 
-    let hwnd: Arc<std::sync::Mutex<Option<isize>>> = Arc::new(std::sync::Mutex::new(None));
+    let hwnd = Arc::new(AtomicIsize::new(0));
     let hwnd_clone = hwnd.clone();
 
     // Register service control handler
@@ -163,7 +156,8 @@ fn run_service(_arguments: Vec<OsString>) -> Result<(), Box<dyn Error>> {
                     info!("Service stop/shutdown requested");
                     running_clone.store(false, Ordering::SeqCst);
 
-                    if let Some(h) = *hwnd_clone.lock().unwrap() {
+                    let h = hwnd_clone.load(Ordering::SeqCst);
+                    if h != 0 {
                         unsafe {
                             let _ =
                                 PostMessageW(HWND(h as _), WM_QUIT_SERVICE, WPARAM(0), LPARAM(0));
@@ -222,13 +216,14 @@ fn run_service(_arguments: Vec<OsString>) -> Result<(), Box<dyn Error>> {
 pub fn watch(config: &Config) -> Result<(), Box<dyn Error>> {
     let running = Arc::new(AtomicBool::new(true));
     let running_for_handler = running.clone();
-    let hwnd: Arc<std::sync::Mutex<Option<isize>>> = Arc::new(std::sync::Mutex::new(None));
+    let hwnd = Arc::new(AtomicIsize::new(0));
     let hwnd_for_handler = hwnd.clone();
 
     ctrlc::set_handler(move || {
         println!("\n[WATCH] Shutting down...");
         running_for_handler.store(false, Ordering::SeqCst);
-        if let Some(h) = *hwnd_for_handler.lock().unwrap() {
+        let h = hwnd_for_handler.load(Ordering::SeqCst);
+        if h != 0 {
             unsafe {
                 let _ = PostMessageW(HWND(h as _), WM_QUIT_SERVICE, WPARAM(0), LPARAM(0));
             }
@@ -251,18 +246,33 @@ pub fn watch(config: &Config) -> Result<(), Box<dyn Error>> {
 // Event loop with hidden message window
 // ============================================================================
 
-// Thread-local storage for the config used by the window proc.
+// Thread-local channel sender for the window proc to dispatch events
+// to the single debounce worker thread (zero-allocation, lock-free dispatch).
 thread_local! {
-    static THREAD_CONFIG: std::cell::RefCell<Config> = std::cell::RefCell::new(Config::default());
+    static EVENT_SENDER: std::cell::RefCell<Option<mpsc::Sender<u8>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 fn run_event_loop(
     config: &Config,
     running: &Arc<AtomicBool>,
-    hwnd_out: &Arc<std::sync::Mutex<Option<isize>>>,
+    hwnd_out: &Arc<AtomicIsize>,
 ) -> Result<(), Box<dyn Error>> {
-    // Set thread-local config for window proc
-    THREAD_CONFIG.with(|c| *c.borrow_mut() = config.clone());
+    // Create the debounce channel and a single worker thread.
+    // Instead of spawning a new OS thread per event (old approach), all events
+    // are dispatched via a lightweight channel send (a few nanoseconds) and
+    // coalesced by one dedicated thread using recv_timeout — zero CPU when idle.
+    let (tx, rx) = mpsc::channel::<u8>();
+    EVENT_SENDER.with(|s| *s.borrow_mut() = Some(tx));
+
+    let debounce_config = Arc::new(config.clone());
+    let debounce_handle = {
+        let cfg = debounce_config.clone();
+        thread::Builder::new()
+            .name("debounce-worker".into())
+            .spawn(move || debounce_worker(rx, cfg))
+            .map_err(|e| format!("failed to spawn debounce worker: {}", e))?
+    };
 
     // Register window class
     let class_name = to_wide("LGUltraGearColorSvcWnd");
@@ -284,7 +294,7 @@ fn run_event_loop(
 
     // Create message-only window (HWND_MESSAGE parent = invisible)
     let hwnd = unsafe {
-        CreateWindowExW(
+        match CreateWindowExW(
             Default::default(),
             PCWSTR(class_name.as_ptr()),
             PCWSTR(class_name.as_ptr()),
@@ -297,11 +307,18 @@ fn run_event_loop(
             None,
             wc.hInstance,
             None,
-        )?
+        ) {
+            Ok(h) => h,
+            Err(e) => {
+                // Clean up the registered window class before returning
+                let _ = UnregisterClassW(PCWSTR(class_name.as_ptr()), wc.hInstance);
+                return Err(format!("Failed to create message window: {}", e).into());
+            }
+        }
     };
 
-    // Store handle for control/shutdown
-    *hwnd_out.lock().unwrap() = Some(hwnd.0 as isize);
+    // Store handle for control/shutdown (lock-free atomic)
+    hwnd_out.store(hwnd.0 as isize, Ordering::SeqCst);
 
     // Register for device interface notifications (monitor connect/disconnect)
     let filter = DevBroadcastDeviceInterface {
@@ -346,6 +363,10 @@ fn run_event_loop(
         }
     }
 
+    // Shutdown debounce worker: drop sender to close channel, then join thread
+    EVENT_SENDER.with(|s| *s.borrow_mut() = None);
+    let _ = debounce_handle.join();
+
     // Cleanup
     if session_registered {
         let _ = unsafe { WTSUnRegisterSessionNotification(hwnd) };
@@ -373,57 +394,49 @@ unsafe fn is_monitor_device_event(lparam: LPARAM) -> bool {
         && (*header).dbcc_classguid == GUID_DEVINTERFACE_MONITOR
 }
 
-/// Schedule a profile reapply with event-aware debounce.
+/// Single-threaded debounce worker. Receives event flags from the message
+/// loop via a channel, coalesces rapid events within the stabilize window,
+/// validates with a WMI check, waits for display initialization, then
+/// triggers the profile reapply pipeline.
 ///
-/// Each call accumulates the event type into `DEBOUNCE_EVENTS` and increments
-/// the epoch counter. The spawned thread sleeps for the debounce window, then:
-///   1. Checks epoch — if a newer event arrived, this thread exits (superseded).
-///   2. Drains accumulated event flags and validates them.
-///   3. If validated, waits `reapply_delay_ms` for display to fully initialize.
-///   4. Runs the reapply pipeline.
-fn schedule_reapply(config: &Config, event_flag: u8) {
-    DEBOUNCE_EVENTS.fetch_or(event_flag, Ordering::SeqCst);
-    let epoch = DEBOUNCE_EPOCH.fetch_add(1, Ordering::SeqCst) + 1;
-    info!(
-        "Event received (flag=0b{:08b}), debounce epoch={}",
-        event_flag, epoch
-    );
-
-    let cfg = config.clone();
-    thread::spawn(move || {
-        // Phase 1: Debounce window
-        thread::sleep(Duration::from_millis(cfg.stabilize_delay_ms));
-
-        let current = DEBOUNCE_EPOCH.load(Ordering::SeqCst);
-        if current != epoch {
-            info!(
-                "Debounce: epoch {} superseded by {}, skipping",
-                epoch, current
-            );
-            return;
+/// Uses `recv_timeout` for efficient blocking — zero CPU when idle, no
+/// thread-per-event spawning, fully interruptible on shutdown.
+fn debounce_worker(rx: mpsc::Receiver<u8>, config: Arc<Config>) {
+    while let Ok(flag) = rx.recv() {
+        // Phase 1: Coalesce events within the stabilize window.
+        // Any events arriving during this period are OR'd together.
+        let mut accumulated = flag;
+        let deadline = Instant::now() + Duration::from_millis(config.stabilize_delay_ms);
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            match rx.recv_timeout(remaining) {
+                Ok(f) => accumulated |= f,
+                Err(mpsc::RecvTimeoutError::Timeout) => break,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return, // Shutdown
+            }
         }
 
-        // Phase 2: Drain accumulated events and validate
-        let events = DEBOUNCE_EVENTS.swap(0, Ordering::SeqCst);
-        let has_device = events & EVENT_MASK_DEVICE != 0;
-        let has_session = events & EVENT_MASK_SESSION != 0;
-
-        info!(
-            "Debounce settled (epoch={}): flags=0b{:08b}, device={}, session={}",
-            epoch, events, has_device, has_session
-        );
+        let has_device = accumulated & EVENT_MASK_DEVICE != 0;
+        let has_session = accumulated & EVENT_MASK_SESSION != 0;
 
         if !has_device && !has_session {
-            info!("No actionable events accumulated, skipping");
-            return;
+            continue;
         }
 
-        // For device-only events, do a quick WMI check BEFORE the long wait
+        info!(
+            "Debounce settled: flags=0b{:08b}, device={}, session={}",
+            accumulated, has_device, has_session
+        );
+
+        // Phase 2: For device-only events, validate monitors exist before the long wait
         if has_device && !has_session {
-            match lg_monitor::find_matching_monitors(&cfg.monitor_match) {
+            match lg_monitor::find_matching_monitors(&config.monitor_match) {
                 Ok(devices) if devices.is_empty() => {
-                    info!("Post-debounce: device event but no matching monitors found, skipping");
-                    return;
+                    info!("Post-debounce: no matching monitors found, skipping");
+                    continue;
                 }
                 Ok(devices) => {
                     info!(
@@ -440,18 +453,30 @@ fn schedule_reapply(config: &Config, event_flag: u8) {
             }
         }
 
-        // Phase 3: Post-settle delay
-        if cfg.reapply_delay_ms > 0 {
+        // Phase 3: Post-settle delay for display initialization (interruptible)
+        if config.reapply_delay_ms > 0 {
             info!(
                 "Display settled, waiting {}ms for full initialization",
-                cfg.reapply_delay_ms
+                config.reapply_delay_ms
             );
-            thread::sleep(Duration::from_millis(cfg.reapply_delay_ms));
+            match rx.recv_timeout(Duration::from_millis(config.reapply_delay_ms)) {
+                Ok(_) => {
+                    // New events during delay — drain and proceed with reapply
+                    while rx.try_recv().is_ok() {}
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {} // Expected — delay completed
+                Err(mpsc::RecvTimeoutError::Disconnected) => return, // Shutdown
+            }
         }
 
         // Phase 4: Apply the profile
-        handle_profile_reapply(&cfg);
-    });
+        handle_profile_reapply(&config);
+
+        // Drain any events that queued during reapply to avoid redundant cycles
+        while rx.try_recv().is_ok() {}
+    }
+
+    info!("Debounce worker stopped");
 }
 
 /// Window procedure — handles device change and session change messages.
@@ -471,7 +496,11 @@ unsafe extern "system" fn wnd_proc(
             };
             if let Some(f) = flag {
                 info!("Device change detected (event=0x{:04X})", event);
-                THREAD_CONFIG.with(|c| schedule_reapply(&c.borrow(), f));
+                EVENT_SENDER.with(|s| {
+                    if let Some(tx) = s.borrow().as_ref() {
+                        let _ = tx.send(f);
+                    }
+                });
             }
             LRESULT(0)
         }
@@ -486,7 +515,11 @@ unsafe extern "system" fn wnd_proc(
             };
             if let Some(f) = flag {
                 info!("Session change detected (event=0x{:04X})", session_event);
-                THREAD_CONFIG.with(|c| schedule_reapply(&c.borrow(), f));
+                EVENT_SENDER.with(|s| {
+                    if let Some(tx) = s.borrow().as_ref() {
+                        let _ = tx.send(f);
+                    }
+                });
             }
             LRESULT(0)
         }

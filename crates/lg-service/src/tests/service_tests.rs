@@ -163,77 +163,87 @@ fn running_flag_can_be_set_false() {
     assert!(!running.load(Ordering::SeqCst));
 }
 
-// ── Config thread-local ──────────────────────────────────────────
+// ── Event sender thread-local ────────────────────────────────────
 
 #[test]
-fn thread_config_default_accessible() {
-    THREAD_CONFIG.with(|c| {
-        let cfg = c.borrow();
-        assert_eq!(cfg.monitor_match, "LG ULTRAGEAR");
+fn event_sender_defaults_to_none() {
+    EVENT_SENDER.with(|s| {
+        assert!(s.borrow().is_none());
     });
 }
 
 #[test]
-fn thread_config_can_be_updated() {
-    THREAD_CONFIG.with(|c| {
-        let mut cfg = c.borrow_mut();
-        cfg.monitor_match = "TEST".to_string();
-    });
-    THREAD_CONFIG.with(|c| {
-        let cfg = c.borrow();
-        assert_eq!(cfg.monitor_match, "TEST");
-    });
-    // Reset to avoid affecting other tests
-    THREAD_CONFIG.with(|c| {
-        *c.borrow_mut() = Config::default();
-    });
+fn event_sender_can_be_set_and_cleared() {
+    let (tx, _rx) = mpsc::channel::<u8>();
+    EVENT_SENDER.with(|s| *s.borrow_mut() = Some(tx));
+    EVENT_SENDER.with(|s| assert!(s.borrow().is_some()));
+    EVENT_SENDER.with(|s| *s.borrow_mut() = None);
+    EVENT_SENDER.with(|s| assert!(s.borrow().is_none()));
 }
 
-// ── Debounce epoch counter ───────────────────────────────────────
+// ── Channel-based debounce ───────────────────────────────────────
 
 #[test]
-fn debounce_epoch_starts_at_zero() {
-    DEBOUNCE_EPOCH.store(0, Ordering::SeqCst);
-    assert_eq!(DEBOUNCE_EPOCH.load(Ordering::SeqCst), 0);
+fn channel_event_send_receive() {
+    let (tx, rx) = mpsc::channel::<u8>();
+    tx.send(EVENT_DEVICE_ARRIVAL).unwrap();
+    let received = rx.recv().unwrap();
+    assert_eq!(received, EVENT_DEVICE_ARRIVAL);
 }
 
 #[test]
-fn debounce_epoch_fetch_add_returns_previous() {
-    DEBOUNCE_EPOCH.store(5, Ordering::SeqCst);
-    let prev = DEBOUNCE_EPOCH.fetch_add(1, Ordering::SeqCst);
-    assert_eq!(prev, 5);
-    assert_eq!(DEBOUNCE_EPOCH.load(Ordering::SeqCst), 6);
-    DEBOUNCE_EPOCH.store(0, Ordering::SeqCst);
-}
-
-#[test]
-fn debounce_epoch_increments_sequentially() {
-    DEBOUNCE_EPOCH.store(0, Ordering::SeqCst);
-    for i in 1..=5 {
-        let epoch = DEBOUNCE_EPOCH.fetch_add(1, Ordering::SeqCst) + 1;
-        assert_eq!(epoch, i);
+fn channel_coalesces_multiple_events() {
+    let (tx, rx) = mpsc::channel::<u8>();
+    tx.send(EVENT_DEVICE_ARRIVAL).unwrap();
+    tx.send(EVENT_DEVNODES_CHANGED).unwrap();
+    tx.send(EVENT_SESSION_UNLOCK).unwrap();
+    let mut accumulated: u8 = 0;
+    while let Ok(f) = rx.try_recv() {
+        accumulated |= f;
     }
-    assert_eq!(DEBOUNCE_EPOCH.load(Ordering::SeqCst), 5);
-    DEBOUNCE_EPOCH.store(0, Ordering::SeqCst);
+    assert_ne!(accumulated & EVENT_MASK_DEVICE, 0);
+    assert_ne!(accumulated & EVENT_MASK_SESSION, 0);
 }
 
 #[test]
-fn debounce_stale_epoch_detected() {
-    DEBOUNCE_EPOCH.store(0, Ordering::SeqCst);
-    let epoch_a = DEBOUNCE_EPOCH.fetch_add(1, Ordering::SeqCst) + 1;
-    let _epoch_b = DEBOUNCE_EPOCH.fetch_add(1, Ordering::SeqCst) + 1;
-    let current = DEBOUNCE_EPOCH.load(Ordering::SeqCst);
-    assert_ne!(epoch_a, current, "Stale epoch should differ from current");
-    DEBOUNCE_EPOCH.store(0, Ordering::SeqCst);
+fn channel_recv_timeout_returns_on_timeout() {
+    let (_tx, rx) = mpsc::channel::<u8>();
+    let start = Instant::now();
+    let result = rx.recv_timeout(Duration::from_millis(50));
+    assert!(result.is_err());
+    assert!(start.elapsed() >= Duration::from_millis(40));
 }
 
 #[test]
-fn debounce_latest_epoch_proceeds() {
-    DEBOUNCE_EPOCH.store(0, Ordering::SeqCst);
-    let epoch = DEBOUNCE_EPOCH.fetch_add(1, Ordering::SeqCst) + 1;
-    let current = DEBOUNCE_EPOCH.load(Ordering::SeqCst);
-    assert_eq!(epoch, current, "Latest epoch should match current");
-    DEBOUNCE_EPOCH.store(0, Ordering::SeqCst);
+fn channel_disconnects_on_sender_drop() {
+    let (tx, rx) = mpsc::channel::<u8>();
+    drop(tx);
+    assert!(rx.recv().is_err());
+}
+
+#[test]
+fn channel_try_recv_drains_queue() {
+    let (tx, rx) = mpsc::channel::<u8>();
+    tx.send(EVENT_DEVICE_ARRIVAL).unwrap();
+    tx.send(EVENT_SESSION_LOGON).unwrap();
+    drop(tx);
+    let mut count = 0;
+    while rx.try_recv().is_ok() {
+        count += 1;
+    }
+    assert_eq!(count, 2);
+}
+
+#[test]
+fn channel_recv_timeout_interruptible_on_disconnect() {
+    let (tx, rx) = mpsc::channel::<u8>();
+    let handle = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(30));
+        drop(tx);
+    });
+    let result = rx.recv_timeout(Duration::from_secs(5));
+    assert!(matches!(result, Err(mpsc::RecvTimeoutError::Disconnected)));
+    handle.join().unwrap();
 }
 
 // ── Event flag constants ─────────────────────────────────────────
@@ -282,75 +292,41 @@ fn event_masks_are_disjoint() {
     );
 }
 
-// ── Debounce event accumulator ───────────────────────────────────
+// ── Event flag accumulation ──────────────────────────────────────
 
 #[test]
-fn debounce_events_starts_empty() {
-    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
-    assert_eq!(DEBOUNCE_EVENTS.load(Ordering::SeqCst), 0);
+fn event_accumulation_single_flag() {
+    let mut accumulated: u8 = 0;
+    accumulated |= EVENT_DEVICE_ARRIVAL;
+    assert_ne!(accumulated & EVENT_DEVICE_ARRIVAL, 0);
+    assert_eq!(accumulated & EVENT_SESSION_LOGON, 0);
 }
 
 #[test]
-fn debounce_events_accumulates_single_flag() {
-    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
-    DEBOUNCE_EVENTS.fetch_or(EVENT_DEVICE_ARRIVAL, Ordering::SeqCst);
-    let events = DEBOUNCE_EVENTS.load(Ordering::SeqCst);
-    assert_ne!(events & EVENT_DEVICE_ARRIVAL, 0);
-    assert_eq!(events & EVENT_SESSION_LOGON, 0);
-    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
+fn event_accumulation_multiple_flags() {
+    let mut accumulated: u8 = 0;
+    accumulated |= EVENT_DEVICE_ARRIVAL;
+    accumulated |= EVENT_DEVNODES_CHANGED;
+    accumulated |= EVENT_SESSION_UNLOCK;
+    assert_ne!(accumulated & EVENT_MASK_DEVICE, 0);
+    assert_ne!(accumulated & EVENT_MASK_SESSION, 0);
 }
 
 #[test]
-fn debounce_events_accumulates_multiple_flags() {
-    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
-    DEBOUNCE_EVENTS.fetch_or(EVENT_DEVICE_ARRIVAL, Ordering::SeqCst);
-    DEBOUNCE_EVENTS.fetch_or(EVENT_DEVNODES_CHANGED, Ordering::SeqCst);
-    DEBOUNCE_EVENTS.fetch_or(EVENT_SESSION_UNLOCK, Ordering::SeqCst);
-    let events = DEBOUNCE_EVENTS.load(Ordering::SeqCst);
-    assert_ne!(events & EVENT_MASK_DEVICE, 0, "Should have device events");
-    assert_ne!(events & EVENT_MASK_SESSION, 0, "Should have session events");
-    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
+fn event_accumulation_or_is_idempotent() {
+    let mut accumulated: u8 = 0;
+    accumulated |= EVENT_DEVICE_ARRIVAL;
+    accumulated |= EVENT_DEVICE_ARRIVAL;
+    accumulated |= EVENT_DEVICE_ARRIVAL;
+    assert_eq!(accumulated, EVENT_DEVICE_ARRIVAL);
 }
 
 #[test]
-fn debounce_events_or_is_idempotent() {
-    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
-    DEBOUNCE_EVENTS.fetch_or(EVENT_DEVICE_ARRIVAL, Ordering::SeqCst);
-    DEBOUNCE_EVENTS.fetch_or(EVENT_DEVICE_ARRIVAL, Ordering::SeqCst);
-    DEBOUNCE_EVENTS.fetch_or(EVENT_DEVICE_ARRIVAL, Ordering::SeqCst);
-    let events = DEBOUNCE_EVENTS.load(Ordering::SeqCst);
-    assert_eq!(
-        events, EVENT_DEVICE_ARRIVAL,
-        "ORing same flag should be idempotent"
-    );
-    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
-}
-
-#[test]
-fn debounce_events_swap_drains_all() {
-    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
-    DEBOUNCE_EVENTS.fetch_or(EVENT_DEVICE_ARRIVAL | EVENT_SESSION_LOGON, Ordering::SeqCst);
-    let drained = DEBOUNCE_EVENTS.swap(0, Ordering::SeqCst);
-    assert_ne!(drained & EVENT_DEVICE_ARRIVAL, 0);
-    assert_ne!(drained & EVENT_SESSION_LOGON, 0);
-    assert_eq!(
-        DEBOUNCE_EVENTS.load(Ordering::SeqCst),
-        0,
-        "Should be empty after drain"
-    );
-    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
-}
-
-#[test]
-fn debounce_events_device_only_no_session() {
-    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
-    DEBOUNCE_EVENTS.fetch_or(
-        EVENT_DEVICE_ARRIVAL | EVENT_DEVNODES_CHANGED,
-        Ordering::SeqCst,
-    );
-    let events = DEBOUNCE_EVENTS.swap(0, Ordering::SeqCst);
-    let has_device = events & EVENT_MASK_DEVICE != 0;
-    let has_session = events & EVENT_MASK_SESSION != 0;
+fn event_accumulation_device_only() {
+    let mut accumulated: u8 = 0;
+    accumulated |= EVENT_DEVICE_ARRIVAL | EVENT_DEVNODES_CHANGED;
+    let has_device = accumulated & EVENT_MASK_DEVICE != 0;
+    let has_session = accumulated & EVENT_MASK_SESSION != 0;
     assert!(has_device);
     assert!(
         !has_session,
@@ -359,12 +335,11 @@ fn debounce_events_device_only_no_session() {
 }
 
 #[test]
-fn debounce_events_session_only_no_device() {
-    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
-    DEBOUNCE_EVENTS.fetch_or(EVENT_SESSION_UNLOCK, Ordering::SeqCst);
-    let events = DEBOUNCE_EVENTS.swap(0, Ordering::SeqCst);
-    let has_device = events & EVENT_MASK_DEVICE != 0;
-    let has_session = events & EVENT_MASK_SESSION != 0;
+fn event_accumulation_session_only() {
+    let mut accumulated: u8 = 0;
+    accumulated |= EVENT_SESSION_UNLOCK;
+    let has_device = accumulated & EVENT_MASK_DEVICE != 0;
+    let has_session = accumulated & EVENT_MASK_SESSION != 0;
     assert!(
         !has_device,
         "Session-only event should not have device flag"
@@ -373,14 +348,13 @@ fn debounce_events_session_only_no_device() {
 }
 
 #[test]
-fn debounce_events_mixed_storm() {
-    DEBOUNCE_EVENTS.store(0, Ordering::SeqCst);
-    DEBOUNCE_EVENTS.fetch_or(EVENT_DEVICE_ARRIVAL, Ordering::SeqCst);
-    DEBOUNCE_EVENTS.fetch_or(EVENT_DEVNODES_CHANGED, Ordering::SeqCst);
-    DEBOUNCE_EVENTS.fetch_or(EVENT_SESSION_UNLOCK, Ordering::SeqCst);
-    let events = DEBOUNCE_EVENTS.swap(0, Ordering::SeqCst);
-    let has_device = events & EVENT_MASK_DEVICE != 0;
-    let has_session = events & EVENT_MASK_SESSION != 0;
+fn event_accumulation_mixed_storm() {
+    let mut accumulated: u8 = 0;
+    accumulated |= EVENT_DEVICE_ARRIVAL;
+    accumulated |= EVENT_DEVNODES_CHANGED;
+    accumulated |= EVENT_SESSION_UNLOCK;
+    let has_device = accumulated & EVENT_MASK_DEVICE != 0;
+    let has_session = accumulated & EVENT_MASK_SESSION != 0;
     assert!(
         has_device && has_session,
         "Mixed storm should have both flags"
