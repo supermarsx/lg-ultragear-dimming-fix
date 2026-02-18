@@ -770,6 +770,57 @@ fn draw_status(out: &mut impl Write, label: &str, value: &str, color: Color) -> 
 }
 
 // ============================================================================
+// Colored log tags — used by action functions for consistent output
+// ============================================================================
+
+/// Print a log line with a colored tag prefix: `  [TAG] message`.
+fn log_tag(tag: &str, color: Color, msg: &str) {
+    let mut out = io::stdout();
+    let _ = queue!(out, SetForegroundColor(color));
+    let _ = write!(out, "  {}", tag);
+    let _ = queue!(out, ResetColor);
+    let _ = writeln!(out, " {}", msg);
+    let _ = out.flush();
+}
+
+fn log_ok(msg: &str) {
+    log_tag("[ OK ]", Color::Green, msg);
+}
+fn log_dry(msg: &str) {
+    log_tag("[DRY RUN]", Color::Cyan, msg);
+}
+fn log_done(msg: &str) {
+    println!(); // blank line before completion tag
+    log_tag("[DONE]", Color::Green, msg);
+}
+fn log_info(msg: &str) {
+    log_tag("[INFO]", Color::Blue, msg);
+}
+fn log_warn(msg: &str) {
+    log_tag("[WARN]", Color::Yellow, msg);
+}
+fn log_note(msg: &str) {
+    log_tag("[NOTE]", Color::DarkGrey, msg);
+}
+fn log_skip(msg: &str) {
+    log_tag("[SKIP]", Color::DarkGrey, msg);
+}
+#[allow(dead_code)] // Part of the log helpers API; used in tests
+fn log_err(msg: &str) {
+    log_tag("[ERR ]", Color::Red, msg);
+}
+
+/// Write a colored error tag to an arbitrary `Write` sink (used by
+/// `run_action` which writes to `out` rather than stdout).
+fn write_err(out: &mut impl Write, msg: &str) -> io::Result<()> {
+    queue!(out, SetForegroundColor(Color::Red))?;
+    write!(out, "  [ERR ]")?;
+    queue!(out, ResetColor)?;
+    writeln!(out, " {}", msg)?;
+    Ok(())
+}
+
+// ============================================================================
 // Action runner — wraps each operation with a processing screen
 // ============================================================================
 
@@ -789,9 +840,7 @@ where
     match action() {
         Ok(()) => {}
         Err(e) => {
-            queue!(out, SetForegroundColor(Color::Red))?;
-            writeln!(out, "  [ERR ] {}", e)?;
-            queue!(out, ResetColor)?;
+            write_err(out, &e.to_string())?;
         }
     }
 
@@ -810,10 +859,10 @@ where
 
 fn action_default_install(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
     if opts.dry_run {
-        println!("  [DRY RUN] Would extract ICC profile to color store");
-        println!("  [DRY RUN] Would write default config");
-        println!("  [DRY RUN] Would install Windows service");
-        println!("  [DRY RUN] Would start service");
+        log_dry("Would extract ICC profile to color store");
+        log_dry("Would write default config");
+        log_dry("Would install Windows service");
+        log_dry("Would start service");
         return Ok(());
     }
 
@@ -822,59 +871,53 @@ fn action_default_install(opts: &Options) -> Result<(), Box<dyn std::error::Erro
     // Extract ICC profile
     let profile_path = cfg.profile_path();
     match lg_profile::ensure_profile_installed(&profile_path)? {
-        true => println!(
-            "  [ OK ] ICC profile installed to {}",
-            profile_path.display()
-        ),
-        false => println!("  [ OK ] ICC profile already present"),
+        true => log_ok(&format!("ICC profile installed to {}", profile_path.display())),
+        false => log_ok("ICC profile already present"),
     }
 
     // Write default config
     let cfg_path = config::config_path();
     if !cfg_path.exists() {
         Config::write_default()?;
-        println!("  [ OK ] Default config written to {}", cfg_path.display());
+        log_ok(&format!("Default config written to {}", cfg_path.display()));
     } else {
-        println!("  [ OK ] Config already exists at {}", cfg_path.display());
+        log_ok(&format!("Config already exists at {}", cfg_path.display()));
     }
 
     // Install service
     lg_service::install(&cfg.monitor_match)?;
-    println!("  [ OK ] Service installed");
+    log_ok("Service installed");
 
     // Start service
     lg_service::start_service()?;
-    println!("  [ OK ] Service started");
+    log_ok("Service started");
 
-    println!("\n  [DONE] Default install complete!");
+    log_done("Default install complete!");
     Ok(())
 }
 
 fn action_profile_only(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
     if opts.dry_run {
-        println!("  [DRY RUN] Would extract ICC profile to color store");
+        log_dry("Would extract ICC profile to color store");
         return Ok(());
     }
 
     let cfg = Config::load();
     let profile_path = cfg.profile_path();
     match lg_profile::ensure_profile_installed(&profile_path)? {
-        true => println!(
-            "  [ OK ] ICC profile installed to {}",
-            profile_path.display()
-        ),
-        false => println!("  [ OK ] ICC profile already present"),
+        true => log_ok(&format!("ICC profile installed to {}", profile_path.display())),
+        false => log_ok("ICC profile already present"),
     }
 
-    println!("\n  [DONE] Profile install complete!");
+    log_done("Profile install complete!");
     Ok(())
 }
 
 fn action_service_only(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
     if opts.dry_run {
-        println!("  [DRY RUN] Would write default config");
-        println!("  [DRY RUN] Would install Windows service");
-        println!("  [DRY RUN] Would start service");
+        log_dry("Would write default config");
+        log_dry("Would install Windows service");
+        log_dry("Would start service");
         return Ok(());
     }
 
@@ -882,22 +925,22 @@ fn action_service_only(opts: &Options) -> Result<(), Box<dyn std::error::Error>>
     let cfg_path = config::config_path();
     if !cfg_path.exists() {
         Config::write_default()?;
-        println!("  [ OK ] Default config written");
+        log_ok("Default config written");
     }
 
     lg_service::install(&cfg.monitor_match)?;
-    println!("  [ OK ] Service installed");
+    log_ok("Service installed");
 
     lg_service::start_service()?;
-    println!("  [ OK ] Service started");
+    log_ok("Service started");
 
-    println!("\n  [DONE] Service install complete!");
+    log_done("Service install complete!");
     Ok(())
 }
 
 fn action_refresh(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
     if opts.dry_run {
-        println!("  [DRY RUN] Would re-apply profile to matching monitors");
+        log_dry("Would re-apply profile to matching monitors");
         return Ok(());
     }
 
@@ -911,12 +954,12 @@ fn action_refresh(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
 
     let devices = lg_monitor::find_matching_monitors(&cfg.monitor_match)?;
     if devices.is_empty() {
-        println!("  [SKIP] No matching monitors found.");
+        log_skip("No matching monitors found.");
     } else {
         for device in &devices {
-            println!("  [INFO] Found: {}", device.name);
+            log_info(&format!("Found: {}", device.name));
             lg_profile::reapply_profile(&device.device_key, &profile_path, cfg.toggle_delay_ms)?;
-            println!("  [ OK ] Profile reapplied for {}", device.name);
+            log_ok(&format!("Profile reapplied for {}", device.name));
         }
         lg_profile::refresh_display(
             cfg.refresh_display_settings,
@@ -929,10 +972,7 @@ fn action_refresh(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
             lg_notify::show_reapply_toast(true, &cfg.toast_title, &cfg.toast_body, opts.verbose);
         }
 
-        println!(
-            "\n  [DONE] Profile refreshed for {} monitor(s).",
-            devices.len()
-        );
+        log_done(&format!("Profile refreshed for {} monitor(s).", devices.len()));
     }
 
     Ok(())
@@ -940,15 +980,15 @@ fn action_refresh(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
 
 fn action_reinstall(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
     if opts.dry_run {
-        println!("  [DRY RUN] Would uninstall service");
-        println!("  [DRY RUN] Would reinstall profile + service");
+        log_dry("Would uninstall service");
+        log_dry("Would reinstall profile + service");
         return Ok(());
     }
 
     // Best-effort uninstall first
     match lg_service::uninstall() {
-        Ok(()) => println!("  [ OK ] Service uninstalled"),
-        Err(e) => println!("  [NOTE] Service removal: {} (continuing)", e),
+        Ok(()) => log_ok("Service uninstalled"),
+        Err(e) => log_note(&format!("Service removal: {} (continuing)", e)),
     }
 
     // Fresh install
@@ -992,69 +1032,66 @@ fn action_detect() -> Result<(), Box<dyn std::error::Error>> {
 
 fn action_remove_service(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
     if opts.dry_run {
-        println!("  [DRY RUN] Would uninstall Windows service");
+        log_dry("Would uninstall Windows service");
         return Ok(());
     }
 
     lg_service::uninstall()?;
-    println!("  [ OK ] Service uninstalled");
-    println!("  [NOTE] ICC profile preserved in color store");
+    log_ok("Service uninstalled");
+    log_note("ICC profile preserved in color store");
     Ok(())
 }
 
 fn action_remove_profile(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
     if opts.dry_run {
-        println!("  [DRY RUN] Would remove ICC profile from color store");
+        log_dry("Would remove ICC profile from color store");
         return Ok(());
     }
 
     let cfg = Config::load();
     let profile_path = cfg.profile_path();
     match lg_profile::remove_profile(&profile_path)? {
-        true => println!(
-            "  [ OK ] ICC profile removed from {}",
-            profile_path.display()
-        ),
-        false => println!("  [NOTE] ICC profile not found (already removed)"),
+        true => log_ok(&format!("ICC profile removed from {}", profile_path.display())),
+        false => log_note("ICC profile not found (already removed)"),
     }
     Ok(())
 }
 
 fn action_full_uninstall(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
     if opts.dry_run {
-        println!("  [DRY RUN] Would uninstall service");
-        println!("  [DRY RUN] Would remove ICC profile");
-        println!("  [DRY RUN] Would remove config directory");
+        log_dry("Would uninstall service");
+        log_dry("Would remove ICC profile");
+        log_dry("Would remove config directory");
         return Ok(());
     }
 
     // Remove service (best-effort)
     match lg_service::uninstall() {
-        Ok(()) => println!("  [ OK ] Service uninstalled"),
-        Err(e) => println!("  [NOTE] Service removal: {} (continuing)", e),
+        Ok(()) => log_ok("Service uninstalled"),
+        Err(e) => log_note(&format!("Service removal: {} (continuing)", e)),
     }
 
     // Remove profile
     let cfg = Config::load();
     let profile_path = cfg.profile_path();
     match lg_profile::remove_profile(&profile_path)? {
-        true => println!("  [ OK ] ICC profile removed"),
-        false => println!("  [NOTE] ICC profile not found (already removed)"),
+        true => log_ok("ICC profile removed"),
+        false => log_note("ICC profile not found (already removed)"),
     }
 
     // Remove config directory
     let cfg_dir = config::config_dir();
     if cfg_dir.exists() {
         match std::fs::remove_dir_all(&cfg_dir) {
-            Ok(()) => println!("  [ OK ] Config directory removed: {}", cfg_dir.display()),
-            Err(e) => println!(
-                "  [WARN] Could not remove config dir: {} (clean up manually)",
+            Ok(()) => log_ok(&format!("Config directory removed: {}", cfg_dir.display())),
+            Err(e) => log_warn(&format!(
+                "Could not remove config dir: {} (clean up manually)",
                 e
-            ),
+            )),
         }
     }
 
-    println!("\n  [DONE] Full uninstall complete!");
+    log_done("Full uninstall complete!");
     Ok(())
 }
 
@@ -1069,21 +1106,21 @@ fn action_service_status() -> Result<(), Box<dyn std::error::Error>> {
 
 fn action_recheck_service(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
     if opts.dry_run {
-        println!("  [DRY RUN] Would stop then start the service");
+        log_dry("Would stop then start the service");
         return Ok(());
     }
 
-    println!("  [INFO] Stopping service...");
+    log_info("Stopping service...");
     match lg_service::stop_service() {
-        Ok(()) => println!("  [ OK ] Service stopped"),
-        Err(e) => println!("  [NOTE] Stop: {} (continuing)", e),
+        Ok(()) => log_ok("Service stopped"),
+        Err(e) => log_note(&format!("Stop: {} (continuing)", e)),
     }
 
-    println!("  [INFO] Starting service...");
+    log_info("Starting service...");
     lg_service::start_service()?;
-    println!("  [ OK ] Service started");
+    log_ok("Service started");
 
-    println!("\n  [DONE] Service rechecked and restarted.");
+    log_done("Service rechecked and restarted.");
     Ok(())
 }
 
@@ -1093,16 +1130,13 @@ fn action_check_applicability() -> Result<(), Box<dyn std::error::Error>> {
     // Check monitor
     let devices = lg_monitor::find_matching_monitors(&cfg.monitor_match)?;
     if devices.is_empty() {
-        println!(
-            "  [WARN] No monitors matching \"{}\"",
-            cfg.monitor_match
-        );
+        log_warn(&format!("No monitors matching \"{}\"", cfg.monitor_match));
     } else {
-        println!(
-            "  [ OK ] {} monitor(s) matching \"{}\"",
+        log_ok(&format!(
+            "{} monitor(s) matching \"{}\"",
             devices.len(),
             cfg.monitor_match
-        );
+        ));
         for d in &devices {
             println!("         - {}", d.name);
         }
@@ -1111,29 +1145,32 @@ fn action_check_applicability() -> Result<(), Box<dyn std::error::Error>> {
     // Check profile
     let profile_path = cfg.profile_path();
     if lg_profile::is_profile_installed(&profile_path) {
-        println!("  [ OK ] ICC profile installed at {}", profile_path.display());
+        log_ok(&format!("ICC profile installed at {}", profile_path.display()));
     } else {
-        println!("  [WARN] ICC profile NOT found at {}", profile_path.display());
+        log_warn(&format!(
+            "ICC profile NOT found at {}",
+            profile_path.display()
+        ));
     }
 
     // Check service
     let (installed, running) = lg_service::query_service_info();
     if installed {
         if running {
-            println!("  [ OK ] Service installed and running");
+            log_ok("Service installed and running");
         } else {
-            println!("  [WARN] Service installed but NOT running");
+            log_warn("Service installed but NOT running");
         }
     } else {
-        println!("  [WARN] Service NOT installed");
+        log_warn("Service NOT installed");
     }
 
     // Check config
     let cfg_path = config::config_path();
     if cfg_path.exists() {
-        println!("  [ OK ] Config file exists at {}", cfg_path.display());
+        log_ok(&format!("Config file exists at {}", cfg_path.display()));
     } else {
-        println!("  [INFO] No config file (using defaults)");
+        log_info("No config file (using defaults)");
     }
 
     // Summary
@@ -1142,9 +1179,9 @@ fn action_check_applicability() -> Result<(), Box<dyn std::error::Error>> {
         && installed
         && running;
     if all_good {
-        println!("\n  [DONE] Everything looks good!");
+        log_done("Everything looks good!");
     } else {
-        println!("\n  [DONE] Some issues detected — see warnings above.");
+        log_done("Some issues detected — see warnings above.");
     }
 
     Ok(())
@@ -1157,17 +1194,17 @@ fn action_force_refresh_profile() -> Result<(), Box<dyn std::error::Error>> {
 
     let devices = lg_monitor::find_matching_monitors(&cfg.monitor_match)?;
     if devices.is_empty() {
-        println!("  [SKIP] No matching monitors found.");
+        log_skip("No matching monitors found.");
     } else {
         for device in &devices {
-            println!("  [INFO] Force reapplying to: {}", device.name);
+            log_info(&format!("Force reapplying to: {}", device.name));
             lg_profile::reapply_profile(&device.device_key, &profile_path, cfg.toggle_delay_ms)?;
-            println!("  [ OK ] Profile reapplied for {}", device.name);
+            log_ok(&format!("Profile reapplied for {}", device.name));
         }
-        println!(
-            "\n  [DONE] Color profile force-refreshed for {} monitor(s).",
+        log_done(&format!(
+            "Color profile force-refreshed for {} monitor(s).",
             devices.len()
-        );
+        ));
     }
     Ok(())
 }
@@ -1175,17 +1212,17 @@ fn action_force_refresh_profile() -> Result<(), Box<dyn std::error::Error>> {
 fn action_force_refresh_color_mgmt() -> Result<(), Box<dyn std::error::Error>> {
     let cfg = Config::load();
 
-    println!("  [INFO] Broadcasting display settings refresh...");
+    log_info("Broadcasting display settings refresh...");
     lg_profile::refresh_display(true, true, true);
-    println!("  [ OK ] ChangeDisplaySettingsEx sent");
-    println!("  [ OK ] WM_SETTINGCHANGE \"Color\" broadcast sent");
-    println!("  [ OK ] InvalidateRect sent");
+    log_ok("ChangeDisplaySettingsEx sent");
+    log_ok("WM_SETTINGCHANGE \"Color\" broadcast sent");
+    log_ok("InvalidateRect sent");
 
-    println!("  [INFO] Triggering Calibration Loader...");
+    log_info("Triggering Calibration Loader...");
     lg_profile::trigger_calibration_loader(cfg.refresh_calibration_loader);
-    println!("  [ OK ] Calibration Loader task triggered");
+    log_ok("Calibration Loader task triggered");
 
-    println!("\n  [DONE] Color management force-refreshed.");
+    log_done("Color management force-refreshed.");
     Ok(())
 }
 
@@ -2219,5 +2256,55 @@ mod tests {
     fn options_default_sdr_is_true() {
         let opts = Options::default();
         assert!(opts.sdr);
+    }
+
+    // ── Colored log tag helpers ──────────────────────────────────
+
+    #[test]
+    fn log_tag_produces_ansi_colored_output() {
+        // log_tag writes to stdout which we can't capture easily,
+        // but we can verify write_err writes the correct structure.
+        let mut buf = Vec::new();
+        write_err(&mut buf, "something broke").unwrap();
+        let output = String::from_utf8_lossy(&buf).to_string();
+        assert!(output.contains("[ERR ]"), "should contain ERR tag");
+        assert!(output.contains("something broke"), "should contain message");
+    }
+
+    #[test]
+    fn write_err_contains_ansi_sequences() {
+        let mut buf = Vec::new();
+        write_err(&mut buf, "test error").unwrap();
+        let output = String::from_utf8_lossy(&buf).to_string();
+        // crossterm ANSI sequences start with ESC [
+        assert!(
+            output.contains("\x1b["),
+            "should contain ANSI escape sequences"
+        );
+    }
+
+    #[test]
+    fn write_err_resets_color() {
+        let mut buf = Vec::new();
+        write_err(&mut buf, "oops").unwrap();
+        let output = String::from_utf8_lossy(&buf).to_string();
+        // ResetColor emits ESC[0m
+        assert!(
+            output.contains("\x1b[0m"),
+            "should reset color after tag"
+        );
+    }
+
+    #[test]
+    fn log_tag_helpers_do_not_panic() {
+        // These write to stdout; just verify they don't panic.
+        log_ok("test ok");
+        log_dry("test dry");
+        log_done("test done");
+        log_info("test info");
+        log_warn("test warn");
+        log_note("test note");
+        log_skip("test skip");
+        log_err("test err");
     }
 }
