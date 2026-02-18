@@ -155,6 +155,7 @@ pub(crate) struct Status {
 
 pub(crate) enum Page {
     Main,
+    Maintenance,
     Advanced,
 }
 
@@ -171,6 +172,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
         match page {
             Page::Main => draw_main(&mut out, &status, &opts)?,
+            Page::Maintenance => draw_maintenance(&mut out, &status, &opts)?,
             Page::Advanced => draw_advanced(&mut out, &status, &opts)?,
         }
         out.flush()?;
@@ -188,24 +190,50 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             (Page::Main, '3') => run_action(&mut out, "Installing service only...", || {
                 action_service_only(&opts)
             })?,
-            (Page::Main, '4') => {
-                run_action(&mut out, "Refreshing profile...", || action_refresh(&opts))?
-            }
-            (Page::Main, '5') => run_action(&mut out, "Reinstalling everything...", || {
-                action_reinstall(&opts)
-            })?,
-            (Page::Main, '6') => run_action(&mut out, "Detecting monitors...", action_detect)?,
-            (Page::Main, '7') => run_action(&mut out, "Removing service...", || {
+            (Page::Main, '4') => run_action(&mut out, "Removing service...", || {
                 action_remove_service(&opts)
             })?,
-            (Page::Main, '8') => run_action(&mut out, "Removing profile...", || {
+            (Page::Main, '5') => run_action(&mut out, "Removing profile...", || {
                 action_remove_profile(&opts)
             })?,
-            (Page::Main, '9') => run_action(&mut out, "Full uninstall...", || {
+            (Page::Main, '6') => run_action(&mut out, "Full uninstall...", || {
                 action_full_uninstall(&opts)
             })?,
+            (Page::Main, 'm') => page = Page::Maintenance,
             (Page::Main, 'a') => page = Page::Advanced,
             (Page::Main, 'q') => break,
+
+            // ── Maintenance menu ────────────────────────────
+            (Page::Maintenance, '1') => {
+                run_action(&mut out, "Refreshing profile...", || action_refresh(&opts))?
+            }
+            (Page::Maintenance, '2') => run_action(&mut out, "Reinstalling everything...", || {
+                action_reinstall(&opts)
+            })?,
+            (Page::Maintenance, '3') => {
+                run_action(&mut out, "Detecting monitors...", action_detect)?
+            }
+            (Page::Maintenance, '4') => {
+                run_action(&mut out, "Checking service status...", action_service_status)?
+            }
+            (Page::Maintenance, '5') => run_action(&mut out, "Rechecking service...", || {
+                action_recheck_service(&opts)
+            })?,
+            (Page::Maintenance, '6') => {
+                run_action(&mut out, "Checking applicability...", action_check_applicability)?
+            }
+            (Page::Maintenance, '7') => run_action(
+                &mut out,
+                "Force refreshing color profile...",
+                action_force_refresh_profile,
+            )?,
+            (Page::Maintenance, '8') => run_action(
+                &mut out,
+                "Force refreshing color management...",
+                action_force_refresh_color_mgmt,
+            )?,
+            (Page::Maintenance, 'b') => page = Page::Main,
+            (Page::Maintenance, 'q') => break,
 
             // ── Advanced menu ──────────────────────────────
             (Page::Advanced, '1') => opts.toast = !opts.toast,
@@ -291,19 +319,15 @@ pub(crate) fn draw_main(out: &mut impl Write, status: &Status, opts: &Options) -
     draw_item(out, "3", "Service Only (Install service only)")?;
     draw_empty(out)?;
 
-    draw_section(out, "MAINTENANCE")?;
-    draw_item(out, "4", "Refresh (Re-apply profile now)")?;
-    draw_item(out, "5", "Reinstall (Clean reinstall everything)")?;
-    draw_item(out, "6", "Detect Monitors")?;
-    draw_empty(out)?;
-
     draw_section(out, "UNINSTALL")?;
-    draw_item(out, "7", "Remove Service (Keep profile)")?;
-    draw_item(out, "8", "Remove Profile Only")?;
-    draw_item(out, "9", "Full Uninstall (Remove everything)")?;
+    draw_item(out, "4", "Remove Service (Keep profile)")?;
+    draw_item(out, "5", "Remove Profile Only")?;
+    draw_item(out, "6", "Full Uninstall (Remove everything)")?;
     draw_empty(out)?;
 
-    draw_section(out, "ADVANCED")?;
+    draw_section(out, "MORE")?;
+    draw_item(out, "M", "Maintenance (Diagnostics & refresh tools)")?;
+    draw_empty(out)?;
 
     // Active toggles summary
     let mut active: Vec<&str> = Vec::new();
@@ -331,6 +355,51 @@ pub(crate) fn draw_main(out: &mut impl Write, status: &Status, opts: &Options) -
     }
 
     draw_empty(out)?;
+    draw_item_quit(out)?;
+    draw_empty(out)?;
+    draw_bottom(out)?;
+
+    writeln!(out)?;
+    queue!(out, SetForegroundColor(Color::White))?;
+    write!(out, "  Select option: ")?;
+    queue!(out, ResetColor)?;
+    Ok(())
+}
+
+// ============================================================================
+// Drawing — Maintenance menu
+// ============================================================================
+
+pub(crate) fn draw_maintenance(
+    out: &mut impl Write,
+    status: &Status,
+    _opts: &Options,
+) -> io::Result<()> {
+    queue!(out, Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+
+    draw_header(out, status)?;
+    draw_sep(out, " MAINTENANCE ")?;
+
+    draw_empty(out)?;
+    draw_section(out, "PROFILE")?;
+    draw_item(out, "1", "Refresh (Re-apply profile now)")?;
+    draw_item(out, "2", "Reinstall (Clean reinstall everything)")?;
+    draw_empty(out)?;
+
+    draw_section(out, "DIAGNOSTICS")?;
+    draw_item(out, "3", "Detect Monitors")?;
+    draw_item(out, "4", "Check Service Status")?;
+    draw_item(out, "5", "Recheck Service (Stop + Start)")?;
+    draw_item(out, "6", "Check Applicability")?;
+    draw_empty(out)?;
+
+    draw_section(out, "FORCE REFRESH")?;
+    draw_item(out, "7", "Force Refresh Color Profile")?;
+    draw_item(out, "8", "Force Refresh Color Management")?;
+    draw_empty(out)?;
+
+    draw_section(out, "NAVIGATION")?;
+    draw_item(out, "B", "Back to Main Menu")?;
     draw_item_quit(out)?;
     draw_empty(out)?;
     draw_bottom(out)?;
@@ -990,6 +1059,137 @@ fn action_full_uninstall(opts: &Options) -> Result<(), Box<dyn std::error::Error
 }
 
 // ============================================================================
+// Maintenance actions
+// ============================================================================
+
+fn action_service_status() -> Result<(), Box<dyn std::error::Error>> {
+    lg_service::print_status()?;
+    Ok(())
+}
+
+fn action_recheck_service(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
+    if opts.dry_run {
+        println!("  [DRY RUN] Would stop then start the service");
+        return Ok(());
+    }
+
+    println!("  [INFO] Stopping service...");
+    match lg_service::stop_service() {
+        Ok(()) => println!("  [ OK ] Service stopped"),
+        Err(e) => println!("  [NOTE] Stop: {} (continuing)", e),
+    }
+
+    println!("  [INFO] Starting service...");
+    lg_service::start_service()?;
+    println!("  [ OK ] Service started");
+
+    println!("\n  [DONE] Service rechecked and restarted.");
+    Ok(())
+}
+
+fn action_check_applicability() -> Result<(), Box<dyn std::error::Error>> {
+    let cfg = Config::load();
+
+    // Check monitor
+    let devices = lg_monitor::find_matching_monitors(&cfg.monitor_match)?;
+    if devices.is_empty() {
+        println!(
+            "  [WARN] No monitors matching \"{}\"",
+            cfg.monitor_match
+        );
+    } else {
+        println!(
+            "  [ OK ] {} monitor(s) matching \"{}\"",
+            devices.len(),
+            cfg.monitor_match
+        );
+        for d in &devices {
+            println!("         - {}", d.name);
+        }
+    }
+
+    // Check profile
+    let profile_path = cfg.profile_path();
+    if lg_profile::is_profile_installed(&profile_path) {
+        println!("  [ OK ] ICC profile installed at {}", profile_path.display());
+    } else {
+        println!("  [WARN] ICC profile NOT found at {}", profile_path.display());
+    }
+
+    // Check service
+    let (installed, running) = lg_service::query_service_info();
+    if installed {
+        if running {
+            println!("  [ OK ] Service installed and running");
+        } else {
+            println!("  [WARN] Service installed but NOT running");
+        }
+    } else {
+        println!("  [WARN] Service NOT installed");
+    }
+
+    // Check config
+    let cfg_path = config::config_path();
+    if cfg_path.exists() {
+        println!("  [ OK ] Config file exists at {}", cfg_path.display());
+    } else {
+        println!("  [INFO] No config file (using defaults)");
+    }
+
+    // Summary
+    let all_good = !devices.is_empty()
+        && lg_profile::is_profile_installed(&profile_path)
+        && installed
+        && running;
+    if all_good {
+        println!("\n  [DONE] Everything looks good!");
+    } else {
+        println!("\n  [DONE] Some issues detected — see warnings above.");
+    }
+
+    Ok(())
+}
+
+fn action_force_refresh_profile() -> Result<(), Box<dyn std::error::Error>> {
+    let cfg = Config::load();
+    let profile_path = cfg.profile_path();
+    lg_profile::ensure_profile_installed(&profile_path)?;
+
+    let devices = lg_monitor::find_matching_monitors(&cfg.monitor_match)?;
+    if devices.is_empty() {
+        println!("  [SKIP] No matching monitors found.");
+    } else {
+        for device in &devices {
+            println!("  [INFO] Force reapplying to: {}", device.name);
+            lg_profile::reapply_profile(&device.device_key, &profile_path, cfg.toggle_delay_ms)?;
+            println!("  [ OK ] Profile reapplied for {}", device.name);
+        }
+        println!(
+            "\n  [DONE] Color profile force-refreshed for {} monitor(s).",
+            devices.len()
+        );
+    }
+    Ok(())
+}
+
+fn action_force_refresh_color_mgmt() -> Result<(), Box<dyn std::error::Error>> {
+    let cfg = Config::load();
+
+    println!("  [INFO] Broadcasting display settings refresh...");
+    lg_profile::refresh_display(true, true, true);
+    println!("  [ OK ] ChangeDisplaySettingsEx sent");
+    println!("  [ OK ] WM_SETTINGCHANGE \"Color\" broadcast sent");
+    println!("  [ OK ] InvalidateRect sent");
+
+    println!("  [INFO] Triggering Calibration Loader...");
+    lg_profile::trigger_calibration_loader(cfg.refresh_calibration_loader);
+    println!("  [ OK ] Calibration Loader task triggered");
+
+    println!("\n  [DONE] Color management force-refreshed.");
+    Ok(())
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -1128,24 +1328,25 @@ mod tests {
     #[test]
     fn page_variants_exist() {
         let _main = Page::Main;
+        let _maint = Page::Maintenance;
         let _adv = Page::Advanced;
     }
 
     // ── Main menu drawing ────────────────────────────────────────
 
     #[test]
-    fn draw_main_contains_all_9_menu_items() {
+    fn draw_main_contains_all_menu_items() {
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
-        // Verify all 9 numbered items
+        // 6 numbered install/uninstall items + M, A, Q keys
         assert!(output.contains("[1]"), "should contain item 1");
         assert!(output.contains("[2]"), "should contain item 2");
         assert!(output.contains("[3]"), "should contain item 3");
         assert!(output.contains("[4]"), "should contain item 4");
         assert!(output.contains("[5]"), "should contain item 5");
         assert!(output.contains("[6]"), "should contain item 6");
-        assert!(output.contains("[7]"), "should contain item 7");
-        assert!(output.contains("[8]"), "should contain item 8");
-        assert!(output.contains("[9]"), "should contain item 9");
+        assert!(output.contains("[M]"), "should contain Maintenance key");
+        assert!(output.contains("[A]"), "should contain Advanced key");
+        assert!(output.contains("[Q]"), "should contain Quit key");
     }
 
     #[test]
@@ -1155,9 +1356,9 @@ mod tests {
     }
 
     #[test]
-    fn draw_main_contains_maintenance_section() {
+    fn draw_main_contains_more_section() {
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
-        assert!(output.contains("MAINTENANCE"));
+        assert!(output.contains("MORE"));
     }
 
     #[test]
@@ -1167,9 +1368,9 @@ mod tests {
     }
 
     #[test]
-    fn draw_main_contains_advanced_section() {
+    fn draw_main_contains_advanced_item() {
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
-        assert!(output.contains("ADVANCED"));
+        assert!(output.contains("Advanced Options"));
     }
 
     #[test]
@@ -1195,11 +1396,10 @@ mod tests {
     }
 
     #[test]
-    fn draw_main_maintenance_labels() {
+    fn draw_main_maintenance_link() {
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
-        assert!(output.contains("Refresh"));
-        assert!(output.contains("Reinstall"));
-        assert!(output.contains("Detect Monitors"));
+        assert!(output.contains("Maintenance"));
+        assert!(output.contains("Diagnostics"));
     }
 
     #[test]
@@ -1337,6 +1537,143 @@ mod tests {
     fn draw_advanced_title() {
         let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(output.contains("ADVANCED OPTIONS"));
+    }
+
+    // ── Maintenance menu drawing ─────────────────────────────────
+
+    #[test]
+    fn draw_maintenance_contains_all_items() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[1]"), "item 1");
+        assert!(output.contains("[2]"), "item 2");
+        assert!(output.contains("[3]"), "item 3");
+        assert!(output.contains("[4]"), "item 4");
+        assert!(output.contains("[5]"), "item 5");
+        assert!(output.contains("[6]"), "item 6");
+        assert!(output.contains("[7]"), "item 7");
+        assert!(output.contains("[8]"), "item 8");
+        assert!(output.contains("[B]"), "back key");
+        assert!(output.contains("[Q]"), "quit key");
+    }
+
+    #[test]
+    fn draw_maintenance_profile_section() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("PROFILE"));
+    }
+
+    #[test]
+    fn draw_maintenance_diagnostics_section() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("DIAGNOSTICS"));
+    }
+
+    #[test]
+    fn draw_maintenance_force_refresh_section() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("FORCE REFRESH"));
+    }
+
+    #[test]
+    fn draw_maintenance_navigation_section() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("NAVIGATION"));
+        assert!(output.contains("Back to Main Menu"));
+        assert!(output.contains("Quit"));
+    }
+
+    #[test]
+    fn draw_maintenance_item_labels() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("Refresh"), "should have Refresh");
+        assert!(output.contains("Reinstall"), "should have Reinstall");
+        assert!(output.contains("Detect Monitors"), "should have Detect");
+        assert!(
+            output.contains("Check Service Status"),
+            "should have Service Status"
+        );
+        assert!(
+            output.contains("Recheck Service"),
+            "should have Recheck Service"
+        );
+        assert!(
+            output.contains("Check Applicability"),
+            "should have Applicability"
+        );
+        assert!(
+            output.contains("Force Refresh Color Profile"),
+            "should have Force Refresh Profile"
+        );
+        assert!(
+            output.contains("Force Refresh Color Management"),
+            "should have Force Refresh Color Mgmt"
+        );
+    }
+
+    #[test]
+    fn draw_maintenance_title() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("MAINTENANCE"));
+    }
+
+    #[test]
+    fn draw_maintenance_produces_nonempty_output() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(!output.is_empty());
+        assert!(
+            output.len() > 300,
+            "maintenance menu should produce substantial output"
+        );
+    }
+
+    #[test]
+    fn draw_maintenance_contains_box_drawing_chars() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains('\u{2554}'), "top-left corner");
+        assert!(output.contains('\u{2557}'), "top-right corner");
+        assert!(output.contains('\u{255A}'), "bottom-left corner");
+        assert!(output.contains('\u{255D}'), "bottom-right corner");
+        assert!(output.contains('\u{2551}'), "vertical line");
+    }
+
+    #[test]
+    fn draw_maintenance_select_option_prompt() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("Select option"));
+    }
+
+    #[test]
+    fn draw_maintenance_all_status_combos() {
+        for profile in [false, true] {
+            for svc_installed in [false, true] {
+                for svc_running in [false, true] {
+                    for count in [0, 1, 5] {
+                        let s = test_status(profile, svc_installed, svc_running, count);
+                        let output = render_to_string(|buf| {
+                            draw_maintenance(buf, &s, &default_opts())
+                        });
+                        assert!(!output.is_empty());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn draw_maintenance_with_all_good_status() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &all_good_status(), &default_opts()));
+        assert!(output.contains("Running"));
     }
 
     // ── Header drawing ───────────────────────────────────────────
