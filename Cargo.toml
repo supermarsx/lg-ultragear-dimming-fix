@@ -10,10 +10,10 @@ members = [
 ]
 
 [workspace.package]
-version = "1.0.0"
+version = "26.1.0"
 edition = "2021"
 license = "MIT"
-authors = ["LG UltraGear Dimming Fix Contributors"]
+authors = ["supermarsx"]
 
 [workspace.dependencies]
 # Internal crates

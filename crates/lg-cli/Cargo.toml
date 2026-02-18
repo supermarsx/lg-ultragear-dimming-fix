@@ -27,3 +27,6 @@ winlog.workspace = true
 serde.workspace = true
 tempfile.workspace = true
 toml.workspace = true
+
+[build-dependencies]
+winres = "0.1"
