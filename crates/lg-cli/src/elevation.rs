@@ -8,12 +8,12 @@ use std::error::Error;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 
+use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-use windows::core::PCWSTR;
 
 /// Returns `true` if the current process is running elevated (administrator).
 pub fn is_elevated() -> bool {
@@ -93,7 +93,10 @@ pub fn relaunch_elevated() -> Result<(), Box<dyn Error>> {
 
 /// Convert a Rust string to a null-terminated wide (UTF-16) vector.
 fn to_wide(s: &str) -> Vec<u16> {
-    OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+    OsStr::new(s)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
 }
 
 #[cfg(test)]

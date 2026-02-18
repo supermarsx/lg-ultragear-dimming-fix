@@ -212,7 +212,6 @@ verbose = {verbose}
 
     /// Get the full path to the ICC profile in the Windows color store.
     pub fn profile_path(&self) -> PathBuf {
-
         let windir = std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".to_string());
         PathBuf::from(windir)
             .join("System32")

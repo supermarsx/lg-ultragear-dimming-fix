@@ -339,12 +339,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             skip_detect,
             dry_run: cli.dry_run,
         })?,
-        Some(Commands::Uninstall { full, profile }) => {
-            cmd_uninstall(full, profile, cli.dry_run)?
-        }
-        Some(Commands::Reinstall { pattern, regex }) => {
-            cmd_reinstall(pattern, regex, cli.dry_run)?
-        }
+        Some(Commands::Uninstall { full, profile }) => cmd_uninstall(full, profile, cli.dry_run)?,
+        Some(Commands::Reinstall { pattern, regex }) => cmd_reinstall(pattern, regex, cli.dry_run)?,
         Some(Commands::Detect { pattern, regex }) => cmd_detect(pattern, regex)?,
         Some(Commands::Apply {
             pattern,
@@ -602,7 +598,10 @@ fn cmd_service(action: ServiceAction) -> Result<(), Box<dyn Error>> {
                 "     Config preserved at: {}",
                 config::config_path().display()
             );
-            println!("     Binary removed from: {}", config::install_path().display());
+            println!(
+                "     Binary removed from: {}",
+                config::install_path().display()
+            );
         }
         ServiceAction::Start => {
             lg_service::start_service()?;
@@ -670,7 +669,10 @@ fn cmd_install(opts: InstallOpts) -> Result<(), Box<dyn Error>> {
                     // Force overwrite: remove and re-extract
                     let _ = lg_profile::remove_profile(&profile_path);
                     lg_profile::ensure_profile_installed(&profile_path)?;
-                    println!("[OK] ICC profile force-installed to {}", profile_path.display());
+                    println!(
+                        "[OK] ICC profile force-installed to {}",
+                        profile_path.display()
+                    );
                 } else {
                     println!("[OK] ICC profile already present");
                 }
@@ -706,7 +708,10 @@ fn cmd_install(opts: InstallOpts) -> Result<(), Box<dyn Error>> {
                 if opts.force {
                     let _ = lg_profile::remove_profile(&profile_path);
                     lg_profile::ensure_profile_installed(&profile_path)?;
-                    println!("[OK] ICC profile force-installed to {}", profile_path.display());
+                    println!(
+                        "[OK] ICC profile force-installed to {}",
+                        profile_path.display()
+                    );
                 } else {
                     println!("[OK] ICC profile already present");
                 }
@@ -718,7 +723,10 @@ fn cmd_install(opts: InstallOpts) -> Result<(), Box<dyn Error>> {
     if !opts.skip_detect {
         let devices = lg_monitor::find_matching_monitors(&cfg.monitor_match)?;
         if devices.is_empty() {
-            println!("[NOTE] No monitors matching \"{}\" found", cfg.monitor_match);
+            println!(
+                "[NOTE] No monitors matching \"{}\" found",
+                cfg.monitor_match
+            );
         } else {
             println!(
                 "[OK] Found {} monitor(s) matching \"{}\"",
@@ -829,7 +837,11 @@ fn cmd_uninstall(full: bool, profile: bool, dry_run: bool) -> Result<(), Box<dyn
     Ok(())
 }
 
-fn cmd_reinstall(pattern: Option<String>, regex: bool, dry_run: bool) -> Result<(), Box<dyn Error>> {
+fn cmd_reinstall(
+    pattern: Option<String>,
+    regex: bool,
+    dry_run: bool,
+) -> Result<(), Box<dyn Error>> {
     if dry_run {
         println!("[DRY RUN] Would uninstall existing service");
         println!("[DRY RUN] Would reinstall profile + service");
@@ -905,7 +917,10 @@ fn cmd_test(action: TestAction) -> Result<(), Box<dyn Error>> {
                 println!("[NOTE] Profile not installed — run 'install' to extract");
             }
         }
-        TestAction::Monitors { pattern, regex: _regex } => {
+        TestAction::Monitors {
+            pattern,
+            regex: _regex,
+        } => {
             let cfg = Config::load();
             let pattern = pattern.as_deref().unwrap_or(&cfg.monitor_match);
             println!("[INFO] Testing monitor detection...");
@@ -945,28 +960,22 @@ fn cmd_probe(pattern: Option<String>, _regex: bool) -> Result<(), Box<dyn Error>
             "no ✗"
         }
     );
-    println!(
-        "  Embedded:  {} bytes",
-        lg_profile::EMBEDDED_ICM_SIZE
-    );
+    println!("  Embedded:  {} bytes", lg_profile::EMBEDDED_ICM_SIZE);
 
     // Service status
     println!("\n── Service ──");
     let (installed, running) = lg_service::query_service_info();
-    println!(
-        "  Installed: {}",
-        if installed { "yes ✓" } else { "no ✗" }
-    );
-    println!(
-        "  Running:   {}",
-        if running { "yes ✓" } else { "no ✗" }
-    );
+    println!("  Installed: {}", if installed { "yes ✓" } else { "no ✗" });
+    println!("  Running:   {}", if running { "yes ✓" } else { "no ✗" });
 
     // Config summary
     println!("\n── Config ──");
     println!("  File:    {}", config::config_path().display());
     println!("  Pattern: \"{}\"", cfg.monitor_match);
-    println!("  Toast:   {}", if cfg.toast_enabled { "on" } else { "off" });
+    println!(
+        "  Toast:   {}",
+        if cfg.toast_enabled { "on" } else { "off" }
+    );
     println!("  Verbose: {}", cfg.verbose);
 
     // Monitor detection

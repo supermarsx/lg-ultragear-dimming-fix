@@ -43,7 +43,10 @@ pub fn show_reapply_toast(enabled: bool, title: &str, body: &str, verbose: bool)
             // In Session 0 (service mode) WinRT notifications are unavailable.
             // The profile reapply event is still logged to Windows Event Log.
             if verbose {
-                warn!("Toast notification unavailable: {} (expected in Session 0)", e);
+                warn!(
+                    "Toast notification unavailable: {} (expected in Session 0)",
+                    e
+                );
             }
         }
     }

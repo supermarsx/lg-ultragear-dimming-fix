@@ -74,49 +74,31 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
         match (&page, ch) {
             // ── Main menu ──────────────────────────────────
-            (Page::Main, '1') => run_action(
-                &mut out,
-                "Installing profile + service...",
-                || action_default_install(&opts),
-            )?,
-            (Page::Main, '2') => run_action(
-                &mut out,
-                "Installing profile only...",
-                || action_profile_only(&opts),
-            )?,
-            (Page::Main, '3') => run_action(
-                &mut out,
-                "Installing service only...",
-                || action_service_only(&opts),
-            )?,
-            (Page::Main, '4') => run_action(
-                &mut out,
-                "Refreshing profile...",
-                || action_refresh(&opts),
-            )?,
-            (Page::Main, '5') => run_action(
-                &mut out,
-                "Reinstalling everything...",
-                || action_reinstall(&opts),
-            )?,
-            (Page::Main, '6') => {
-                run_action(&mut out, "Detecting monitors...", action_detect)?
+            (Page::Main, '1') => run_action(&mut out, "Installing profile + service...", || {
+                action_default_install(&opts)
+            })?,
+            (Page::Main, '2') => run_action(&mut out, "Installing profile only...", || {
+                action_profile_only(&opts)
+            })?,
+            (Page::Main, '3') => run_action(&mut out, "Installing service only...", || {
+                action_service_only(&opts)
+            })?,
+            (Page::Main, '4') => {
+                run_action(&mut out, "Refreshing profile...", || action_refresh(&opts))?
             }
-            (Page::Main, '7') => run_action(
-                &mut out,
-                "Removing service...",
-                || action_remove_service(&opts),
-            )?,
-            (Page::Main, '8') => run_action(
-                &mut out,
-                "Removing profile...",
-                || action_remove_profile(&opts),
-            )?,
-            (Page::Main, '9') => run_action(
-                &mut out,
-                "Full uninstall...",
-                || action_full_uninstall(&opts),
-            )?,
+            (Page::Main, '5') => run_action(&mut out, "Reinstalling everything...", || {
+                action_reinstall(&opts)
+            })?,
+            (Page::Main, '6') => run_action(&mut out, "Detecting monitors...", action_detect)?,
+            (Page::Main, '7') => run_action(&mut out, "Removing service...", || {
+                action_remove_service(&opts)
+            })?,
+            (Page::Main, '8') => run_action(&mut out, "Removing profile...", || {
+                action_remove_profile(&opts)
+            })?,
+            (Page::Main, '9') => run_action(&mut out, "Full uninstall...", || {
+                action_full_uninstall(&opts)
+            })?,
             (Page::Main, 'a') => page = Page::Advanced,
             (Page::Main, 'q') => break,
 
@@ -243,7 +225,11 @@ pub(crate) fn draw_main(out: &mut impl Write, status: &Status, opts: &Options) -
 // Drawing — Advanced menu
 // ============================================================================
 
-pub(crate) fn draw_advanced(out: &mut impl Write, status: &Status, opts: &Options) -> io::Result<()> {
+pub(crate) fn draw_advanced(
+    out: &mut impl Write,
+    status: &Status,
+    opts: &Options,
+) -> io::Result<()> {
     queue!(out, Clear(ClearType::All), cursor::MoveTo(0, 0))?;
 
     draw_header(out, status)?;
@@ -290,11 +276,7 @@ pub(crate) fn draw_advanced(out: &mut impl Write, status: &Status, opts: &Option
 pub(crate) fn draw_header(out: &mut impl Write, status: &Status) -> io::Result<()> {
     draw_top(out, TITLE)?;
 
-    let version_line = format!(
-        "Version {}  \u{2502}  {}",
-        env!("CARGO_PKG_VERSION"),
-        REPO
-    );
+    let version_line = format!("Version {}  \u{2502}  {}", env!("CARGO_PKG_VERSION"), REPO);
     draw_line_center(out, &version_line, Color::DarkGrey)?;
 
     draw_sep(out, "")?;
@@ -334,10 +316,7 @@ pub(crate) fn draw_header(out: &mut impl Write, status: &Status) -> io::Result<(
     // Monitor status
     let (monitor_text, monitor_color) = if status.monitor_count > 0 {
         (
-            format!(
-                "\u{25CF} {} monitor(s) detected",
-                status.monitor_count
-            ),
+            format!("\u{25CF} {} monitor(s) detected", status.monitor_count),
             Color::Green,
         )
     } else {
@@ -346,10 +325,7 @@ pub(crate) fn draw_header(out: &mut impl Write, status: &Status) -> io::Result<(
     draw_status(out, "LG UltraGear: ", &monitor_text, monitor_color)?;
 
     // Status sub-box bottom
-    let status_bottom = format!(
-        "\u{2514}{}\u{2518}",
-        "\u{2500}".repeat(INNER - 2)
-    );
+    let status_bottom = format!("\u{2514}{}\u{2518}", "\u{2500}".repeat(INNER - 2));
     draw_line(out, &status_bottom, Color::DarkCyan)?;
 
     draw_empty(out)?;
@@ -539,12 +515,7 @@ fn draw_item_quit(out: &mut impl Write) -> io::Result<()> {
     Ok(())
 }
 
-fn draw_toggle(
-    out: &mut impl Write,
-    key: &str,
-    text: &str,
-    enabled: bool,
-) -> io::Result<()> {
+fn draw_toggle(out: &mut impl Write, key: &str, text: &str, enabled: bool) -> io::Result<()> {
     let key_display = format!("[{}]", key);
     let toggle = if enabled { "[ON ]" } else { "[OFF]" };
     let toggle_color = if enabled {
@@ -571,12 +542,7 @@ fn draw_toggle(
     Ok(())
 }
 
-fn draw_status(
-    out: &mut impl Write,
-    label: &str,
-    value: &str,
-    color: Color,
-) -> io::Result<()> {
+fn draw_status(out: &mut impl Write, label: &str, value: &str, color: Color) -> io::Result<()> {
     let prefix = format!("  {} ", label);
     let value_width = INNER.saturating_sub(prefix.len());
 
@@ -1021,9 +987,7 @@ mod tests {
 
     #[test]
     fn draw_main_contains_all_9_menu_items() {
-        let output = render_to_string(|buf| {
-            draw_main(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
         // Verify all 9 numbered items
         assert!(output.contains("[1]"), "should contain item 1");
         assert!(output.contains("[2]"), "should contain item 2");
@@ -1038,59 +1002,45 @@ mod tests {
 
     #[test]
     fn draw_main_contains_install_section() {
-        let output = render_to_string(|buf| {
-            draw_main(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
         assert!(output.contains("INSTALL OPTIONS"));
     }
 
     #[test]
     fn draw_main_contains_maintenance_section() {
-        let output = render_to_string(|buf| {
-            draw_main(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
         assert!(output.contains("MAINTENANCE"));
     }
 
     #[test]
     fn draw_main_contains_uninstall_section() {
-        let output = render_to_string(|buf| {
-            draw_main(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
         assert!(output.contains("UNINSTALL"));
     }
 
     #[test]
     fn draw_main_contains_advanced_section() {
-        let output = render_to_string(|buf| {
-            draw_main(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
         assert!(output.contains("ADVANCED"));
     }
 
     #[test]
     fn draw_main_contains_quit_option() {
-        let output = render_to_string(|buf| {
-            draw_main(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
         assert!(output.contains("[Q]"));
         assert!(output.contains("Quit"));
     }
 
     #[test]
     fn draw_main_contains_advanced_key() {
-        let output = render_to_string(|buf| {
-            draw_main(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
         assert!(output.contains("[A]"));
         assert!(output.contains("Advanced Options"));
     }
 
     #[test]
     fn draw_main_install_labels() {
-        let output = render_to_string(|buf| {
-            draw_main(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
         assert!(output.contains("Default Install"));
         assert!(output.contains("Profile Only"));
         assert!(output.contains("Service Only"));
@@ -1098,9 +1048,7 @@ mod tests {
 
     #[test]
     fn draw_main_maintenance_labels() {
-        let output = render_to_string(|buf| {
-            draw_main(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
         assert!(output.contains("Refresh"));
         assert!(output.contains("Reinstall"));
         assert!(output.contains("Detect Monitors"));
@@ -1108,9 +1056,7 @@ mod tests {
 
     #[test]
     fn draw_main_uninstall_labels() {
-        let output = render_to_string(|buf| {
-            draw_main(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
         assert!(output.contains("Remove Service"));
         assert!(output.contains("Remove Profile Only"));
         assert!(output.contains("Full Uninstall"));
@@ -1118,9 +1064,7 @@ mod tests {
 
     #[test]
     fn draw_main_shows_no_active_toggles_by_default() {
-        let output = render_to_string(|buf| {
-            draw_main(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
         assert!(
             output.contains("None active"),
             "Default opts should show 'None active'"
@@ -1134,9 +1078,7 @@ mod tests {
             dry_run: true,
             verbose: true,
         };
-        let output = render_to_string(|buf| {
-            draw_main(buf, &default_status(), &opts)
-        });
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
         assert!(output.contains("NoToast"), "should show NoToast");
         assert!(output.contains("DryRun"), "should show DryRun");
         assert!(output.contains("Verbose"), "should show Verbose");
@@ -1144,9 +1086,7 @@ mod tests {
 
     #[test]
     fn draw_main_select_option_prompt() {
-        let output = render_to_string(|buf| {
-            draw_main(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
         assert!(output.contains("Select option"));
     }
 
@@ -1154,9 +1094,7 @@ mod tests {
 
     #[test]
     fn draw_main_contains_box_drawing_chars() {
-        let output = render_to_string(|buf| {
-            draw_main(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
         assert!(output.contains('\u{2554}'), "top-left corner \u{2554}");
         assert!(output.contains('\u{2557}'), "top-right corner \u{2557}");
         assert!(output.contains('\u{255A}'), "bottom-left corner \u{255a}");
@@ -1168,9 +1106,7 @@ mod tests {
 
     #[test]
     fn draw_advanced_contains_3_toggles() {
-        let output = render_to_string(|buf| {
-            draw_advanced(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(output.contains("[1]"), "toggle 1");
         assert!(output.contains("[2]"), "toggle 2");
         assert!(output.contains("[3]"), "toggle 3");
@@ -1178,9 +1114,7 @@ mod tests {
 
     #[test]
     fn draw_advanced_contains_toggle_labels() {
-        let output = render_to_string(|buf| {
-            draw_advanced(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(output.contains("Toast Notifications"));
         assert!(output.contains("Dry Run"));
         assert!(output.contains("Verbose Logging"));
@@ -1188,27 +1122,21 @@ mod tests {
 
     #[test]
     fn draw_advanced_contains_back_option() {
-        let output = render_to_string(|buf| {
-            draw_advanced(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(output.contains("[B]"));
         assert!(output.contains("Back to Main Menu"));
     }
 
     #[test]
     fn draw_advanced_contains_quit_option() {
-        let output = render_to_string(|buf| {
-            draw_advanced(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(output.contains("[Q]"));
         assert!(output.contains("Quit"));
     }
 
     #[test]
     fn draw_advanced_toast_on_by_default() {
-        let output = render_to_string(|buf| {
-            draw_advanced(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         // Toast should be ON by default (assuming config has toast_enabled=true)
         assert!(output.contains("[ON ]"), "toast should be ON by default");
     }
@@ -1217,9 +1145,7 @@ mod tests {
     fn draw_advanced_dry_run_off_by_default() {
         let opts = default_opts();
         assert!(!opts.dry_run, "dry_run defaults to false");
-        let output = render_to_string(|buf| {
-            draw_advanced(buf, &default_status(), &opts)
-        });
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
         assert!(output.contains("[OFF]"), "dry_run/verbose should be OFF");
     }
 
@@ -1230,9 +1156,7 @@ mod tests {
             dry_run: true,
             verbose: true,
         };
-        let output = render_to_string(|buf| {
-            draw_advanced(buf, &default_status(), &opts)
-        });
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
         // With toast=false, dry_run=true, verbose=true
         // We should see two ON and one OFF
         let on_count = output.matches("[ON ]").count();
@@ -1243,9 +1167,7 @@ mod tests {
 
     #[test]
     fn draw_advanced_section_headers() {
-        let output = render_to_string(|buf| {
-            draw_advanced(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(output.contains("NOTIFICATIONS"));
         assert!(output.contains("TESTING"));
         assert!(output.contains("NAVIGATION"));
@@ -1253,17 +1175,13 @@ mod tests {
 
     #[test]
     fn draw_advanced_info_text() {
-        let output = render_to_string(|buf| {
-            draw_advanced(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(output.contains("toggles affect main menu"));
     }
 
     #[test]
     fn draw_advanced_title() {
-        let output = render_to_string(|buf| {
-            draw_advanced(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(output.contains("ADVANCED OPTIONS"));
     }
 
@@ -1271,17 +1189,13 @@ mod tests {
 
     #[test]
     fn draw_header_contains_title() {
-        let output = render_to_string(|buf| {
-            draw_header(buf, &default_status())
-        });
+        let output = render_to_string(|buf| draw_header(buf, &default_status()));
         assert!(output.contains(TITLE));
     }
 
     #[test]
     fn draw_header_contains_version() {
-        let output = render_to_string(|buf| {
-            draw_header(buf, &default_status())
-        });
+        let output = render_to_string(|buf| draw_header(buf, &default_status()));
         assert!(
             output.contains(env!("CARGO_PKG_VERSION")),
             "header should show crate version"
@@ -1290,82 +1204,62 @@ mod tests {
 
     #[test]
     fn draw_header_contains_repo() {
-        let output = render_to_string(|buf| {
-            draw_header(buf, &default_status())
-        });
+        let output = render_to_string(|buf| draw_header(buf, &default_status()));
         assert!(output.contains(REPO));
     }
 
     #[test]
     fn draw_header_shows_current_status_label() {
-        let output = render_to_string(|buf| {
-            draw_header(buf, &default_status())
-        });
+        let output = render_to_string(|buf| draw_header(buf, &default_status()));
         assert!(output.contains("CURRENT STATUS"));
     }
 
     #[test]
     fn draw_header_shows_profile_not_installed() {
-        let output = render_to_string(|buf| {
-            draw_header(buf, &test_status(false, false, false, 0))
-        });
+        let output = render_to_string(|buf| draw_header(buf, &test_status(false, false, false, 0)));
         assert!(output.contains("Not Installed"));
     }
 
     #[test]
     fn draw_header_shows_profile_installed() {
-        let output = render_to_string(|buf| {
-            draw_header(buf, &test_status(true, false, false, 0))
-        });
+        let output = render_to_string(|buf| draw_header(buf, &test_status(true, false, false, 0)));
         assert!(output.contains("Installed"));
     }
 
     #[test]
     fn draw_header_shows_service_not_installed() {
-        let output = render_to_string(|buf| {
-            draw_header(buf, &test_status(false, false, false, 0))
-        });
+        let output = render_to_string(|buf| draw_header(buf, &test_status(false, false, false, 0)));
         // Service not installed → "Not Installed"
         assert!(output.contains("Not Installed"));
     }
 
     #[test]
     fn draw_header_shows_service_running() {
-        let output = render_to_string(|buf| {
-            draw_header(buf, &test_status(true, true, true, 1))
-        });
+        let output = render_to_string(|buf| draw_header(buf, &test_status(true, true, true, 1)));
         assert!(output.contains("Running"));
     }
 
     #[test]
     fn draw_header_shows_service_stopped() {
-        let output = render_to_string(|buf| {
-            draw_header(buf, &test_status(true, true, false, 1))
-        });
+        let output = render_to_string(|buf| draw_header(buf, &test_status(true, true, false, 1)));
         assert!(output.contains("Stopped"));
     }
 
     #[test]
     fn draw_header_shows_monitors_detected() {
-        let output = render_to_string(|buf| {
-            draw_header(buf, &test_status(true, true, true, 3))
-        });
+        let output = render_to_string(|buf| draw_header(buf, &test_status(true, true, true, 3)));
         assert!(output.contains("3 monitor(s) detected"));
     }
 
     #[test]
     fn draw_header_shows_no_monitors() {
-        let output = render_to_string(|buf| {
-            draw_header(buf, &test_status(false, false, false, 0))
-        });
+        let output = render_to_string(|buf| draw_header(buf, &test_status(false, false, false, 0)));
         assert!(output.contains("None detected"));
     }
 
     #[test]
     fn draw_header_shows_status_labels() {
-        let output = render_to_string(|buf| {
-            draw_header(buf, &default_status())
-        });
+        let output = render_to_string(|buf| draw_header(buf, &default_status()));
         assert!(output.contains("Color Profile:"));
         assert!(output.contains("Service:"));
         assert!(output.contains("LG UltraGear:"));
@@ -1402,9 +1296,7 @@ mod tests {
 
     #[test]
     fn draw_main_with_all_installed_status() {
-        let output = render_to_string(|buf| {
-            draw_main(buf, &all_good_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_main(buf, &all_good_status(), &default_opts()));
         assert!(output.contains("Installed"));
         assert!(output.contains("Running"));
         assert!(output.contains("1 monitor(s) detected"));
@@ -1413,18 +1305,15 @@ mod tests {
     #[test]
     fn draw_main_with_service_stopped() {
         let s = test_status(true, true, false, 2);
-        let output = render_to_string(|buf| {
-            draw_main(buf, &s, &default_opts())
-        });
+        let output = render_to_string(|buf| draw_main(buf, &s, &default_opts()));
         assert!(output.contains("Stopped"));
         assert!(output.contains("2 monitor(s) detected"));
     }
 
     #[test]
     fn draw_advanced_with_all_good_status() {
-        let output = render_to_string(|buf| {
-            draw_advanced(buf, &all_good_status(), &default_opts())
-        });
+        let output =
+            render_to_string(|buf| draw_advanced(buf, &all_good_status(), &default_opts()));
         assert!(output.contains("Running"));
     }
 
@@ -1499,20 +1388,22 @@ mod tests {
 
     #[test]
     fn draw_main_produces_nonempty_output() {
-        let output = render_to_string(|buf| {
-            draw_main(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
         assert!(!output.is_empty());
-        assert!(output.len() > 500, "main menu should produce substantial output");
+        assert!(
+            output.len() > 500,
+            "main menu should produce substantial output"
+        );
     }
 
     #[test]
     fn draw_advanced_produces_nonempty_output() {
-        let output = render_to_string(|buf| {
-            draw_advanced(buf, &default_status(), &default_opts())
-        });
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(!output.is_empty());
-        assert!(output.len() > 300, "advanced menu should produce substantial output");
+        assert!(
+            output.len() > 300,
+            "advanced menu should produce substantial output"
+        );
     }
 
     #[test]
@@ -1524,9 +1415,7 @@ mod tests {
 
     #[test]
     fn draw_header_produces_nonempty_output() {
-        let output = render_to_string(|buf| {
-            draw_header(buf, &default_status())
-        });
+        let output = render_to_string(|buf| draw_header(buf, &default_status()));
         assert!(!output.is_empty());
     }
 
@@ -1539,9 +1428,7 @@ mod tests {
                 for svc_running in [false, true] {
                     for count in [0, 1, 5] {
                         let s = test_status(profile, svc_installed, svc_running, count);
-                        let output = render_to_string(|buf| {
-                            draw_main(buf, &s, &default_opts())
-                        });
+                        let output = render_to_string(|buf| draw_main(buf, &s, &default_opts()));
                         assert!(!output.is_empty());
                     }
                 }
@@ -1559,9 +1446,8 @@ mod tests {
                         dry_run: dry,
                         verbose: verb,
                     };
-                    let output = render_to_string(|buf| {
-                        draw_advanced(buf, &default_status(), &opts)
-                    });
+                    let output =
+                        render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
                     assert!(!output.is_empty());
                 }
             }

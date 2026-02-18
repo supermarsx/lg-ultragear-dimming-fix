@@ -229,9 +229,8 @@ fn run_calibration_loader_task() -> Result<(), Box<dyn Error>> {
     }
 
     let result = (|| -> Result<(), Box<dyn Error>> {
-        let service: ITaskService = unsafe {
-            CoCreateInstance(&TaskScheduler, None, CLSCTX_INPROC_SERVER)?
-        };
+        let service: ITaskService =
+            unsafe { CoCreateInstance(&TaskScheduler, None, CLSCTX_INPROC_SERVER)? };
 
         // Connect to local Task Scheduler with current credentials
         let empty = windows::core::VARIANT::default();
@@ -239,9 +238,8 @@ fn run_calibration_loader_task() -> Result<(), Box<dyn Error>> {
             service.Connect(&empty, &empty, &empty, &empty)?;
         }
 
-        let folder = unsafe {
-            service.GetFolder(&BSTR::from(r"\Microsoft\Windows\WindowsColorSystem"))?
-        };
+        let folder =
+            unsafe { service.GetFolder(&BSTR::from(r"\Microsoft\Windows\WindowsColorSystem"))? };
 
         let task = unsafe { folder.GetTask(&BSTR::from("Calibration Loader"))? };
 

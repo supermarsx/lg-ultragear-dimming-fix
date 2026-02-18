@@ -320,7 +320,14 @@ fn service_help_shows_subcommands() {
 #[test]
 fn all_subcommands_accept_help_flag() {
     for cmd in &[
-        "install", "uninstall", "reinstall", "detect", "apply", "watch", "config", "service",
+        "install",
+        "uninstall",
+        "reinstall",
+        "detect",
+        "apply",
+        "watch",
+        "config",
+        "service",
     ] {
         let (stdout, stderr, success) = run_binary(&[cmd, "--help"]);
         assert!(
@@ -350,11 +357,7 @@ fn install_conflicting_flags_rejected() {
 #[test]
 fn verbose_flag_accepted_globally() {
     let (stdout, stderr, success) = run_binary(&["-v", "detect"]);
-    assert!(
-        success,
-        "detect with -v should succeed. stderr: {}",
-        stderr
-    );
+    assert!(success, "detect with -v should succeed. stderr: {}", stderr);
     assert!(
         stdout.contains("monitor") || stdout.contains("Monitor") || stdout.contains("Scanning"),
         "detect with verbose should produce output: {}",
@@ -397,10 +400,7 @@ fn detect_with_custom_pattern() {
 #[test]
 fn detect_with_empty_pattern_matches_all() {
     let (stdout, _, success) = run_binary(&["detect", "--pattern", ""]);
-    assert!(
-        success,
-        "detect with empty pattern should succeed"
-    );
+    assert!(success, "detect with empty pattern should succeed");
     assert!(
         stdout.contains("Scanning") || stdout.contains("monitor"),
         "detect with empty pattern should produce output: {}",
@@ -540,10 +540,19 @@ fn config_show_displays_all_fields() {
     assert!(success, "config show should succeed");
 
     // Verify all configuration sections are shown
-    assert!(stdout.contains("Monitor Detection"), "should show Monitor Detection section");
-    assert!(stdout.contains("Toast Notifications"), "should show Toast section");
+    assert!(
+        stdout.contains("Monitor Detection"),
+        "should show Monitor Detection section"
+    );
+    assert!(
+        stdout.contains("Toast Notifications"),
+        "should show Toast section"
+    );
     assert!(stdout.contains("Timing"), "should show Timing section");
-    assert!(stdout.contains("Refresh Methods"), "should show Refresh section");
+    assert!(
+        stdout.contains("Refresh Methods"),
+        "should show Refresh section"
+    );
     assert!(stdout.contains("Debug"), "should show Debug section");
 
     // Verify individual field keys
@@ -647,14 +656,29 @@ fn non_interactive_not_a_terminal_shows_help() {
 
 #[test]
 fn icm_embedded_profile_has_nonzero_size() {
-    const { assert!(lg_profile::EMBEDDED_ICM_SIZE > 0, "Embedded ICM should contain data") };
+    const {
+        assert!(
+            lg_profile::EMBEDDED_ICM_SIZE > 0,
+            "Embedded ICM should contain data"
+        )
+    };
 }
 
 #[test]
 fn icm_embedded_profile_is_reasonable_size() {
     // ICC profiles are typically 1-50 KB; ours should be in that range
-    const { assert!(lg_profile::EMBEDDED_ICM_SIZE > 100, "Embedded ICM too small") };
-    const { assert!(lg_profile::EMBEDDED_ICM_SIZE < 500_000, "Embedded ICM suspiciously large") };
+    const {
+        assert!(
+            lg_profile::EMBEDDED_ICM_SIZE > 100,
+            "Embedded ICM too small"
+        )
+    };
+    const {
+        assert!(
+            lg_profile::EMBEDDED_ICM_SIZE < 500_000,
+            "Embedded ICM suspiciously large"
+        )
+    };
 }
 
 #[test]
@@ -743,9 +767,8 @@ fn icm_extract_then_remove_then_re_extract() {
 
 #[test]
 fn icm_remove_nonexistent_returns_false() {
-    let path = std::path::PathBuf::from(
-        r"C:\Windows\Temp\lg-integ-this-file-does-not-exist-99999.icm",
-    );
+    let path =
+        std::path::PathBuf::from(r"C:\Windows\Temp\lg-integ-this-file-does-not-exist-99999.icm");
     let result = lg_profile::remove_profile(&path).expect("should not error");
     assert!(!result);
 }
@@ -780,8 +803,7 @@ fn icm_extracted_profile_content_matches_expected_size() {
     if lg_profile::EMBEDDED_ICM_SIZE > 40 {
         let sig = &contents[36..40];
         assert_eq!(
-            sig,
-            b"acsp",
+            sig, b"acsp",
             "ICC profile should have 'acsp' signature at offset 36"
         );
     }
@@ -820,10 +842,7 @@ fn service_query_info_never_panics() {
     let (installed, running) = lg_service::query_service_info();
     // If not installed, it shouldn't be running
     if !installed {
-        assert!(
-            !running,
-            "service cannot be running if not installed"
-        );
+        assert!(!running, "service cannot be running if not installed");
     }
 }
 
@@ -842,7 +861,11 @@ fn service_query_info_is_deterministic() {
 #[test]
 fn monitor_detection_does_not_panic() {
     let result = lg_monitor::find_matching_monitors("LG ULTRAGEAR");
-    assert!(result.is_ok(), "monitor detection should not error: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "monitor detection should not error: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -856,7 +879,10 @@ fn monitor_detection_empty_pattern_returns_all() {
 fn monitor_detection_nonexistent_pattern_returns_empty() {
     let result = lg_monitor::find_matching_monitors("ZYXWVU_NONEXISTENT_MONITOR_99999");
     assert!(result.is_ok());
-    assert!(result.unwrap().is_empty(), "should find no matching monitors");
+    assert!(
+        result.unwrap().is_empty(),
+        "should find no matching monitors"
+    );
 }
 
 #[test]
@@ -864,7 +890,11 @@ fn monitor_detection_case_insensitive() {
     // Both uppercase and lowercase should return the same results
     let upper = lg_monitor::find_matching_monitors("LG ULTRAGEAR").unwrap();
     let lower = lg_monitor::find_matching_monitors("lg ultragear").unwrap();
-    assert_eq!(upper.len(), lower.len(), "case should not affect result count");
+    assert_eq!(
+        upper.len(),
+        lower.len(),
+        "case should not affect result count"
+    );
 }
 
 #[test]
@@ -1187,7 +1217,10 @@ fn binary_version_is_semver() {
 fn binary_help_shows_about() {
     let (stdout, _, _) = run_binary(&["--help"]);
     assert!(
-        stdout.contains("dimming") || stdout.contains("Dimming") || stdout.contains("color") || stdout.contains("profile"),
+        stdout.contains("dimming")
+            || stdout.contains("Dimming")
+            || stdout.contains("color")
+            || stdout.contains("profile"),
         "help should mention the tool's purpose: {}",
         stdout
     );
@@ -1252,9 +1285,7 @@ fn dry_run_full_workflow_install_uninstall() {
 
     let (stdout, _, success) = run_binary(&["detect"]);
     assert!(success, "detect should succeed");
-    assert!(
-        stdout.contains("Scanning") || stdout.contains("monitor"),
-    );
+    assert!(stdout.contains("Scanning") || stdout.contains("monitor"),);
 
     let (stdout, _, success) = run_binary(&["--dry-run", "uninstall", "--full"]);
     assert!(success, "dry-run full uninstall should succeed");
@@ -1267,7 +1298,9 @@ fn dry_run_apply_workflow() {
     assert!(success);
     assert!(stdout.contains("DRY RUN"));
     assert!(
-        stdout.contains("Would reapply") || stdout.contains("reapply") || stdout.contains("DRY RUN"),
+        stdout.contains("Would reapply")
+            || stdout.contains("reapply")
+            || stdout.contains("DRY RUN"),
     );
 }
 
@@ -1336,10 +1369,7 @@ fn apply_pattern_flag_short_form() {
 
 #[test]
 fn help_exits_with_success() {
-    let output = Command::new(binary_path())
-        .arg("--help")
-        .output()
-        .unwrap();
+    let output = Command::new(binary_path()).arg("--help").output().unwrap();
     assert!(output.status.success());
 }
 
@@ -1354,10 +1384,7 @@ fn version_exits_with_success() {
 
 #[test]
 fn detect_exits_with_success() {
-    let output = Command::new(binary_path())
-        .arg("detect")
-        .output()
-        .unwrap();
+    let output = Command::new(binary_path()).arg("detect").output().unwrap();
     assert!(output.status.success());
 }
 

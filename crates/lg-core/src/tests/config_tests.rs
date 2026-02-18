@@ -506,7 +506,10 @@ fn escape_toml_string_escapes_tab() {
 
 #[test]
 fn escape_toml_string_preserves_unicode() {
-    assert_eq!(escape_toml_string("Color profile reapplied ✓"), "Color profile reapplied ✓");
+    assert_eq!(
+        escape_toml_string("Color profile reapplied ✓"),
+        "Color profile reapplied ✓"
+    );
 }
 
 #[test]
@@ -516,10 +519,7 @@ fn escape_toml_string_empty() {
 
 #[test]
 fn escape_toml_string_combined() {
-    assert_eq!(
-        escape_toml_string("a\\b\"c\nd"),
-        r#"a\\b\"c\nd"#
-    );
+    assert_eq!(escape_toml_string("a\\b\"c\nd"), r#"a\\b\"c\nd"#);
 }
 
 // ── TOML injection prevention ────────────────────────────────────

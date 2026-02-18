@@ -54,7 +54,12 @@ fn embedded_icm_is_not_empty() {
 fn embedded_icm_has_valid_icc_header() {
     // ICC profiles start with a 4-byte size field, then 4 bytes of padding,
     // then the ASCII signature "acsp" at offset 36.
-    const { assert!(EMBEDDED_ICM_SIZE > 40, "Embedded ICM too small to be a valid ICC profile") };
+    const {
+        assert!(
+            EMBEDDED_ICM_SIZE > 40,
+            "Embedded ICM too small to be a valid ICC profile"
+        )
+    };
 }
 
 #[test]
