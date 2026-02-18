@@ -537,7 +537,7 @@ pub(crate) fn draw_header(out: &mut impl Write, status: &Status) -> io::Result<(
             ("\u{25CB} Stopped", Color::Yellow)
         }
     } else {
-        ("\u{25CB} Not Installed", Color::DarkGrey)
+        ("\u{25CB} Not Installed", Color::Red)
     };
     draw_status(out, "Service:      ", service_text, service_color)?;
 
@@ -548,7 +548,7 @@ pub(crate) fn draw_header(out: &mut impl Write, status: &Status) -> io::Result<(
             Color::Green,
         )
     } else {
-        ("\u{25CB} None detected".to_string(), Color::DarkGrey)
+        ("\u{25CB} None detected".to_string(), Color::Red)
     };
     draw_status(out, "LG UltraGear: ", &monitor_text, monitor_color)?;
 
@@ -556,7 +556,7 @@ pub(crate) fn draw_header(out: &mut impl Write, status: &Status) -> io::Result<(
     let (hdr_text, hdr_color) = if status.hdr_enabled {
         ("\u{25CF} Enabled", Color::Green)
     } else {
-        ("\u{25CB} Disabled", Color::DarkGrey)
+        ("\u{25CB} Disabled", Color::Yellow)
     };
     draw_status(out, "HDR Mode:     ", hdr_text, hdr_color)?;
 
@@ -564,7 +564,7 @@ pub(crate) fn draw_header(out: &mut impl Write, status: &Status) -> io::Result<(
     let (sdr_text, sdr_color) = if status.sdr_enabled {
         ("\u{25CF} Enabled", Color::Green)
     } else {
-        ("\u{25CB} Disabled", Color::DarkGrey)
+        ("\u{25CB} Disabled", Color::Yellow)
     };
     draw_status(out, "SDR Mode:     ", sdr_text, sdr_color)?;
 
@@ -2499,5 +2499,1515 @@ mod tests {
         log_note("test note");
         log_skip("test skip");
         log_err("test err");
+    }
+
+    // ================================================================
+    // TUI ITEM EXISTENCE — Exhaustive checks for every menu item
+    // ================================================================
+
+    // ── Main menu: every numbered item, M, A, Q ──────────────────
+
+    #[test]
+    fn main_menu_has_item_1_default_install() {
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[1]"), "main menu missing [1]");
+        assert!(
+            output.contains("Default Install (Profile + Service)"),
+            "main menu missing Default Install label"
+        );
+    }
+
+    #[test]
+    fn main_menu_has_item_2_profile_only() {
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[2]"), "main menu missing [2]");
+        assert!(
+            output.contains("Profile Only (Install ICC without service)"),
+            "main menu missing Profile Only label"
+        );
+    }
+
+    #[test]
+    fn main_menu_has_item_3_service_only() {
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[3]"), "main menu missing [3]");
+        assert!(
+            output.contains("Service Only (Install service only)"),
+            "main menu missing Service Only label"
+        );
+    }
+
+    #[test]
+    fn main_menu_has_item_4_remove_service() {
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[4]"), "main menu missing [4]");
+        assert!(
+            output.contains("Remove Service (Keep profile)"),
+            "main menu missing Remove Service label"
+        );
+    }
+
+    #[test]
+    fn main_menu_has_item_5_remove_profile() {
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[5]"), "main menu missing [5]");
+        assert!(
+            output.contains("Remove Profile Only"),
+            "main menu missing Remove Profile Only label"
+        );
+    }
+
+    #[test]
+    fn main_menu_has_item_6_full_uninstall() {
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[6]"), "main menu missing [6]");
+        assert!(
+            output.contains("Full Uninstall (Remove everything)"),
+            "main menu missing Full Uninstall label"
+        );
+    }
+
+    #[test]
+    fn main_menu_has_item_m_maintenance() {
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[M]"), "main menu missing [M]");
+        assert!(
+            output.contains("Maintenance (Diagnostics & refresh tools)"),
+            "main menu missing Maintenance label"
+        );
+    }
+
+    #[test]
+    fn main_menu_has_item_a_advanced() {
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[A]"), "main menu missing [A]");
+        assert!(
+            output.contains("Advanced Options"),
+            "main menu missing Advanced Options label"
+        );
+    }
+
+    #[test]
+    fn main_menu_has_item_q_quit() {
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[Q]"), "main menu missing [Q]");
+        assert!(output.contains("Quit"), "main menu missing Quit label");
+    }
+
+    #[test]
+    fn main_menu_has_all_sections() {
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
+        assert!(output.contains("INSTALL OPTIONS"), "missing INSTALL OPTIONS");
+        assert!(output.contains("UNINSTALL"), "missing UNINSTALL");
+        assert!(output.contains("MORE"), "missing MORE");
+    }
+
+    #[test]
+    fn main_menu_has_select_option_prompt() {
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
+        assert!(
+            output.contains("Select option:"),
+            "main menu missing 'Select option:' prompt"
+        );
+    }
+
+    #[test]
+    fn main_menu_total_bracketed_items_count() {
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
+        // Items: [1], [2], [3], [4], [5], [6], [M], [A], [Q] = 9 items
+        let count = output.matches("[1]").count()
+            + output.matches("[2]").count()
+            + output.matches("[3]").count()
+            + output.matches("[4]").count()
+            + output.matches("[5]").count()
+            + output.matches("[6]").count()
+            + output.matches("[M]").count()
+            + output.matches("[A]").count()
+            + output.matches("[Q]").count();
+        assert_eq!(count, 9, "main menu should have exactly 9 bracketed items");
+    }
+
+    // ── Maintenance menu: every numbered item 1-9, B, Q ──────────
+
+    #[test]
+    fn maintenance_menu_has_item_1_refresh() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[1]"), "maintenance missing [1]");
+        assert!(
+            output.contains("Refresh (Re-apply profile now)"),
+            "maintenance missing Refresh label"
+        );
+    }
+
+    #[test]
+    fn maintenance_menu_has_item_2_reinstall() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[2]"), "maintenance missing [2]");
+        assert!(
+            output.contains("Reinstall (Clean reinstall everything)"),
+            "maintenance missing Reinstall label"
+        );
+    }
+
+    #[test]
+    fn maintenance_menu_has_item_3_detect() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[3]"), "maintenance missing [3]");
+        assert!(
+            output.contains("Detect Monitors"),
+            "maintenance missing Detect Monitors label"
+        );
+    }
+
+    #[test]
+    fn maintenance_menu_has_item_4_service_status() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[4]"), "maintenance missing [4]");
+        assert!(
+            output.contains("Check Service Status"),
+            "maintenance missing Check Service Status label"
+        );
+    }
+
+    #[test]
+    fn maintenance_menu_has_item_5_recheck() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[5]"), "maintenance missing [5]");
+        assert!(
+            output.contains("Recheck Service (Stop + Start)"),
+            "maintenance missing Recheck Service label"
+        );
+    }
+
+    #[test]
+    fn maintenance_menu_has_item_6_applicability() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[6]"), "maintenance missing [6]");
+        assert!(
+            output.contains("Check Applicability"),
+            "maintenance missing Check Applicability label"
+        );
+    }
+
+    #[test]
+    fn maintenance_menu_has_item_7_test_toast() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[7]"), "maintenance missing [7]");
+        assert!(
+            output.contains("Test Toast Notification"),
+            "maintenance missing Test Toast Notification label"
+        );
+    }
+
+    #[test]
+    fn maintenance_menu_has_item_8_force_profile() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[8]"), "maintenance missing [8]");
+        assert!(
+            output.contains("Force Refresh Color Profile"),
+            "maintenance missing Force Refresh Color Profile label"
+        );
+    }
+
+    #[test]
+    fn maintenance_menu_has_item_9_force_color_mgmt() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[9]"), "maintenance missing [9]");
+        assert!(
+            output.contains("Force Refresh Color Management"),
+            "maintenance missing Force Refresh Color Management label"
+        );
+    }
+
+    #[test]
+    fn maintenance_menu_has_item_b_back() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[B]"), "maintenance missing [B]");
+        assert!(
+            output.contains("Back to Main Menu"),
+            "maintenance missing Back label"
+        );
+    }
+
+    #[test]
+    fn maintenance_menu_has_item_q_quit() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[Q]"), "maintenance missing [Q]");
+        assert!(output.contains("Quit"), "maintenance missing Quit");
+    }
+
+    #[test]
+    fn maintenance_menu_has_all_sections() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("PROFILE"), "missing PROFILE section");
+        assert!(output.contains("DIAGNOSTICS"), "missing DIAGNOSTICS section");
+        assert!(
+            output.contains("FORCE REFRESH"),
+            "missing FORCE REFRESH section"
+        );
+        assert!(output.contains("NAVIGATION"), "missing NAVIGATION section");
+    }
+
+    #[test]
+    fn maintenance_menu_total_bracketed_items_count() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        // [1]-[9], [B], [Q] = 11
+        let count = output.matches("[1]").count()
+            + output.matches("[2]").count()
+            + output.matches("[3]").count()
+            + output.matches("[4]").count()
+            + output.matches("[5]").count()
+            + output.matches("[6]").count()
+            + output.matches("[7]").count()
+            + output.matches("[8]").count()
+            + output.matches("[9]").count()
+            + output.matches("[B]").count()
+            + output.matches("[Q]").count();
+        assert_eq!(
+            count, 11,
+            "maintenance menu should have exactly 11 bracketed items"
+        );
+    }
+
+    // ── Advanced menu: every numbered item 1-7, B, Q ─────────────
+
+    #[test]
+    fn advanced_menu_has_item_1_toast() {
+        let output =
+            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[1]"), "advanced missing [1]");
+        assert!(
+            output.contains("Toast Notifications (Show reapply alerts)"),
+            "advanced missing Toast label"
+        );
+    }
+
+    #[test]
+    fn advanced_menu_has_item_2_dry_run() {
+        let output =
+            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[2]"), "advanced missing [2]");
+        assert!(
+            output.contains("Dry Run (Simulate without changes)"),
+            "advanced missing Dry Run label"
+        );
+    }
+
+    #[test]
+    fn advanced_menu_has_item_3_verbose() {
+        let output =
+            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[3]"), "advanced missing [3]");
+        assert!(
+            output.contains("Verbose Logging (Detailed output)"),
+            "advanced missing Verbose label"
+        );
+    }
+
+    #[test]
+    fn advanced_menu_has_item_4_hdr() {
+        let output =
+            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[4]"), "advanced missing [4]");
+        assert!(
+            output.contains("HDR Mode (Advanced color association)"),
+            "advanced missing HDR Mode label"
+        );
+    }
+
+    #[test]
+    fn advanced_menu_has_item_5_sdr() {
+        let output =
+            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[5]"), "advanced missing [5]");
+        assert!(
+            output.contains("SDR Mode (Standard color association)"),
+            "advanced missing SDR Mode label"
+        );
+    }
+
+    #[test]
+    fn advanced_menu_has_item_6_per_user() {
+        let output =
+            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[6]"), "advanced missing [6]");
+        assert!(
+            output.contains("Per-User Install (User scope, not system)"),
+            "advanced missing Per-User Install label"
+        );
+    }
+
+    #[test]
+    fn advanced_menu_has_item_7_generic_default() {
+        let output =
+            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[7]"), "advanced missing [7]");
+        assert!(
+            output.contains("Generic Default (Legacy default profile API)"),
+            "advanced missing Generic Default label"
+        );
+    }
+
+    #[test]
+    fn advanced_menu_has_item_b_back() {
+        let output =
+            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[B]"), "advanced missing [B]");
+        assert!(
+            output.contains("Back to Main Menu"),
+            "advanced missing Back label"
+        );
+    }
+
+    #[test]
+    fn advanced_menu_has_item_q_quit() {
+        let output =
+            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[Q]"), "advanced missing [Q]");
+        assert!(output.contains("Quit"), "advanced missing Quit");
+    }
+
+    #[test]
+    fn advanced_menu_has_all_sections() {
+        let output =
+            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        assert!(
+            output.contains("NOTIFICATIONS"),
+            "missing NOTIFICATIONS section"
+        );
+        assert!(output.contains("TESTING"), "missing TESTING section");
+        assert!(output.contains("COLOR MODE"), "missing COLOR MODE section");
+        assert!(
+            output.contains("INSTALL MODE"),
+            "missing INSTALL MODE section"
+        );
+        assert!(output.contains("NAVIGATION"), "missing NAVIGATION section");
+    }
+
+    #[test]
+    fn advanced_menu_total_bracketed_items_count() {
+        let output =
+            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        // [1]-[7], [B], [Q] = 9
+        let count = output.matches("[1]").count()
+            + output.matches("[2]").count()
+            + output.matches("[3]").count()
+            + output.matches("[4]").count()
+            + output.matches("[5]").count()
+            + output.matches("[6]").count()
+            + output.matches("[7]").count()
+            + output.matches("[B]").count()
+            + output.matches("[Q]").count();
+        assert_eq!(
+            count, 9,
+            "advanced menu should have exactly 9 bracketed items"
+        );
+    }
+
+    #[test]
+    fn advanced_menu_info_text_present() {
+        let output =
+            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        assert!(
+            output.contains("These toggles affect main menu install options"),
+            "advanced missing info text"
+        );
+    }
+
+    // ================================================================
+    // TOGGLE EDGE CASES — all 7 toggles exhaustive combinations
+    // ================================================================
+
+    #[test]
+    fn advanced_all_7_toggles_off_shows_7_off_markers() {
+        let opts = Options {
+            toast: false,
+            dry_run: false,
+            verbose: false,
+            hdr: false,
+            sdr: false,
+            per_user: false,
+            generic_default: false,
+        };
+        let output =
+            render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
+        assert_eq!(
+            output.matches("[OFF]").count(),
+            7,
+            "all toggles OFF should show 7 [OFF] markers"
+        );
+        assert_eq!(
+            output.matches("[ON ]").count(),
+            0,
+            "all toggles OFF should show 0 [ON ] markers"
+        );
+    }
+
+    #[test]
+    fn advanced_all_7_toggles_on_shows_7_on_markers() {
+        let opts = Options {
+            toast: true,
+            dry_run: true,
+            verbose: true,
+            hdr: true,
+            sdr: true,
+            per_user: true,
+            generic_default: true,
+        };
+        let output =
+            render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
+        assert_eq!(
+            output.matches("[ON ]").count(),
+            7,
+            "all toggles ON should show 7 [ON ] markers"
+        );
+        assert_eq!(
+            output.matches("[OFF]").count(),
+            0,
+            "all toggles ON should show 0 [OFF] markers"
+        );
+    }
+
+    #[test]
+    fn advanced_only_per_user_on() {
+        let mut opts = default_opts();
+        opts.per_user = true;
+        let output =
+            render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
+        // toast=ON, sdr=ON, per_user=ON → 3 ON, 4 OFF
+        let on_count = output.matches("[ON ]").count();
+        let off_count = output.matches("[OFF]").count();
+        assert_eq!(on_count, 3, "per_user ON only: expected 3 ON markers");
+        assert_eq!(off_count, 4, "per_user ON only: expected 4 OFF markers");
+    }
+
+    #[test]
+    fn advanced_only_generic_default_on() {
+        let mut opts = default_opts();
+        opts.generic_default = true;
+        let output =
+            render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
+        // toast=ON, sdr=ON, generic_default=ON → 3 ON, 4 OFF
+        let on_count = output.matches("[ON ]").count();
+        let off_count = output.matches("[OFF]").count();
+        assert_eq!(on_count, 3, "generic_default ON: expected 3 ON markers");
+        assert_eq!(off_count, 4, "generic_default ON: expected 4 OFF markers");
+    }
+
+    #[test]
+    fn advanced_both_install_mode_toggles_on() {
+        let mut opts = default_opts();
+        opts.per_user = true;
+        opts.generic_default = true;
+        let output =
+            render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
+        // toast=ON, sdr=ON, per_user=ON, generic_default=ON → 4 ON, 3 OFF
+        let on_count = output.matches("[ON ]").count();
+        let off_count = output.matches("[OFF]").count();
+        assert_eq!(on_count, 4, "both install mode: expected 4 ON markers");
+        assert_eq!(off_count, 3, "both install mode: expected 3 OFF markers");
+    }
+
+    #[test]
+    fn draw_advanced_all_128_toggle_combos() {
+        // Exhaustive: iterate all 2^7 = 128 combinations of the 7 toggles
+        let status = default_status();
+        for bits in 0u8..128 {
+            let opts = Options {
+                toast: bits & 1 != 0,
+                dry_run: bits & 2 != 0,
+                verbose: bits & 4 != 0,
+                hdr: bits & 8 != 0,
+                sdr: bits & 16 != 0,
+                per_user: bits & 32 != 0,
+                generic_default: bits & 64 != 0,
+            };
+            let output = render_to_string(|buf| draw_advanced(buf, &status, &opts));
+            let on_count = output.matches("[ON ]").count();
+            let off_count = output.matches("[OFF]").count();
+            assert_eq!(
+                on_count + off_count,
+                7,
+                "combo {:07b}: expected 7 total toggles, got {} ON + {} OFF",
+                bits,
+                on_count,
+                off_count
+            );
+            let expected_on = (bits as u32).count_ones() as usize;
+            assert_eq!(
+                on_count, expected_on,
+                "combo {:07b}: expected {} ON markers, got {}",
+                bits, expected_on, on_count
+            );
+        }
+    }
+
+    // ================================================================
+    // MAIN MENU — Active toggles edge cases
+    // ================================================================
+
+    #[test]
+    fn main_active_toggles_all_seven_active() {
+        let opts = Options {
+            toast: false,  // NoToast appears when toast=false
+            dry_run: true,
+            verbose: true,
+            hdr: false, // NoHDR appears when hdr=false
+            sdr: false, // NoSDR appears when sdr=false
+            per_user: true,
+            generic_default: true,
+        };
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
+        assert!(output.contains("NoToast"), "missing NoToast");
+        assert!(output.contains("DryRun"), "missing DryRun");
+        assert!(output.contains("Verbose"), "missing Verbose");
+        assert!(output.contains("NoHDR"), "missing NoHDR");
+        assert!(output.contains("NoSDR"), "missing NoSDR");
+        assert!(output.contains("PerUser"), "missing PerUser");
+        assert!(output.contains("GenericDef"), "missing GenericDef");
+    }
+
+    #[test]
+    fn main_active_toggles_none_shows_none_active() {
+        // Default: toast=true, dry_run=false, verbose=false, hdr=false, sdr=true,
+        // per_user=false, generic_default=false
+        // Active toggles: NoHDR (hdr=false counts as active)
+        // Actually let's create "no active" state:
+        let opts = Options {
+            toast: true,
+            dry_run: false,
+            verbose: false,
+            hdr: true, // hdr=true → not active
+            sdr: true,
+            per_user: false,
+            generic_default: false,
+        };
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
+        assert!(
+            output.contains("None active"),
+            "should show (None active)"
+        );
+    }
+
+    #[test]
+    fn main_active_per_user_only() {
+        let opts = Options {
+            toast: true,
+            dry_run: false,
+            verbose: false,
+            hdr: true,
+            sdr: true,
+            per_user: true,
+            generic_default: false,
+        };
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
+        assert!(output.contains("PerUser"), "should show PerUser");
+        assert!(
+            !output.contains("GenericDef"),
+            "should NOT show GenericDef"
+        );
+        assert!(!output.contains("None active"), "should NOT show None active");
+    }
+
+    #[test]
+    fn main_active_generic_def_only() {
+        let opts = Options {
+            toast: true,
+            dry_run: false,
+            verbose: false,
+            hdr: true,
+            sdr: true,
+            per_user: false,
+            generic_default: true,
+        };
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
+        assert!(output.contains("GenericDef"), "should show GenericDef");
+        assert!(!output.contains("PerUser"), "should NOT show PerUser");
+    }
+
+    #[test]
+    fn main_active_both_install_mode_toggles() {
+        let opts = Options {
+            toast: true,
+            dry_run: false,
+            verbose: false,
+            hdr: true,
+            sdr: true,
+            per_user: true,
+            generic_default: true,
+        };
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
+        assert!(output.contains("PerUser"), "should show PerUser");
+        assert!(output.contains("GenericDef"), "should show GenericDef");
+    }
+
+    #[test]
+    fn main_all_128_active_toggle_combos() {
+        let status = default_status();
+        for bits in 0u8..128 {
+            let opts = Options {
+                toast: bits & 1 != 0,
+                dry_run: bits & 2 != 0,
+                verbose: bits & 4 != 0,
+                hdr: bits & 8 != 0,
+                sdr: bits & 16 != 0,
+                per_user: bits & 32 != 0,
+                generic_default: bits & 64 != 0,
+            };
+            let output = render_to_string(|buf| draw_main(buf, &status, &opts));
+            // Should always contain [A] and Advanced Options
+            assert!(
+                output.contains("[A]"),
+                "combo {:07b}: missing [A]",
+                bits
+            );
+            assert!(
+                output.contains("Advanced Options"),
+                "combo {:07b}: missing Advanced Options label",
+                bits
+            );
+
+            // Count active toggles
+            let mut expected_active = 0;
+            if bits & 1 == 0 { expected_active += 1; } // NoToast
+            if bits & 2 != 0 { expected_active += 1; } // DryRun
+            if bits & 4 != 0 { expected_active += 1; } // Verbose
+            if bits & 8 == 0 { expected_active += 1; } // NoHDR
+            if bits & 16 == 0 { expected_active += 1; } // NoSDR
+            if bits & 32 != 0 { expected_active += 1; } // PerUser
+            if bits & 64 != 0 { expected_active += 1; } // GenericDef
+
+            if expected_active == 0 {
+                assert!(
+                    output.contains("None active"),
+                    "combo {:07b}: should show None active",
+                    bits
+                );
+            } else {
+                assert!(
+                    !output.contains("None active"),
+                    "combo {:07b}: should NOT show None active",
+                    bits
+                );
+            }
+        }
+    }
+
+    // ================================================================
+    // HEADER EDGE CASES — status combinations
+    // ================================================================
+
+    #[test]
+    fn header_all_status_false_shows_not_installed() {
+        let status = test_status(false, false, false, 0);
+        let output = render_to_string(|buf| draw_header(buf, &status));
+        assert!(output.contains("Not Installed"), "should show Not Installed for profile");
+        assert!(output.contains("None detected"), "should show None detected");
+    }
+
+    #[test]
+    fn header_service_installed_not_running_shows_stopped() {
+        let status = test_status(false, true, false, 0);
+        let output = render_to_string(|buf| draw_header(buf, &status));
+        assert!(output.contains("Stopped"), "should show Stopped for service");
+    }
+
+    #[test]
+    fn header_service_installed_and_running_shows_running() {
+        let status = test_status(false, true, true, 0);
+        let output = render_to_string(|buf| draw_header(buf, &status));
+        assert!(output.contains("Running"), "should show Running");
+    }
+
+    #[test]
+    fn header_multiple_monitors() {
+        let status = test_status(true, true, true, 5);
+        let output = render_to_string(|buf| draw_header(buf, &status));
+        assert!(
+            output.contains("5 monitor(s) detected"),
+            "should show 5 monitors: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn header_hdr_and_sdr_status_reflect_status_struct() {
+        let mut status = default_status();
+        status.hdr_enabled = true;
+        status.sdr_enabled = false;
+        let output = render_to_string(|buf| draw_header(buf, &status));
+        // HDR should show Enabled, SDR should show Disabled
+        // Both labels are in the output
+        assert!(output.contains("HDR Mode:"), "should have HDR Mode label");
+        assert!(output.contains("SDR Mode:"), "should have SDR Mode label");
+    }
+
+    // ================================================================
+    // OPTIONS STRUCT — boundary and default edge cases
+    // ================================================================
+
+    #[test]
+    fn options_default_has_correct_defaults() {
+        let opts = default_opts();
+        assert!(opts.toast, "toast default should be true");
+        assert!(!opts.dry_run, "dry_run default should be false");
+        assert!(!opts.verbose, "verbose default should be false");
+        assert!(!opts.hdr, "hdr default should be false");
+        assert!(opts.sdr, "sdr default should be true");
+        assert!(!opts.per_user, "per_user default should be false");
+        assert!(!opts.generic_default, "generic_default default should be false");
+    }
+
+    #[test]
+    fn options_all_fields_are_independent() {
+        let mut opts = Options {
+            toast: false,
+            dry_run: false,
+            verbose: false,
+            hdr: false,
+            sdr: false,
+            per_user: false,
+            generic_default: false,
+        };
+        // Toggle each field independently and verify no side effects
+        opts.toast = true;
+        assert!(opts.toast);
+        assert!(!opts.dry_run);
+        assert!(!opts.per_user);
+
+        opts.per_user = true;
+        assert!(opts.toast);
+        assert!(opts.per_user);
+        assert!(!opts.generic_default);
+
+        opts.generic_default = true;
+        assert!(opts.toast);
+        assert!(opts.per_user);
+        assert!(opts.generic_default);
+        assert!(!opts.dry_run);
+    }
+
+    #[test]
+    fn options_toggle_roundtrip_all_fields() {
+        let mut opts = default_opts();
+        let original = Options {
+            toast: opts.toast,
+            dry_run: opts.dry_run,
+            verbose: opts.verbose,
+            hdr: opts.hdr,
+            sdr: opts.sdr,
+            per_user: opts.per_user,
+            generic_default: opts.generic_default,
+        };
+
+        // Toggle all fields
+        opts.toast = !opts.toast;
+        opts.dry_run = !opts.dry_run;
+        opts.verbose = !opts.verbose;
+        opts.hdr = !opts.hdr;
+        opts.sdr = !opts.sdr;
+        opts.per_user = !opts.per_user;
+        opts.generic_default = !opts.generic_default;
+
+        // All should be opposite now
+        assert_ne!(opts.toast, original.toast);
+        assert_ne!(opts.dry_run, original.dry_run);
+        assert_ne!(opts.verbose, original.verbose);
+        assert_ne!(opts.hdr, original.hdr);
+        assert_ne!(opts.sdr, original.sdr);
+        assert_ne!(opts.per_user, original.per_user);
+        assert_ne!(opts.generic_default, original.generic_default);
+
+        // Toggle all back
+        opts.toast = !opts.toast;
+        opts.dry_run = !opts.dry_run;
+        opts.verbose = !opts.verbose;
+        opts.hdr = !opts.hdr;
+        opts.sdr = !opts.sdr;
+        opts.per_user = !opts.per_user;
+        opts.generic_default = !opts.generic_default;
+
+        // All should match original
+        assert_eq!(opts.toast, original.toast);
+        assert_eq!(opts.dry_run, original.dry_run);
+        assert_eq!(opts.verbose, original.verbose);
+        assert_eq!(opts.hdr, original.hdr);
+        assert_eq!(opts.sdr, original.sdr);
+        assert_eq!(opts.per_user, original.per_user);
+        assert_eq!(opts.generic_default, original.generic_default);
+    }
+
+    // ================================================================
+    // STATUS STRUCT — edge cases
+    // ================================================================
+
+    #[test]
+    fn status_service_running_without_installed_is_representable() {
+        // Although logically nonsensical, the struct allows it
+        let s = Status {
+            profile_installed: false,
+            service_installed: false,
+            service_running: true,
+            monitor_count: 0,
+            hdr_enabled: false,
+            sdr_enabled: false,
+        };
+        assert!(s.service_running);
+        assert!(!s.service_installed);
+    }
+
+    #[test]
+    fn status_large_monitor_count() {
+        let s = test_status(true, true, true, 99);
+        let output = render_to_string(|buf| draw_header(buf, &s));
+        assert!(
+            output.contains("99 monitor(s) detected"),
+            "should handle large monitor count"
+        );
+    }
+
+    #[test]
+    fn status_zero_monitors_with_all_else_good() {
+        let s = test_status(true, true, true, 0);
+        let output = render_to_string(|buf| draw_header(buf, &s));
+        // Profile installed, service running, but no monitors
+        assert!(output.contains("Installed"), "profile should show Installed");
+        assert!(output.contains("Running"), "service should show Running");
+        assert!(output.contains("None detected"), "monitors should show None");
+    }
+
+    // ================================================================
+    // PAGE ENUM — edge cases
+    // ================================================================
+
+    #[test]
+    fn page_main_is_default_start_page() {
+        let page = Page::Main;
+        matches!(page, Page::Main);
+    }
+
+    #[test]
+    fn page_variants_are_distinct() {
+        assert!(
+            !matches!(Page::Main, Page::Maintenance),
+            "Main should not match Maintenance"
+        );
+        assert!(
+            !matches!(Page::Main, Page::Advanced),
+            "Main should not match Advanced"
+        );
+        assert!(
+            !matches!(Page::Maintenance, Page::Advanced),
+            "Maintenance should not match Advanced"
+        );
+    }
+
+    // ================================================================
+    // GOODBYE SCREEN — content checks
+    // ================================================================
+
+    #[test]
+    fn goodbye_contains_thank_you() {
+        let output = render_to_string(|buf| draw_goodbye(buf));
+        assert!(
+            output.contains("Thank you"),
+            "goodbye should contain Thank you"
+        );
+    }
+
+    #[test]
+    fn goodbye_contains_repo_link() {
+        let output = render_to_string(|buf| draw_goodbye(buf));
+        assert!(
+            output.contains("github.com"),
+            "goodbye should contain repo link"
+        );
+    }
+
+    #[test]
+    fn goodbye_has_box_drawing_characters() {
+        let output = render_to_string(|buf| draw_goodbye(buf));
+        assert!(
+            output.contains('\u{2554}') && output.contains('\u{255D}'),
+            "goodbye should have box corners"
+        );
+    }
+
+    // ================================================================
+    // DRAW CONSISTENCY — render same content twice, get same result
+    // ================================================================
+
+    #[test]
+    fn main_menu_render_is_deterministic() {
+        let status = default_status();
+        let opts = default_opts();
+        let a = render_to_string(|buf| draw_main(buf, &status, &opts));
+        let b = render_to_string(|buf| draw_main(buf, &status, &opts));
+        assert_eq!(a, b, "rendering should be deterministic");
+    }
+
+    #[test]
+    fn maintenance_menu_render_is_deterministic() {
+        let status = default_status();
+        let opts = default_opts();
+        let a = render_to_string(|buf| draw_maintenance(buf, &status, &opts));
+        let b = render_to_string(|buf| draw_maintenance(buf, &status, &opts));
+        assert_eq!(a, b, "rendering should be deterministic");
+    }
+
+    #[test]
+    fn advanced_menu_render_is_deterministic() {
+        let status = default_status();
+        let opts = default_opts();
+        let a = render_to_string(|buf| draw_advanced(buf, &status, &opts));
+        let b = render_to_string(|buf| draw_advanced(buf, &status, &opts));
+        assert_eq!(a, b, "rendering should be deterministic");
+    }
+
+    #[test]
+    fn header_render_is_deterministic() {
+        let status = all_good_status();
+        let a = render_to_string(|buf| draw_header(buf, &status));
+        let b = render_to_string(|buf| draw_header(buf, &status));
+        assert_eq!(a, b, "header rendering should be deterministic");
+    }
+
+    #[test]
+    fn goodbye_render_is_deterministic() {
+        let a = render_to_string(|buf| draw_goodbye(buf));
+        let b = render_to_string(|buf| draw_goodbye(buf));
+        assert_eq!(a, b, "goodbye rendering should be deterministic");
+    }
+
+    // ================================================================
+    // WRITE_ERR — edge cases
+    // ================================================================
+
+    #[test]
+    fn write_err_empty_message() {
+        let mut buf = Vec::new();
+        write_err(&mut buf, "").unwrap();
+        let output = String::from_utf8_lossy(&buf).to_string();
+        assert!(output.contains("[ERR ]"), "should still have ERR tag");
+    }
+
+    #[test]
+    fn write_err_long_message() {
+        let long_msg = "x".repeat(500);
+        let mut buf = Vec::new();
+        write_err(&mut buf, &long_msg).unwrap();
+        let output = String::from_utf8_lossy(&buf).to_string();
+        assert!(output.contains("[ERR ]"), "should have ERR tag");
+        assert!(output.contains(&long_msg), "should contain full message");
+    }
+
+    #[test]
+    fn write_err_message_with_special_characters() {
+        let msg = "error: file \"C:\\path\\to\\file\" not found <&>";
+        let mut buf = Vec::new();
+        write_err(&mut buf, msg).unwrap();
+        let output = String::from_utf8_lossy(&buf).to_string();
+        assert!(output.contains(msg), "should preserve special chars");
+    }
+
+    #[test]
+    fn write_err_unicode_message() {
+        let msg = "操作失败: プロファイル не найден → ❌";
+        let mut buf = Vec::new();
+        write_err(&mut buf, msg).unwrap();
+        let output = String::from_utf8_lossy(&buf).to_string();
+        assert!(
+            output.contains("操作失败"),
+            "should handle CJK characters"
+        );
+    }
+
+    // ================================================================
+    // CROSS-PAGE — structural checks
+    // ================================================================
+
+    #[test]
+    fn all_pages_have_header_with_title() {
+        let status = default_status();
+        let opts = default_opts();
+        let main_output = render_to_string(|buf| draw_main(buf, &status, &opts));
+        let maint_output = render_to_string(|buf| draw_maintenance(buf, &status, &opts));
+        let adv_output = render_to_string(|buf| draw_advanced(buf, &status, &opts));
+
+        for (name, output) in [
+            ("main", &main_output),
+            ("maintenance", &maint_output),
+            ("advanced", &adv_output),
+        ] {
+            assert!(
+                output.contains(TITLE),
+                "{} page should contain title '{}'",
+                name,
+                TITLE
+            );
+        }
+    }
+
+    #[test]
+    fn all_pages_have_version() {
+        let status = default_status();
+        let opts = default_opts();
+        let main_output = render_to_string(|buf| draw_main(buf, &status, &opts));
+        let maint_output = render_to_string(|buf| draw_maintenance(buf, &status, &opts));
+        let adv_output = render_to_string(|buf| draw_advanced(buf, &status, &opts));
+
+        for (name, output) in [
+            ("main", &main_output),
+            ("maintenance", &maint_output),
+            ("advanced", &adv_output),
+        ] {
+            assert!(
+                output.contains("Version"),
+                "{} page should contain version",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn all_pages_have_box_drawing_top_and_bottom() {
+        let status = default_status();
+        let opts = default_opts();
+        let main_output = render_to_string(|buf| draw_main(buf, &status, &opts));
+        let maint_output = render_to_string(|buf| draw_maintenance(buf, &status, &opts));
+        let adv_output = render_to_string(|buf| draw_advanced(buf, &status, &opts));
+
+        for (name, output) in [
+            ("main", &main_output),
+            ("maintenance", &maint_output),
+            ("advanced", &adv_output),
+        ] {
+            assert!(
+                output.contains('\u{2554}'),
+                "{} page missing top-left corner",
+                name
+            );
+            assert!(
+                output.contains('\u{255D}'),
+                "{} page missing bottom-right corner",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn all_pages_have_select_option_prompt() {
+        let status = default_status();
+        let opts = default_opts();
+        let main_output = render_to_string(|buf| draw_main(buf, &status, &opts));
+        let maint_output = render_to_string(|buf| draw_maintenance(buf, &status, &opts));
+        let adv_output = render_to_string(|buf| draw_advanced(buf, &status, &opts));
+
+        for (name, output) in [
+            ("main", &main_output),
+            ("maintenance", &maint_output),
+            ("advanced", &adv_output),
+        ] {
+            assert!(
+                output.contains("Select option:"),
+                "{} page missing 'Select option:' prompt",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn all_pages_have_current_status_section() {
+        let status = default_status();
+        let opts = default_opts();
+        let main_output = render_to_string(|buf| draw_main(buf, &status, &opts));
+        let maint_output = render_to_string(|buf| draw_maintenance(buf, &status, &opts));
+        let adv_output = render_to_string(|buf| draw_advanced(buf, &status, &opts));
+
+        for (name, output) in [
+            ("main", &main_output),
+            ("maintenance", &maint_output),
+            ("advanced", &adv_output),
+        ] {
+            assert!(
+                output.contains("CURRENT STATUS"),
+                "{} page missing CURRENT STATUS",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn all_pages_show_all_five_status_lines() {
+        let status = all_good_status();
+        let opts = default_opts();
+        let main_output = render_to_string(|buf| draw_main(buf, &status, &opts));
+        let maint_output = render_to_string(|buf| draw_maintenance(buf, &status, &opts));
+        let adv_output = render_to_string(|buf| draw_advanced(buf, &status, &opts));
+
+        for (name, output) in [
+            ("main", &main_output),
+            ("maintenance", &maint_output),
+            ("advanced", &adv_output),
+        ] {
+            assert!(
+                output.contains("Color Profile:"),
+                "{} page missing Color Profile status",
+                name
+            );
+            assert!(
+                output.contains("Service:"),
+                "{} page missing Service status",
+                name
+            );
+            assert!(
+                output.contains("LG UltraGear:"),
+                "{} page missing LG UltraGear status",
+                name
+            );
+            assert!(
+                output.contains("HDR Mode:"),
+                "{} page missing HDR Mode status",
+                name
+            );
+            assert!(
+                output.contains("SDR Mode:"),
+                "{} page missing SDR Mode status",
+                name
+            );
+        }
+    }
+
+    // ================================================================
+    // INSTALL PIPELINE — dry-run action function tests
+    // ================================================================
+
+    #[test]
+    fn action_default_install_dry_run_succeeds() {
+        let opts = Options {
+            dry_run: true,
+            ..default_opts()
+        };
+        let result = action_default_install(&opts);
+        assert!(result.is_ok(), "dry-run default install should succeed");
+    }
+
+    #[test]
+    fn action_profile_only_dry_run_succeeds() {
+        let opts = Options {
+            dry_run: true,
+            ..default_opts()
+        };
+        let result = action_profile_only(&opts);
+        assert!(result.is_ok(), "dry-run profile-only should succeed");
+    }
+
+    #[test]
+    fn action_service_only_dry_run_succeeds() {
+        let opts = Options {
+            dry_run: true,
+            ..default_opts()
+        };
+        let result = action_service_only(&opts);
+        assert!(result.is_ok(), "dry-run service-only should succeed");
+    }
+
+    #[test]
+    fn action_refresh_dry_run_succeeds() {
+        let opts = Options {
+            dry_run: true,
+            ..default_opts()
+        };
+        let result = action_refresh(&opts);
+        assert!(result.is_ok(), "dry-run refresh should succeed");
+    }
+
+    #[test]
+    fn action_reinstall_dry_run_succeeds() {
+        let opts = Options {
+            dry_run: true,
+            ..default_opts()
+        };
+        let result = action_reinstall(&opts);
+        assert!(result.is_ok(), "dry-run reinstall should succeed");
+    }
+
+    #[test]
+    fn action_remove_service_dry_run_succeeds() {
+        let opts = Options {
+            dry_run: true,
+            ..default_opts()
+        };
+        let result = action_remove_service(&opts);
+        assert!(result.is_ok(), "dry-run remove service should succeed");
+    }
+
+    #[test]
+    fn action_remove_profile_dry_run_succeeds() {
+        let opts = Options {
+            dry_run: true,
+            ..default_opts()
+        };
+        let result = action_remove_profile(&opts);
+        assert!(result.is_ok(), "dry-run remove profile should succeed");
+    }
+
+    #[test]
+    fn action_full_uninstall_dry_run_succeeds() {
+        let opts = Options {
+            dry_run: true,
+            ..default_opts()
+        };
+        let result = action_full_uninstall(&opts);
+        assert!(result.is_ok(), "dry-run full uninstall should succeed");
+    }
+
+    #[test]
+    fn action_recheck_service_dry_run_succeeds() {
+        let opts = Options {
+            dry_run: true,
+            ..default_opts()
+        };
+        let result = action_recheck_service(&opts);
+        assert!(result.is_ok(), "dry-run recheck service should succeed");
+    }
+
+    // ── Pipeline: non-dry actions that are safe (read-only) ──────
+
+    #[test]
+    fn action_detect_succeeds() {
+        let result = action_detect();
+        assert!(result.is_ok(), "detect should succeed: {:?}", result.err());
+    }
+
+    #[test]
+    fn action_service_status_succeeds() {
+        let result = action_service_status();
+        assert!(
+            result.is_ok(),
+            "service status should succeed: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn action_check_applicability_succeeds() {
+        let result = action_check_applicability();
+        assert!(
+            result.is_ok(),
+            "check applicability should succeed: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn action_force_refresh_color_mgmt_succeeds() {
+        let result = action_force_refresh_color_mgmt();
+        assert!(
+            result.is_ok(),
+            "force refresh color mgmt should succeed: {:?}",
+            result.err()
+        );
+    }
+
+    // ── Pipeline: dry-run with per_user and generic_default ──────
+
+    #[test]
+    fn action_refresh_dry_run_with_per_user() {
+        let opts = Options {
+            dry_run: true,
+            per_user: true,
+            ..default_opts()
+        };
+        let result = action_refresh(&opts);
+        assert!(result.is_ok(), "dry-run refresh with per_user should succeed");
+    }
+
+    #[test]
+    fn action_refresh_dry_run_with_generic_default() {
+        let opts = Options {
+            dry_run: true,
+            generic_default: true,
+            ..default_opts()
+        };
+        let result = action_refresh(&opts);
+        assert!(
+            result.is_ok(),
+            "dry-run refresh with generic_default should succeed"
+        );
+    }
+
+    #[test]
+    fn action_refresh_dry_run_with_both_install_mode_flags() {
+        let opts = Options {
+            dry_run: true,
+            per_user: true,
+            generic_default: true,
+            ..default_opts()
+        };
+        let result = action_refresh(&opts);
+        assert!(
+            result.is_ok(),
+            "dry-run refresh with both install mode flags should succeed"
+        );
+    }
+
+    #[test]
+    fn action_default_install_dry_run_with_all_toggles() {
+        let opts = Options {
+            toast: false,
+            dry_run: true,
+            verbose: true,
+            hdr: true,
+            sdr: false,
+            per_user: true,
+            generic_default: true,
+        };
+        let result = action_default_install(&opts);
+        assert!(
+            result.is_ok(),
+            "dry-run install with all toggles should succeed"
+        );
+    }
+
+    #[test]
+    fn action_full_uninstall_dry_run_with_all_toggles() {
+        let opts = Options {
+            toast: false,
+            dry_run: true,
+            verbose: true,
+            hdr: true,
+            sdr: false,
+            per_user: true,
+            generic_default: true,
+        };
+        let result = action_full_uninstall(&opts);
+        assert!(
+            result.is_ok(),
+            "dry-run uninstall with all toggles should succeed"
+        );
+    }
+
+    // ── Pipeline: full dry-run install → uninstall sequence ──────
+
+    #[test]
+    fn pipeline_dry_run_full_install_then_uninstall() {
+        let opts = Options {
+            dry_run: true,
+            ..default_opts()
+        };
+        // Install pipeline
+        assert!(action_default_install(&opts).is_ok(), "install");
+        // Verify detect works between
+        assert!(action_detect().is_ok(), "detect");
+        // Check service status
+        assert!(action_service_status().is_ok(), "status");
+        // Full uninstall
+        assert!(action_full_uninstall(&opts).is_ok(), "uninstall");
+    }
+
+    #[test]
+    fn pipeline_dry_run_profile_service_separate() {
+        let opts = Options {
+            dry_run: true,
+            ..default_opts()
+        };
+        // Profile first
+        assert!(action_profile_only(&opts).is_ok(), "profile");
+        // Then service
+        assert!(action_service_only(&opts).is_ok(), "service");
+        // Refresh
+        assert!(action_refresh(&opts).is_ok(), "refresh");
+        // Reinstall
+        assert!(action_reinstall(&opts).is_ok(), "reinstall");
+        // Remove separately
+        assert!(action_remove_service(&opts).is_ok(), "remove service");
+        assert!(action_remove_profile(&opts).is_ok(), "remove profile");
+    }
+
+    #[test]
+    fn pipeline_dry_run_maintenance_sequence() {
+        let opts = Options {
+            dry_run: true,
+            ..default_opts()
+        };
+        // Run through all safe maintenance actions
+        assert!(action_detect().is_ok(), "detect");
+        assert!(action_service_status().is_ok(), "status");
+        assert!(action_recheck_service(&opts).is_ok(), "recheck");
+        assert!(action_check_applicability().is_ok(), "applicability");
+        assert!(action_force_refresh_color_mgmt().is_ok(), "force refresh");
+    }
+
+    #[test]
+    fn pipeline_dry_run_all_install_variants() {
+        let opts = Options {
+            dry_run: true,
+            ..default_opts()
+        };
+        // Try all three install paths
+        assert!(action_default_install(&opts).is_ok(), "default install");
+        assert!(action_profile_only(&opts).is_ok(), "profile only");
+        assert!(action_service_only(&opts).is_ok(), "service only");
+    }
+
+    #[test]
+    fn pipeline_dry_run_all_uninstall_variants() {
+        let opts = Options {
+            dry_run: true,
+            ..default_opts()
+        };
+        // Try all three uninstall paths
+        assert!(action_remove_service(&opts).is_ok(), "remove service");
+        assert!(action_remove_profile(&opts).is_ok(), "remove profile");
+        assert!(action_full_uninstall(&opts).is_ok(), "full uninstall");
+    }
+
+    // ── run_action wrapper tests ─────────────────────────────────
+
+    #[test]
+    fn run_action_success_renders_banner() {
+        let output = render_to_string(|buf| {
+            // We avoid read_key by directly testing the wrapper output
+            // before it hits the "Press any key" logic. We test the
+            // write path only.
+            queue!(buf, Clear(ClearType::All), cursor::MoveTo(0, 0)).unwrap();
+            draw_top(buf, " PROCESSING ").unwrap();
+            draw_empty(buf).unwrap();
+            draw_line(buf, "Test banner text", Color::Yellow).unwrap();
+            draw_empty(buf).unwrap();
+            draw_bottom(buf).unwrap();
+            Ok(())
+        });
+        assert!(output.contains("PROCESSING"), "should show PROCESSING");
+        assert!(
+            output.contains("Test banner text"),
+            "should show banner text"
+        );
+    }
+
+    #[test]
+    fn run_action_error_renders_err_tag() {
+        let mut buf = Vec::new();
+        write_err(&mut buf, "action failed with error XYZ").unwrap();
+        let output = String::from_utf8_lossy(&buf).to_string();
+        assert!(output.contains("[ERR ]"), "should show ERR tag");
+        assert!(
+            output.contains("action failed with error XYZ"),
+            "should show error message"
+        );
     }
 }

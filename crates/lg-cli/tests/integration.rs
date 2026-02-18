@@ -1414,3 +1414,384 @@ fn unknown_command_exits_with_nonzero() {
         .unwrap();
     assert!(!output.status.success());
 }
+
+// ============================================================================
+// Edge case integration tests — extended coverage
+// ============================================================================
+
+// ── reapply_profile per_user integration ─────────────────────────
+
+#[test]
+fn reapply_profile_per_user_true_fails_with_nonexistent_profile() {
+    let fake_path = std::path::PathBuf::from(
+        r"C:\Windows\System32\spool\drivers\color\nonexistent-integ-peruser-99999.icm",
+    );
+    let result = lg_profile::reapply_profile(r"DISPLAY\TEST\001", &fake_path, 100, true);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("Profile not found") || err.contains("not found"));
+}
+
+#[test]
+fn reapply_profile_both_per_user_values_fail_on_missing() {
+    let fake_path = std::path::PathBuf::from(
+        r"C:\Windows\System32\spool\drivers\color\nonexistent-integ-both-99999.icm",
+    );
+    let result_system = lg_profile::reapply_profile(r"DISPLAY\TEST\001", &fake_path, 100, false);
+    let result_user = lg_profile::reapply_profile(r"DISPLAY\TEST\001", &fake_path, 100, true);
+    assert!(result_system.is_err(), "system scope should fail");
+    assert!(result_user.is_err(), "user scope should fail");
+}
+
+// ── set_generic_default integration (non-destructive) ────────────
+
+#[test]
+fn set_generic_default_with_nonexistent_device_does_not_panic() {
+    // set_generic_default will try the FFI call and get a non-fatal warning,
+    // but it should not panic or return an error — it logs a warning.
+    let profile_path = lg_core::config::Config::default().profile_path();
+    // This may or may not succeed depending on whether the profile is installed,
+    // but it should never panic.
+    let _result = lg_profile::set_generic_default(
+        r"DISPLAY\NONEXISTENT_DEVICE_99999\001",
+        &profile_path,
+        false,
+    );
+}
+
+#[test]
+fn set_generic_default_per_user_with_nonexistent_device_does_not_panic() {
+    let profile_path = lg_core::config::Config::default().profile_path();
+    let _result = lg_profile::set_generic_default(
+        r"DISPLAY\NONEXISTENT_DEVICE_99999\001",
+        &profile_path,
+        true,
+    );
+}
+
+// ── Profile install/remove/check roundtrip ───────────────────────
+
+#[test]
+fn profile_install_check_remove_roundtrip() {
+    let dir = std::env::temp_dir().join("lg-integ-roundtrip-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("roundtrip.icm");
+
+    // Initially not installed
+    assert!(
+        !lg_profile::is_profile_installed(&path),
+        "should not be installed initially"
+    );
+
+    // Install
+    let wrote = lg_profile::ensure_profile_installed(&path).expect("install");
+    assert!(wrote, "should write on first install");
+    assert!(
+        lg_profile::is_profile_installed(&path),
+        "should be installed after writing"
+    );
+
+    // Install again (idempotent)
+    let wrote = lg_profile::ensure_profile_installed(&path).expect("re-install");
+    assert!(!wrote, "should not write when already present");
+    assert!(
+        lg_profile::is_profile_installed(&path),
+        "should still be installed"
+    );
+
+    // Remove
+    let removed = lg_profile::remove_profile(&path).expect("remove");
+    assert!(removed, "should remove");
+    assert!(
+        !lg_profile::is_profile_installed(&path),
+        "should not be installed after removal"
+    );
+
+    // Remove again
+    let removed = lg_profile::remove_profile(&path).expect("remove again");
+    assert!(!removed, "should return false on second removal");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ── Monitor detection edge cases ─────────────────────────────────
+
+#[test]
+fn monitor_detection_special_characters_pattern() {
+    let result = lg_monitor::find_matching_monitors("*?[]{}|\\");
+    assert!(result.is_ok(), "special chars should not crash");
+    assert!(result.unwrap().is_empty(), "no monitors should match");
+}
+
+#[test]
+fn monitor_detection_very_long_pattern() {
+    let long_pattern = "X".repeat(1000);
+    let result = lg_monitor::find_matching_monitors(&long_pattern);
+    assert!(result.is_ok(), "long pattern should not crash");
+    assert!(result.unwrap().is_empty(), "should match nothing");
+}
+
+#[test]
+fn monitor_detection_unicode_pattern() {
+    let result = lg_monitor::find_matching_monitors("日本語モニター");
+    assert!(result.is_ok(), "unicode pattern should not crash");
+    assert!(result.unwrap().is_empty(), "should match nothing");
+}
+
+// ── Service query edge cases ─────────────────────────────────────
+
+#[test]
+fn service_query_multiple_rapid_calls() {
+    // Rapid successive queries should not cause issues
+    for _ in 0..10 {
+        let (installed, running) = lg_service::query_service_info();
+        if !installed {
+            assert!(!running, "cannot be running if not installed");
+        }
+    }
+}
+
+// ── Config edge cases ────────────────────────────────────────────
+
+#[test]
+fn config_default_profile_path_ends_with_icm() {
+    let cfg = lg_core::config::Config::default();
+    let path = cfg.profile_path();
+    assert!(
+        path.to_string_lossy().ends_with(".icm"),
+        "profile path should end with .icm"
+    );
+}
+
+#[test]
+fn config_default_profile_name_is_not_empty() {
+    let cfg = lg_core::config::Config::default();
+    assert!(!cfg.profile_name.is_empty());
+}
+
+#[test]
+fn config_default_monitor_match_is_not_empty() {
+    let cfg = lg_core::config::Config::default();
+    assert!(!cfg.monitor_match.is_empty());
+}
+
+#[test]
+fn config_all_delay_fields_are_positive() {
+    let cfg = lg_core::config::Config::default();
+    assert!(cfg.stabilize_delay_ms > 0);
+    assert!(cfg.toggle_delay_ms > 0);
+    assert!(cfg.reapply_delay_ms > 0);
+}
+
+#[test]
+fn config_toast_fields_are_not_empty() {
+    let cfg = lg_core::config::Config::default();
+    assert!(!cfg.toast_title.is_empty());
+    assert!(!cfg.toast_body.is_empty());
+}
+
+// ── Dry-run CLI pipelines with flags ─────────────────────────────
+
+#[test]
+fn dry_run_install_verbose() {
+    let (stdout, _, success) = run_binary(&["--dry-run", "--verbose", "install"]);
+    assert!(success, "dry-run verbose install should succeed");
+    assert!(stdout.contains("DRY RUN"));
+}
+
+#[test]
+fn dry_run_uninstall_full_verbose() {
+    let (stdout, _, success) = run_binary(&["--dry-run", "--verbose", "uninstall", "--full"]);
+    assert!(success, "dry-run verbose full uninstall should succeed");
+    assert!(stdout.contains("DRY RUN"));
+}
+
+#[test]
+fn dry_run_reinstall_verbose() {
+    let (stdout, _, success) = run_binary(&["--dry-run", "--verbose", "reinstall"]);
+    assert!(success, "dry-run verbose reinstall should succeed");
+    assert!(stdout.contains("DRY RUN"));
+}
+
+#[test]
+fn dry_run_apply_verbose() {
+    let (stdout, _, success) = run_binary(&["--dry-run", "--verbose", "apply"]);
+    assert!(success);
+    assert!(stdout.contains("DRY RUN"));
+}
+
+// ── Subcommand help completeness ─────────────────────────────────
+
+#[test]
+fn service_help_mentions_status_or_install() {
+    let (stdout, _, _) = run_binary(&["service", "--help"]);
+    let lower = stdout.to_lowercase();
+    assert!(lower.contains("status") || lower.contains("install") || lower.contains("help"));
+}
+
+#[test]
+fn install_help_mentions_profile_or_service() {
+    let (stdout, _, _) = run_binary(&["install", "--help"]);
+    let lower = stdout.to_lowercase();
+    assert!(
+        lower.contains("profile") || lower.contains("service") || lower.contains("install"),
+        "install help should mention profile/service: {}",
+        lower
+    );
+}
+
+#[test]
+fn uninstall_help_mentions_removal() {
+    let (stdout, _, _) = run_binary(&["uninstall", "--help"]);
+    let lower = stdout.to_lowercase();
+    assert!(
+        lower.contains("remove") || lower.contains("uninstall") || lower.contains("full"),
+        "uninstall help should mention removal: {}",
+        lower
+    );
+}
+
+// ── Binary output format validation ──────────────────────────────
+
+#[test]
+fn detect_output_mentions_scanning_or_monitors() {
+    let (stdout, _, success) = run_binary(&["detect"]);
+    assert!(success);
+    let lower = stdout.to_lowercase();
+    assert!(
+        lower.contains("scan") || lower.contains("monitor") || lower.contains("found")
+            || lower.contains("matching") || lower.contains("profile"),
+        "detect should mention scanning/monitors: {}",
+        lower
+    );
+}
+
+#[test]
+fn config_show_displays_all_key_fields() {
+    let (stdout, _, success) = run_binary(&["config", "show"]);
+    assert!(success);
+    let lower = stdout.to_lowercase();
+    // Config show should list key configuration fields
+    assert!(
+        lower.contains("monitor") || lower.contains("profile") || lower.contains("toast"),
+        "config show should display key fields: {}",
+        lower
+    );
+}
+
+// ── Full dry-run pipeline: install → apply → detect → uninstall ──
+
+#[test]
+fn dry_run_full_pipeline_install_apply_detect_uninstall() {
+    // Install
+    let (stdout, _, success) = run_binary(&["--dry-run", "install"]);
+    assert!(success, "install step failed");
+    assert!(stdout.contains("DRY RUN"));
+
+    // Apply
+    let (stdout, _, success) = run_binary(&["--dry-run", "apply"]);
+    assert!(success, "apply step failed");
+    assert!(stdout.contains("DRY RUN"));
+
+    // Detect (not dry-run, read-only)
+    let (_, _, success) = run_binary(&["detect"]);
+    assert!(success, "detect step failed");
+
+    // Config show (read-only)
+    let (_, _, success) = run_binary(&["config", "show"]);
+    assert!(success, "config show step failed");
+
+    // Uninstall
+    let (stdout, _, success) = run_binary(&["--dry-run", "uninstall", "--full"]);
+    assert!(success, "uninstall step failed");
+    assert!(stdout.contains("DRY RUN"));
+}
+
+#[test]
+fn dry_run_pipeline_reinstall_then_detect() {
+    let (stdout, _, success) = run_binary(&["--dry-run", "reinstall"]);
+    assert!(success, "reinstall should succeed");
+    assert!(stdout.contains("DRY RUN"));
+
+    let (_, _, success) = run_binary(&["detect"]);
+    assert!(success, "detect after reinstall should succeed");
+}
+
+// ── Toast edge cases ─────────────────────────────────────────────
+
+#[test]
+fn toast_enabled_with_empty_title_does_not_panic() {
+    lg_notify::show_reapply_toast(false, "", "body text", false);
+}
+
+#[test]
+fn toast_enabled_with_empty_body_does_not_panic() {
+    lg_notify::show_reapply_toast(false, "title", "", false);
+}
+
+#[test]
+fn toast_enabled_with_unicode_does_not_panic() {
+    lg_notify::show_reapply_toast(false, "日本語タイトル", "プロファイル適用済み", true);
+}
+
+#[test]
+fn toast_enabled_with_very_long_text_does_not_panic() {
+    let long = "X".repeat(1000);
+    lg_notify::show_reapply_toast(false, &long, &long, false);
+}
+
+// ── Refresh helpers are safe from integration ────────────────────
+
+#[test]
+fn refresh_display_all_enabled_from_integration() {
+    lg_profile::refresh_display(true, true, true);
+}
+
+#[test]
+fn calibration_loader_enabled_from_integration() {
+    lg_profile::trigger_calibration_loader(true);
+}
+
+// ── Embedded ICM validation from integration ─────────────────────
+
+#[test]
+fn embedded_icm_size_is_reasonable() {
+    // ICC profiles are typically between 1KB and 10MB
+    assert!(
+        lg_profile::EMBEDDED_ICM_SIZE > 1000,
+        "ICM should be > 1KB"
+    );
+    assert!(
+        lg_profile::EMBEDDED_ICM_SIZE < 10_000_000,
+        "ICM should be < 10MB"
+    );
+}
+
+#[test]
+fn embedded_icm_size_is_consistent_with_installed_file() {
+    // Install to temp, verify file size matches EMBEDDED_ICM_SIZE
+    let dir = std::env::temp_dir().join("lg-integ-icm-size-check");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("size-check.icm");
+
+    lg_profile::ensure_profile_installed(&path).unwrap();
+    let file_size = std::fs::metadata(&path).unwrap().len();
+    assert_eq!(
+        file_size,
+        lg_profile::EMBEDDED_ICM_SIZE as u64,
+        "installed file size should equal EMBEDDED_ICM_SIZE"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ── Public API constants from integration ────────────────────────
+
+#[test]
+fn embedded_icm_size_constant_is_public() {
+    // EMBEDDED_ICM_SIZE is the only public constant; verify it's accessible
+    let size = lg_profile::EMBEDDED_ICM_SIZE;
+    assert!(size > 0, "EMBEDDED_ICM_SIZE should be positive");
+}

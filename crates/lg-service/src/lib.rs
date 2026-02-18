@@ -49,6 +49,10 @@ const SERVICE_DESCRIPTION: &str =
 const CONFIG_REG_KEY: &str = r"SYSTEM\CurrentControlSet\Services\lg-ultragear-color-svc\Parameters";
 const CONFIG_REG_VALUE: &str = "MonitorMatch";
 
+/// Registry base key for Windows Event Log sources.
+const EVENTLOG_REG_KEY: &str =
+    r"SYSTEM\CurrentControlSet\Services\EventLog\Application\lg-ultragear-color-svc";
+
 /// Custom window message to signal shutdown.
 const WM_QUIT_SERVICE: u32 = WM_USER + 1;
 
@@ -647,6 +651,12 @@ pub fn install(monitor_match: &str) -> Result<(), Box<dyn Error>> {
     // Store monitor match pattern in registry (informational)
     write_monitor_match(monitor_match)?;
 
+    // Register the event log source so Event Viewer can resolve message strings.
+    // The winlog crate embeds a message table resource (eventmsgs) into the
+    // binary.  We point EventMessageFile at the *installed* copy so messages
+    // render correctly regardless of where the installer was launched from.
+    register_event_source(&config::install_path())?;
+
     info!("Service installed successfully");
     Ok(())
 }
@@ -661,6 +671,9 @@ pub fn uninstall() -> Result<(), Box<dyn Error>> {
     thread::sleep(Duration::from_secs(1));
 
     service.delete()?;
+
+    // Deregister the event log source (best-effort)
+    deregister_event_source();
 
     // Remove the installed binary (best-effort — may still be locked briefly)
     let install_bin = config::install_path();
@@ -771,6 +784,44 @@ fn write_monitor_match(pattern: &str) -> Result<(), Box<dyn Error>> {
     let (key, _) = hklm.create_subkey(CONFIG_REG_KEY)?;
     key.set_value(CONFIG_REG_VALUE, &pattern)?;
     Ok(())
+}
+
+/// Register the Windows Event Log source so Event Viewer can find the
+/// message-table resource embedded by the `winlog` crate.
+///
+/// Sets `EventMessageFile` to the installed binary path and
+/// `TypesSupported` to allow Error, Warning, and Information events.
+fn register_event_source(exe_path: &std::path::Path) -> Result<(), Box<dyn Error>> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    let (key, _) = hklm.create_subkey(EVENTLOG_REG_KEY)?;
+    key.set_value(
+        "EventMessageFile",
+        &exe_path.to_string_lossy().as_ref(),
+    )?;
+    // EVENTLOG_ERROR_TYPE | EVENTLOG_WARNING_TYPE | EVENTLOG_INFORMATION_TYPE
+    key.set_value("TypesSupported", &7u32)?;
+    info!("Event log source registered: {}", exe_path.display());
+    Ok(())
+}
+
+/// Remove the Event Log source registry key (best-effort, non-fatal).
+fn deregister_event_source() {
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    if let Ok(parent) = hklm.open_subkey_with_flags(
+        r"SYSTEM\CurrentControlSet\Services\EventLog\Application",
+        KEY_WRITE,
+    ) {
+        match parent.delete_subkey(SERVICE_NAME) {
+            Ok(()) => info!("Event log source deregistered"),
+            Err(e) => warn!("Could not deregister event log source: {}", e),
+        }
+    }
 }
 
 /// Convert a Rust string to a null-terminated wide string (UTF-16).

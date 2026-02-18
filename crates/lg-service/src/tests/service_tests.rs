@@ -29,6 +29,16 @@ fn config_reg_value_is_monitor_match() {
     assert_eq!(CONFIG_REG_VALUE, "MonitorMatch");
 }
 
+#[test]
+fn eventlog_reg_key_contains_service_name() {
+    assert!(EVENTLOG_REG_KEY.contains("lg-ultragear-color-svc"));
+}
+
+#[test]
+fn eventlog_reg_key_is_under_application_log() {
+    assert!(EVENTLOG_REG_KEY.contains(r"EventLog\Application"));
+}
+
 // ── Window message constants ─────────────────────────────────────
 
 #[test]
