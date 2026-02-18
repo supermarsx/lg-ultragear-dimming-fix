@@ -12,7 +12,6 @@
 [![license](https://img.shields.io/github/license/supermarsx/lg-ultragear-dimming-fix?style=flat-square)](license.md)
 
 [![download-latest](https://img.shields.io/badge/Download-Latest%20Release-2ea44f?style=for-the-badge&logo=github)](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases/latest)
-[![download-binary](https://img.shields.io/badge/Download-One%20Click%20Installer-2ea44f?style=for-the-badge&logo=windows)](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases/latest/download/install.bat)
 
 > 💡 **Quick Start:** Download and run **`install.bat`** - that's it!
 

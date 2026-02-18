@@ -10,36 +10,13 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+  BINARY_NAME: lg-ultragear-dimming-fix
+
 jobs:
   # =========================================================================
-  # LINT - PSScriptAnalyzer
-  # =========================================================================
-  lint:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Trust PowerShell Gallery
-        shell: pwsh
-        run: |
-          if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
-            Register-PSRepository -Default
-          }
-          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-
-      - name: Install PSScriptAnalyzer
-        shell: pwsh
-        run: Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop
-
-      - name: Run analyzer
-        shell: pwsh
-        run: |
-          Write-Host "PSScriptAnalyzer version:" (Get-Module PSScriptAnalyzer -ListAvailable | Select-Object -First 1).Version
-          Invoke-ScriptAnalyzer -Path . -Recurse -EnableExit -Settings ./scripts/PSScriptAnalyzerSettings.psd1
-
-  # =========================================================================
-  # FORMAT - Check code formatting
+  # FORMAT - cargo fmt
   # =========================================================================
   format:
     runs-on: windows-latest
@@ -47,37 +24,36 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Trust PowerShell Gallery
-        shell: pwsh
-        run: |
-          if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
-            Register-PSRepository -Default
-          }
-          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-
-      - name: Install PSScriptAnalyzer
-        shell: pwsh
-        run: Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
 
       - name: Check formatting
-        shell: pwsh
-        run: |
-          $changed = @()
-          $files = Get-ChildItem -Recurse -Include *.ps1 | Select-Object -ExpandProperty FullName
-          foreach ($f in $files) {
-            $original = Get-Content -LiteralPath $f -Raw
-            $formatted = Invoke-Formatter -ScriptDefinition $original -Settings CodeFormattingOTBS
-            if ($formatted -ne $original) { $changed += $f }
-          }
-          if ($changed.Count -gt 0) {
-            Write-Host "The following files need formatting:" -ForegroundColor Red
-            $changed | ForEach-Object { Write-Host " - $_" }
-            throw "Formatting check failed. Run Invoke-Formatter locally."
-          }
-          Write-Host "All files properly formatted." -ForegroundColor Green
+        run: cargo fmt --all -- --check
 
   # =========================================================================
-  # TEST - Pester unit tests
+  # LINT - cargo clippy
+  # =========================================================================
+  lint:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  # =========================================================================
+  # TEST - cargo test
   # =========================================================================
   test:
     runs-on: windows-latest
@@ -85,35 +61,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Trust PowerShell Gallery
-        shell: pwsh
-        run: |
-          if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
-            Register-PSRepository -Default
-          }
-          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Pester
-        shell: pwsh
-        run: Install-Module Pester -Scope CurrentUser -Force -ErrorAction Stop
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
 
-      - name: Run Pester tests
-        shell: pwsh
-        run: |
-          Import-Module Pester -MinimumVersion 5.0.0 -Force
-          Invoke-Pester -CI
+      - name: Run tests
+        run: cargo test --all-targets
 
   # =========================================================================
-  # BUILD - Create executable and package
+  # BUILD - Release binary and package
   # =========================================================================
   build:
     runs-on: windows-latest
-    needs: [lint, format, test]
+    needs: [format, lint, test]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Read version from VERSION file
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Read version
         id: version
         shell: pwsh
         run: |
@@ -121,56 +94,39 @@ jobs:
           Write-Host "Version: $version"
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - name: Trust PowerShell Gallery
-        shell: pwsh
-        run: |
-          if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
-            Register-PSRepository -Default
-          }
-          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+      - name: Build release binary
+        run: cargo build --release
 
-      - name: Install ps2exe
-        shell: pwsh
-        run: Install-Module ps2exe -Scope CurrentUser -Force -ErrorAction Stop
-
-      - name: Inject version and build executable
+      - name: Prepare dist
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path dist -Force | Out-Null
-          $in  = 'install-lg-ultragear-no-dimming.ps1'
-          $out = 'dist\install-lg-ultragear-no-dimming.exe'
-          $version = '${{ steps.version.outputs.version }}'
 
-          # Inject version into script before building
-          $content = Get-Content -Path $in -Raw -Encoding UTF8
-          $content = $content -replace "'__VERSION_EMBED__'", "'$version'"
-          $tempScript = 'install-lg-ultragear-no-dimming-versioned.ps1'
-          [System.IO.File]::WriteAllText($tempScript, $content, [System.Text.UTF8Encoding]::new($true))
+          # Copy the release binary
+          Copy-Item "target\release\$env:BINARY_NAME.exe" "dist\$env:BINARY_NAME.exe" -Force
 
-          Invoke-ps2exe -inputFile $tempScript -outputFile $out -x64 -noConsole:$false `
-            -title 'LG UltraGear No-Dimming Installer' `
-            -description 'Automated installer for LG UltraGear no-dimming ICC profile.' `
-            -product 'LG UltraGear Dimming Fix' `
-            -version $version `
-            -embedFiles 'lg-ultragear-full-cal.icm'
-          Remove-Item $tempScript -Force
+          # Copy supporting files
+          Copy-Item VERSION dist\VERSION -Force
+          Copy-Item readme.md dist\readme.md -Force
+          Copy-Item license.md dist\license.md -Force
+          Copy-Item lg-ultragear-full-cal.icm dist\lg-ultragear-full-cal.icm -Force
 
-      - name: Build zip package
-        shell: pwsh
-        run: |
-          Copy-Item -Path 'VERSION' -Destination 'dist\VERSION' -Force
+          # Create zip package
           $items = @(
-            'install-lg-ultragear-no-dimming.ps1',
-            'install-full-auto.bat',
-            'lg-ultragear-full-cal.icm',
-            'readme.md',
-            'license.md',
-            'dist\install-lg-ultragear-no-dimming.exe'
-          ) | Where-Object { Test-Path $_ }
-          $zip = Join-Path (Resolve-Path dist) 'lg-ultragear-dimming-fix.zip'
+            "dist\$env:BINARY_NAME.exe",
+            'dist\lg-ultragear-full-cal.icm',
+            'dist\readme.md',
+            'dist\license.md',
+            'dist\VERSION'
+          )
+          $zip = "dist\lg-ultragear-dimming-fix.zip"
           if (Test-Path $zip) { Remove-Item $zip -Force }
           Compress-Archive -Path $items -DestinationPath $zip -CompressionLevel Optimal
           Write-Host "Created package: $zip"
+
+          # Show binary size
+          $size = (Get-Item "dist\$env:BINARY_NAME.exe").Length
+          Write-Host ("Binary size: {0:N0} bytes ({1:N2} MB)" -f $size, ($size / 1MB))
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -178,7 +134,7 @@ jobs:
           name: lg-ultragear-dimming-fix
           path: |
             dist/lg-ultragear-dimming-fix.zip
-            dist/install-lg-ultragear-no-dimming.exe
+            dist/lg-ultragear-dimming-fix.exe
             dist/VERSION
 
   # =========================================================================
@@ -197,7 +153,7 @@ jobs:
           name: lg-ultragear-dimming-fix
           path: dist
 
-      - name: Read version from VERSION file
+      - name: Read version
         id: ver
         shell: bash
         run: |
@@ -229,4 +185,4 @@ jobs:
           prerelease: false
           files: |
             dist/lg-ultragear-dimming-fix.zip
-            dist/install-lg-ultragear-no-dimming.exe
+            dist/lg-ultragear-dimming-fix.exe
