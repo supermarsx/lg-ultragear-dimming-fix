@@ -480,7 +480,7 @@ fn cmd_apply(opts: ApplyOpts) -> Result<(), Box<dyn Error>> {
     } else {
         for device in &devices {
             println!("[INFO] Found: {}", device.name);
-            lg_profile::reapply_profile(&device.device_key, &profile, cfg.toggle_delay_ms)?;
+            lg_profile::reapply_profile(&device.device_key, &profile, cfg.toggle_delay_ms, false)?;
             println!("[OK]   Profile reapplied for {}", device.name);
         }
 

@@ -147,7 +147,22 @@ fn reapply_profile_fails_with_missing_profile() {
     let path = PathBuf::from(
         r"C:\Windows\System32\spool\drivers\color\nonexistent-test-profile-00000.icm",
     );
-    let result = reapply_profile(r"DISPLAY\TEST\001", &path, 100);
+    let result = reapply_profile(r"DISPLAY\TEST\001", &path, 100, false);
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("Profile not found"),
+        "Error should mention missing profile: {}",
+        err_msg
+    );
+}
+
+#[test]
+fn reapply_profile_per_user_fails_with_missing_profile() {
+    let path = PathBuf::from(
+        r"C:\Windows\System32\spool\drivers\color\nonexistent-test-profile-00001.icm",
+    );
+    let result = reapply_profile(r"DISPLAY\TEST\001", &path, 100, true);
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
     assert!(
@@ -166,6 +181,19 @@ fn refresh_display_with_all_methods_disabled_does_not_panic() {
 #[test]
 fn trigger_calibration_loader_disabled_does_not_panic() {
     trigger_calibration_loader(false);
+}
+
+// ── WCS scope constants ──────────────────────────────────────────
+
+#[test]
+fn wcs_scope_current_user_value() {
+    assert_eq!(WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER, 1);
+}
+
+#[test]
+fn wcs_cpt_and_cpst_constants() {
+    assert_eq!(CPT_ICC, 1);
+    assert_eq!(CPST_NONE, 1);
 }
 
 // ── Profile path validation ──────────────────────────────────────

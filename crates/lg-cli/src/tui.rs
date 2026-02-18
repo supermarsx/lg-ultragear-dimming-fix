@@ -129,6 +129,8 @@ pub(crate) struct Options {
     pub(crate) verbose: bool,
     pub(crate) hdr: bool,
     pub(crate) sdr: bool,
+    pub(crate) per_user: bool,
+    pub(crate) generic_default: bool,
 }
 
 impl Default for Options {
@@ -138,8 +140,10 @@ impl Default for Options {
             toast: cfg.toast_enabled,
             dry_run: false,
             verbose: cfg.verbose,
-            hdr: true,
+            hdr: false,
             sdr: true,
+            per_user: false,
+            generic_default: false,
         }
     }
 }
@@ -230,7 +234,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             (Page::Maintenance, '8') => run_action(
                 &mut out,
                 "Force refreshing color profile...",
-                action_force_refresh_profile,
+                || action_force_refresh_profile(&opts),
             )?,
             (Page::Maintenance, '9') => run_action(
                 &mut out,
@@ -246,6 +250,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             (Page::Advanced, '3') => opts.verbose = !opts.verbose,
             (Page::Advanced, '4') => opts.hdr = !opts.hdr,
             (Page::Advanced, '5') => opts.sdr = !opts.sdr,
+            (Page::Advanced, '6') => opts.per_user = !opts.per_user,
+            (Page::Advanced, '7') => opts.generic_default = !opts.generic_default,
             (Page::Advanced, 'b') => page = Page::Main,
             (Page::Advanced, 'q') => break,
 
@@ -351,6 +357,12 @@ pub(crate) fn draw_main(out: &mut impl Write, status: &Status, opts: &Options) -
     if !opts.sdr {
         active.push("NoSDR");
     }
+    if opts.per_user {
+        active.push("PerUser");
+    }
+    if opts.generic_default {
+        active.push("GenericDef");
+    }
 
     if active.is_empty() {
         draw_item(out, "A", "Advanced Options (None active)")?;
@@ -449,6 +461,21 @@ pub(crate) fn draw_advanced(
     draw_section(out, "COLOR MODE")?;
     draw_toggle(out, "4", "HDR Mode (Advanced color association)", opts.hdr)?;
     draw_toggle(out, "5", "SDR Mode (Standard color association)", opts.sdr)?;
+    draw_empty(out)?;
+
+    draw_section(out, "INSTALL MODE")?;
+    draw_toggle(
+        out,
+        "6",
+        "Per-User Install (User scope, not system)",
+        opts.per_user,
+    )?;
+    draw_toggle(
+        out,
+        "7",
+        "Generic Default (Legacy default profile API)",
+        opts.generic_default,
+    )?;
     draw_empty(out)?;
     draw_line(
         out,
@@ -964,8 +991,21 @@ fn action_refresh(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         for device in &devices {
             log_info(&format!("Found: {}", device.name));
-            lg_profile::reapply_profile(&device.device_key, &profile_path, cfg.toggle_delay_ms)?;
+            lg_profile::reapply_profile(
+                &device.device_key,
+                &profile_path,
+                cfg.toggle_delay_ms,
+                opts.per_user,
+            )?;
             log_ok(&format!("Profile reapplied for {}", device.name));
+            if opts.generic_default {
+                lg_profile::set_generic_default(
+                    &device.device_key,
+                    &profile_path,
+                    opts.per_user,
+                )?;
+                log_ok(&format!("Generic default set for {}", device.name));
+            }
         }
         lg_profile::refresh_display(
             cfg.refresh_display_settings,
@@ -1217,7 +1257,7 @@ fn action_test_toast(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn action_force_refresh_profile() -> Result<(), Box<dyn std::error::Error>> {
+fn action_force_refresh_profile(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = Config::load();
     let profile_path = cfg.profile_path();
     lg_profile::ensure_profile_installed(&profile_path)?;
@@ -1228,8 +1268,21 @@ fn action_force_refresh_profile() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         for device in &devices {
             log_info(&format!("Force reapplying to: {}", device.name));
-            lg_profile::reapply_profile(&device.device_key, &profile_path, cfg.toggle_delay_ms)?;
+            lg_profile::reapply_profile(
+                &device.device_key,
+                &profile_path,
+                cfg.toggle_delay_ms,
+                opts.per_user,
+            )?;
             log_ok(&format!("Profile reapplied for {}", device.name));
+            if opts.generic_default {
+                lg_profile::set_generic_default(
+                    &device.device_key,
+                    &profile_path,
+                    opts.per_user,
+                )?;
+                log_ok(&format!("Generic default set for {}", device.name));
+            }
         }
         log_done(&format!(
             "Color profile force-refreshed for {} monitor(s).",
@@ -1295,8 +1348,10 @@ mod tests {
             toast: true,
             dry_run: false,
             verbose: false,
-            hdr: true,
+            hdr: false,
             sdr: true,
+            per_user: false,
+            generic_default: false,
         }
     }
 
@@ -1479,10 +1534,12 @@ mod tests {
 
     #[test]
     fn draw_main_shows_no_active_toggles_by_default() {
+        // Default opts have hdr=false so "NoHDR" will be active.
+        // Verify the main menu shows the active toggle indicator.
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
         assert!(
-            output.contains("None active"),
-            "Default opts should show 'None active'"
+            output.contains("NoHDR"),
+            "Default opts should show NoHDR since hdr defaults to false"
         );
     }
 
@@ -1494,6 +1551,8 @@ mod tests {
             verbose: true,
             hdr: true,
             sdr: true,
+            per_user: false,
+            generic_default: false,
         };
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
         assert!(output.contains("NoToast"), "should show NoToast");
@@ -1576,14 +1635,16 @@ mod tests {
             verbose: true,
             hdr: true,
             sdr: true,
+            per_user: false,
+            generic_default: false,
         };
         let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
-        // With toast=false, dry_run=true, verbose=true, hdr=true, sdr=true
-        // We should see four ON and one OFF
+        // With toast=false, dry_run=true, verbose=true, hdr=true, sdr=true, per_user=false, generic_default=false
+        // ON: dry_run, verbose, hdr, sdr = 4 ON; OFF: toast, per_user, generic_default = 3 OFF
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
         assert_eq!(on_count, 4, "dry_run+verbose+hdr+sdr should be ON");
-        assert_eq!(off_count, 1, "toast should be OFF");
+        assert_eq!(off_count, 3, "toast+per_user+generic_default should be OFF");
     }
 
     #[test]
@@ -1936,6 +1997,8 @@ mod tests {
             verbose: true,
             hdr: false,
             sdr: false,
+            per_user: true,
+            generic_default: true,
         };
         let mut active: Vec<&str> = Vec::new();
         if !opts.toast {
@@ -1953,8 +2016,14 @@ mod tests {
         if !opts.sdr {
             active.push("NoSDR");
         }
-        assert_eq!(active.len(), 5);
-        assert_eq!(active, vec!["NoToast", "DryRun", "Verbose", "NoHDR", "NoSDR"]);
+        if opts.per_user {
+            active.push("PerUser");
+        }
+        if opts.generic_default {
+            active.push("GenericDef");
+        }
+        assert_eq!(active.len(), 7);
+        assert_eq!(active, vec!["NoToast", "DryRun", "Verbose", "NoHDR", "NoSDR", "PerUser", "GenericDef"]);
     }
 
     // ── Rendering consistency ────────────────────────────────────
@@ -2022,6 +2091,8 @@ mod tests {
                                 verbose: verb,
                                 hdr,
                                 sdr,
+                                per_user: false,
+                                generic_default: false,
                             };
                             let output = render_to_string(|buf| {
                                 draw_advanced(buf, &default_status(), &opts)
@@ -2062,11 +2133,11 @@ mod tests {
         opts.dry_run = !opts.dry_run;
         assert!(opts.dry_run);
         let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
-        // dry_run ON + verbose OFF + toast ON + hdr ON + sdr ON → 4 ON, 1 OFF
+        // dry_run ON, toast ON, sdr ON = 3 ON; verbose OFF, hdr OFF, per_user OFF, generic_default OFF = 4 OFF
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
-        assert_eq!(on_count, 4, "toast+dry_run+hdr+sdr ON");
-        assert_eq!(off_count, 1, "verbose OFF");
+        assert_eq!(on_count, 3, "toast+dry_run+sdr ON");
+        assert_eq!(off_count, 4, "verbose+hdr+per_user+generic_default OFF");
     }
 
     #[test]
@@ -2082,15 +2153,15 @@ mod tests {
     #[test]
     fn toggle_hdr_flips_correctly() {
         let mut opts = default_opts();
-        assert!(opts.hdr, "HDR should default ON");
+        assert!(!opts.hdr, "HDR should default OFF");
         opts.hdr = !opts.hdr;
-        assert!(!opts.hdr);
+        assert!(opts.hdr);
         let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
-        // With hdr=false: toast ON, dry_run OFF, verbose OFF, hdr OFF, sdr ON → 2 ON, 3 OFF
+        // With hdr=true: toast ON, dry_run OFF, verbose OFF, hdr ON, sdr ON, per_user OFF, generic_default OFF → 3 ON, 4 OFF
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
-        assert_eq!(on_count, 2);
-        assert_eq!(off_count, 3);
+        assert_eq!(on_count, 3);
+        assert_eq!(off_count, 4);
     }
 
     #[test]
@@ -2100,38 +2171,46 @@ mod tests {
         opts.sdr = !opts.sdr;
         assert!(!opts.sdr);
         let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
-        // With sdr=false: toast ON, dry_run OFF, verbose OFF, hdr ON, sdr OFF → 2 ON, 3 OFF
+        // With sdr=false: toast ON, dry_run OFF, verbose OFF, hdr OFF, sdr OFF, per_user OFF, generic_default OFF → 1 ON, 6 OFF
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
-        assert_eq!(on_count, 2);
-        assert_eq!(off_count, 3);
+        assert_eq!(on_count, 1);
+        assert_eq!(off_count, 6);
     }
 
     #[test]
     fn toggle_sequence_round_trips() {
         let mut opts = default_opts();
-        // Toggle all off
+        // Toggle all to opposite
         opts.toast = !opts.toast;
         opts.dry_run = !opts.dry_run;
         opts.verbose = !opts.verbose;
         opts.hdr = !opts.hdr;
         opts.sdr = !opts.sdr;
+        opts.per_user = !opts.per_user;
+        opts.generic_default = !opts.generic_default;
         assert!(!opts.toast);
         assert!(opts.dry_run);
         assert!(opts.verbose);
-        assert!(!opts.hdr);
+        assert!(opts.hdr); // was false, now true
         assert!(!opts.sdr);
+        assert!(opts.per_user);
+        assert!(opts.generic_default);
         // Toggle all back
         opts.toast = !opts.toast;
         opts.dry_run = !opts.dry_run;
         opts.verbose = !opts.verbose;
         opts.hdr = !opts.hdr;
         opts.sdr = !opts.sdr;
+        opts.per_user = !opts.per_user;
+        opts.generic_default = !opts.generic_default;
         assert!(opts.toast);
         assert!(!opts.dry_run);
         assert!(!opts.verbose);
-        assert!(opts.hdr);
+        assert!(!opts.hdr); // back to false
         assert!(opts.sdr);
+        assert!(!opts.per_user);
+        assert!(!opts.generic_default);
     }
 
     // ── HDR/SDR status display in header ─────────────────────────
@@ -2213,11 +2292,11 @@ mod tests {
     #[test]
     fn draw_advanced_hdr_sdr_on_by_default() {
         let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
-        // Default: toast=ON, dry_run=OFF, verbose=OFF, hdr=ON, sdr=ON → 3 ON, 2 OFF
+        // Default: toast=ON, dry_run=OFF, verbose=OFF, hdr=OFF, sdr=ON, per_user=OFF, generic_default=OFF → 2 ON, 5 OFF
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
-        assert_eq!(on_count, 3, "toast+hdr+sdr should be ON");
-        assert_eq!(off_count, 2, "dry_run+verbose should be OFF");
+        assert_eq!(on_count, 2, "toast+sdr should be ON");
+        assert_eq!(off_count, 5, "dry_run+verbose+hdr+per_user+generic_default should be OFF");
     }
 
     // ── Active toggles in main menu with HDR/SDR ─────────────────
@@ -2230,6 +2309,8 @@ mod tests {
             verbose: false,
             hdr: false,
             sdr: true,
+            per_user: false,
+            generic_default: false,
         };
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
         assert!(output.contains("NoHDR"), "should show NoHDR");
@@ -2244,6 +2325,8 @@ mod tests {
             verbose: false,
             hdr: true,
             sdr: false,
+            per_user: false,
+            generic_default: false,
         };
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
         assert!(!output.contains("NoHDR"), "should not show NoHDR");
@@ -2252,11 +2335,21 @@ mod tests {
 
     #[test]
     fn draw_main_no_active_when_hdr_sdr_on() {
-        let opts = default_opts(); // hdr=true, sdr=true
+        // All defaults produce "NoHDR" since hdr defaults to false,
+        // so provide explicit all-on opts to test the "None active" path.
+        let opts = Options {
+            toast: true,
+            dry_run: false,
+            verbose: false,
+            hdr: true,
+            sdr: true,
+            per_user: false,
+            generic_default: false,
+        };
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
         assert!(
             output.contains("None active"),
-            "default opts should show 'None active'"
+            "all-on opts should show 'None active'"
         );
     }
 
@@ -2282,15 +2375,80 @@ mod tests {
     // ── Options defaults include HDR/SDR ─────────────────────────
 
     #[test]
-    fn options_default_hdr_is_true() {
+    fn options_default_hdr_is_false() {
         let opts = Options::default();
-        assert!(opts.hdr);
+        assert!(!opts.hdr);
     }
 
     #[test]
     fn options_default_sdr_is_true() {
         let opts = Options::default();
         assert!(opts.sdr);
+    }
+
+    #[test]
+    fn options_default_per_user_is_false() {
+        let opts = Options::default();
+        assert!(!opts.per_user);
+    }
+
+    #[test]
+    fn options_default_generic_default_is_false() {
+        let opts = Options::default();
+        assert!(!opts.generic_default);
+    }
+
+    #[test]
+    fn toggle_per_user_flips_correctly() {
+        let mut opts = default_opts();
+        assert!(!opts.per_user);
+        opts.per_user = !opts.per_user;
+        assert!(opts.per_user);
+        opts.per_user = !opts.per_user;
+        assert!(!opts.per_user);
+    }
+
+    #[test]
+    fn toggle_generic_default_flips_correctly() {
+        let mut opts = default_opts();
+        assert!(!opts.generic_default);
+        opts.generic_default = !opts.generic_default;
+        assert!(opts.generic_default);
+        opts.generic_default = !opts.generic_default;
+        assert!(!opts.generic_default);
+    }
+
+    #[test]
+    fn draw_main_shows_per_user_when_toggled_on() {
+        let mut opts = default_opts();
+        opts.per_user = true;
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
+        assert!(output.contains("PerUser"), "should show PerUser");
+    }
+
+    #[test]
+    fn draw_main_shows_generic_def_when_toggled_on() {
+        let mut opts = default_opts();
+        opts.generic_default = true;
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
+        assert!(output.contains("GenericDef"), "should show GenericDef");
+    }
+
+    #[test]
+    fn draw_advanced_shows_install_mode_section() {
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        assert!(
+            output.contains("INSTALL MODE"),
+            "should have INSTALL MODE section"
+        );
+        assert!(
+            output.contains("Per-User Install"),
+            "should show Per-User toggle"
+        );
+        assert!(
+            output.contains("Generic Default"),
+            "should show Generic Default toggle"
+        );
     }
 
     // ── Colored log tag helpers ──────────────────────────────────

@@ -572,6 +572,7 @@ fn handle_profile_reapply(config: &Config) {
                     &device.device_key,
                     &profile_path,
                     config.toggle_delay_ms,
+                    false, // service always uses system-wide scope
                 ) {
                     error!("Failed to reapply for {}: {}", device.name, e);
                 }

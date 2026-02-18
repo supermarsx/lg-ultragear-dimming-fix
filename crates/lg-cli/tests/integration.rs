@@ -1179,7 +1179,7 @@ fn reapply_profile_fails_with_nonexistent_profile() {
     let fake_path = std::path::PathBuf::from(
         r"C:\Windows\System32\spool\drivers\color\nonexistent-integ-test-99999.icm",
     );
-    let result = lg_profile::reapply_profile(r"DISPLAY\TEST\001", &fake_path, 100);
+    let result = lg_profile::reapply_profile(r"DISPLAY\TEST\001", &fake_path, 100, false);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(err.contains("Profile not found") || err.contains("not found"));

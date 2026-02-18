@@ -66,6 +66,15 @@ pub fn ensure_profile_installed(profile_path: &Path) -> Result<bool, Box<dyn Err
 /// Scope constant for system-wide color profile operations.
 const WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE: u32 = 2;
 
+/// Scope constant for per-user (current user) color profile operations.
+const WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER: u32 = 1;
+
+/// Color Profile Type: ICC profile.
+const CPT_ICC: i32 = 1; // COLORPROFILETYPE::CPT_ICC
+
+/// Color Profile Subtype: device default.
+const CPST_NONE: i32 = 1; // COLORPROFILESUBTYPE::CPST_NONE
+
 // These are not in the `windows` crate metadata, so we link manually.
 #[link(name = "mscms")]
 extern "system" {
@@ -79,6 +88,15 @@ extern "system" {
         scope: u32,
         profile_name: PCWSTR,
         device_name: PCWSTR,
+    ) -> BOOL;
+
+    fn WcsSetDefaultColorProfile(
+        scope: u32,
+        device_name: PCWSTR,
+        cpt: i32,
+        cpst: i32,
+        profile_id: u32,
+        profile_name: PCWSTR,
     ) -> BOOL;
 }
 
@@ -108,10 +126,12 @@ pub fn remove_profile(profile_path: &Path) -> Result<bool, Box<dyn Error>> {
 /// * `device_key` — WMI device instance path (e.g. `DISPLAY\LGS\001`)
 /// * `profile_path` — Full path to the ICC profile file
 /// * `toggle_delay_ms` — Pause between disassociate and reassociate (ms)
+/// * `per_user` — If true, also perform per-user scope operations
 pub fn reapply_profile(
     device_key: &str,
     profile_path: &Path,
     toggle_delay_ms: u64,
+    per_user: bool,
 ) -> Result<(), Box<dyn Error>> {
     if !profile_path.exists() {
         return Err(format!("Profile not found: {}", profile_path.display()).into());
@@ -139,6 +159,21 @@ pub fn reapply_profile(
             );
         }
 
+        // Per-user disassociate (non-fatal)
+        if per_user {
+            let result = WcsDisassociateColorProfileFromDevice(
+                WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
+                PCWSTR(profile_wide.as_ptr()),
+                PCWSTR(device_wide.as_ptr()),
+            );
+            if !result.as_bool() {
+                warn!(
+                    "WcsDisassociateColorProfileFromDevice (per-user) failed for {} (non-fatal)",
+                    device_key
+                );
+            }
+        }
+
         // Step 2: Configurable pause to let Windows process the change
         thread::sleep(Duration::from_millis(toggle_delay_ms));
 
@@ -156,9 +191,89 @@ pub fn reapply_profile(
             )
             .into());
         }
+
+        // Per-user associate
+        if per_user {
+            let result = WcsAssociateColorProfileWithDevice(
+                WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
+                PCWSTR(profile_wide.as_ptr()),
+                PCWSTR(device_wide.as_ptr()),
+            );
+            if !result.as_bool() {
+                warn!(
+                    "WcsAssociateColorProfileWithDevice (per-user) failed for {} (non-fatal)",
+                    device_key
+                );
+            }
+        }
     }
 
     info!("Profile toggled for device: {}", device_key);
+    Ok(())
+}
+
+/// Set the profile as the generic default using the legacy `WcsSetDefaultColorProfile` API.
+///
+/// This is an optional operation — some systems or monitors benefit from having the
+/// profile also registered as the generic ICC default, but it is NOT required for the
+/// dimming fix to work.
+///
+/// # Arguments
+/// * `device_key` — WMI device instance path
+/// * `profile_path` — Full path to the ICC profile file
+/// * `per_user` — If true, also set the per-user generic default
+pub fn set_generic_default(
+    device_key: &str,
+    profile_path: &Path,
+    per_user: bool,
+) -> Result<(), Box<dyn Error>> {
+    let profile_wide: Vec<u16> = profile_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let device_wide = to_wide(device_key);
+
+    unsafe {
+        // System-wide generic default
+        let result = WcsSetDefaultColorProfile(
+            WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE,
+            PCWSTR(device_wide.as_ptr()),
+            CPT_ICC,
+            CPST_NONE,
+            0,
+            PCWSTR(profile_wide.as_ptr()),
+        );
+        if !result.as_bool() {
+            warn!(
+                "WcsSetDefaultColorProfile (system) failed for {} (non-fatal)",
+                device_key
+            );
+        } else {
+            info!("Generic default profile set (system) for {}", device_key);
+        }
+
+        // Per-user generic default
+        if per_user {
+            let result = WcsSetDefaultColorProfile(
+                WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
+                PCWSTR(device_wide.as_ptr()),
+                CPT_ICC,
+                CPST_NONE,
+                0,
+                PCWSTR(profile_wide.as_ptr()),
+            );
+            if !result.as_bool() {
+                warn!(
+                    "WcsSetDefaultColorProfile (per-user) failed for {} (non-fatal)",
+                    device_key
+                );
+            } else {
+                info!("Generic default profile set (per-user) for {}", device_key);
+            }
+        }
+    }
+
     Ok(())
 }
 
