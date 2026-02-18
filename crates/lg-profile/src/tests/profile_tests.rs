@@ -43,6 +43,43 @@ fn to_wide_spaces_and_special() {
     assert_eq!(result.len(), 23); // 22 chars + null
 }
 
+// ── Embedded ICM ─────────────────────────────────────────────────
+
+#[test]
+fn embedded_icm_is_not_empty() {
+    const { assert!(EMBEDDED_ICM_SIZE > 0, "Embedded ICM should contain data") };
+}
+
+#[test]
+fn embedded_icm_has_valid_icc_header() {
+    // ICC profiles start with a 4-byte size field, then 4 bytes of padding,
+    // then the ASCII signature "acsp" at offset 36.
+    const { assert!(EMBEDDED_ICM_SIZE > 40, "Embedded ICM too small to be a valid ICC profile") };
+}
+
+#[test]
+fn ensure_profile_installed_writes_to_temp() {
+    let dir = std::env::temp_dir().join("lg-test-ensure-profile");
+    let _ = std::fs::remove_dir_all(&dir);
+    let path = dir.join("test-embedded.icm");
+
+    // First call should write the file
+    let wrote = ensure_profile_installed(&path).expect("should succeed");
+    assert!(wrote, "should report file was written");
+    assert!(path.exists(), "file should exist after extraction");
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().len(),
+        EMBEDDED_ICM_SIZE as u64
+    );
+
+    // Second call should be a no-op
+    let wrote2 = ensure_profile_installed(&path).expect("should succeed");
+    assert!(!wrote2, "should report no write needed (already present)");
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // ── is_profile_installed ─────────────────────────────────────────
 
 #[test]

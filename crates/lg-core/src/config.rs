@@ -19,6 +19,11 @@ pub fn config_path() -> PathBuf {
     config_dir().join("config.toml")
 }
 
+/// Full path to the installed service binary.
+pub fn install_path() -> PathBuf {
+    config_dir().join("lg-ultragear-dimming-fix.exe")
+}
+
 /// Service configuration with defaults for every field.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]

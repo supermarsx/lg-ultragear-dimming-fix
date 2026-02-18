@@ -1,21 +1,29 @@
-//! Windows toast notifications via PowerShell.
+//! Windows toast notifications via WinRT APIs.
 //!
-//! Shows toast notifications by spawning PowerShell with WinRT APIs.
-//! Falls back to a temporary scheduled task for Session 0 isolation
-//! (when running as SYSTEM/LocalSystem in service context).
+//! Shows toast notifications using the Windows Runtime
+//! `ToastNotificationManager` API directly — no external process spawning
+//! (no PowerShell, no schtasks).
+//!
+//! In Session 0 (service context running as SYSTEM), the WinRT
+//! notification infrastructure is unavailable — the attempt will
+//! fail gracefully and the event is logged to the Windows Event Log.
 //!
 //! All functions take raw parameters (no Config dependency) so this crate
 //! can be used independently.
 
 use log::{info, warn};
-use std::os::windows::process::CommandExt;
+use windows::core::HSTRING;
+use windows::Data::Xml::Dom::XmlDocument;
+use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
 
 /// Show a Windows toast notification.
 ///
 /// If `enabled` is false, returns immediately (useful for testing and
 /// callers that want a single call site regardless of config).
-/// Falls back to a temporary scheduled task if direct PowerShell fails
-/// (e.g. Session 0 isolation when running as a service).
+///
+/// Uses WinRT toast APIs directly. In Session 0 (service mode), the
+/// notification infrastructure is unavailable and the call fails
+/// gracefully — the event is still logged to the Windows Event Log.
 ///
 /// # Arguments
 /// * `enabled` — Whether to actually show the toast (false = no-op)
@@ -27,122 +35,53 @@ pub fn show_reapply_toast(enabled: bool, title: &str, body: &str, verbose: bool)
         return;
     }
 
-    let ps_script = format!(
-        r#"
-[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
-[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
-$xml = [Windows.Data.Xml.Dom.XmlDocument]::new()
-$xml.LoadXml('<toast><visual><binding template="ToastGeneric"><text>{title}</text><text>{body}</text></binding></visual></toast>')
-$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-$appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\WindowsPowerShell\v1.0\powershell.exe'
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)
-"#,
-        title = title.replace('\'', "''").replace('"', "&quot;"),
-        body = body.replace('\'', "''").replace('"', "&quot;"),
-    );
-
-    let result = std::process::Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NoLogo",
-            "-WindowStyle",
-            "Hidden",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            &ps_script,
-        ])
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW
-        .output();
-
-    match result {
-        Ok(output) if output.status.success() => {
+    match show_toast_native(title, body) {
+        Ok(()) => {
             info!("Toast notification shown");
         }
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            // This is expected when running as SYSTEM in Session 0
-            if verbose {
-                warn!(
-                    "Toast notification failed (expected in Session 0): {}",
-                    stderr.trim()
-                );
-            }
-            // Fallback: try via schtasks to run in user's session.
-            // Spawned on a dedicated thread to avoid blocking the caller
-            // (the debounce worker) during the 2-second cleanup sleep.
-            let title = title.to_owned();
-            let body = body.to_owned();
-            std::thread::Builder::new()
-                .name("toast-schtasks".into())
-                .spawn(move || show_toast_via_schtasks(&title, &body, verbose))
-                .ok();
-        }
         Err(e) => {
+            // In Session 0 (service mode) WinRT notifications are unavailable.
+            // The profile reapply event is still logged to Windows Event Log.
             if verbose {
-                warn!("Failed to launch PowerShell for toast: {}", e);
+                warn!("Toast notification unavailable: {} (expected in Session 0)", e);
             }
         }
     }
 }
 
-/// Fallback: create a temporary scheduled task that runs as the interactive user
-/// to show the toast notification, then clean it up.
-fn show_toast_via_schtasks(title: &str, body: &str, verbose: bool) {
-    let ps_command = format!(
-        r#"[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null; $x = [Windows.Data.Xml.Dom.XmlDocument]::new(); $x.LoadXml('<toast><visual><binding template=\"ToastGeneric\"><text>{title}</text><text>{body}</text></binding></visual></toast>'); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\WindowsPowerShell\v1.0\powershell.exe').Show([Windows.UI.Notifications.ToastNotification]::new($x))"#,
-        title = title.replace('"', "&quot;"),
-        body = body.replace('"', "&quot;"),
+/// Show a toast notification using the WinRT `ToastNotificationManager` API.
+fn show_toast_native(title: &str, body: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let title_escaped = escape_xml(title);
+    let body_escaped = escape_xml(body);
+
+    let toast_xml = format!(
+        r#"<toast><visual><binding template="ToastGeneric"><text>{}</text><text>{}</text></binding></visual></toast>"#,
+        title_escaped, body_escaped
     );
 
-    let task_name = "LG-UltraGear-Toast-Temp";
+    let xml = XmlDocument::new()?;
+    xml.LoadXml(&HSTRING::from(toast_xml.as_str()))?;
 
-    // Create a one-off task that runs immediately as the BUILTIN\Users group
-    let create_result = std::process::Command::new("schtasks.exe")
-        .args([
-            "/Create",
-            "/TN",
-            task_name,
-            "/TR",
-            &format!(
-                "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"{}\"",
-                ps_command
-            ),
-            "/SC",
-            "ONCE",
-            "/ST",
-            "00:00",
-            "/F",
-            "/RL",
-            "LIMITED",
-            "/IT", // Interactive only
-        ])
-        .creation_flags(0x08000000)
-        .output();
+    let toast = ToastNotification::CreateToastNotification(&xml)?;
 
-    if let Ok(output) = create_result {
-        if output.status.success() {
-            // Run the task
-            let _ = std::process::Command::new("schtasks.exe")
-                .args(["/Run", "/TN", task_name])
-                .creation_flags(0x08000000)
-                .output();
+    // Use PowerShell's registered AppUserModelID — a common approach for
+    // showing toasts without registering a custom application identity.
+    let app_id = HSTRING::from(
+        r"{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe",
+    );
+    let notifier = ToastNotificationManager::CreateToastNotifierWithId(&app_id)?;
+    notifier.Show(&toast)?;
 
-            // Small delay then clean up
-            std::thread::sleep(std::time::Duration::from_secs(2));
-            let _ = std::process::Command::new("schtasks.exe")
-                .args(["/Delete", "/TN", task_name, "/F"])
-                .creation_flags(0x08000000)
-                .output();
+    Ok(())
+}
 
-            if verbose {
-                info!("Toast shown via temporary scheduled task");
-            }
-        } else if verbose {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            warn!("Failed to create toast task: {}", stderr.trim());
-        }
-    }
+/// Escape XML special characters for safe inclusion in toast XML.
+fn escape_xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 #[cfg(test)]

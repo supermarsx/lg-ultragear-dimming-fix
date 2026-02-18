@@ -7,7 +7,7 @@ license.workspace = true
 authors.workspace = true
 
 [[bin]]
-name = "lg-ultragear"
+name = "lg-ultragear-dimming-fix"
 path = "src/main.rs"
 
 [dependencies]

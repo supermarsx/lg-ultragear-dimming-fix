@@ -347,6 +347,27 @@ fn config_path_is_inside_config_dir() {
     assert!(path.starts_with(&dir));
 }
 
+// ── install_path ─────────────────────────────────────────────────
+
+#[test]
+fn install_path_is_inside_config_dir() {
+    let dir = config_dir();
+    let path = install_path();
+    assert!(path.starts_with(&dir));
+}
+
+#[test]
+fn install_path_ends_with_exe() {
+    let path = install_path();
+    assert_eq!(path.extension().unwrap(), "exe");
+}
+
+#[test]
+fn install_path_has_expected_filename() {
+    let path = install_path();
+    assert_eq!(path.file_name().unwrap(), "lg-ultragear-dimming-fix.exe");
+}
+
 // ── File I/O with temp directories ───────────────────────────────
 
 #[test]

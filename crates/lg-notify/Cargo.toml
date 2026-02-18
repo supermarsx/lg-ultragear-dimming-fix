@@ -8,3 +8,4 @@ authors.workspace = true
 
 [dependencies]
 log.workspace = true
+windows.workspace = true

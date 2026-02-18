@@ -10,15 +10,54 @@ use log::{info, warn};
 use std::error::Error;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::{ptr, thread, time::Duration};
-use windows::core::{HSTRING, PCWSTR};
+use windows::core::{BSTR, HSTRING, PCWSTR};
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, WPARAM};
 use windows::Win32::Graphics::Gdi::{ChangeDisplaySettingsExW, InvalidateRect};
+use windows::Win32::System::Com::{
+    CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
+};
+use windows::Win32::System::TaskScheduler::{ITaskService, TaskScheduler};
 use windows::Win32::UI::WindowsAndMessaging::{
     SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE,
 };
+
+// ============================================================================
+// Embedded ICC profile
+// ============================================================================
+
+/// The ICC profile bytes, embedded at compile time from the repo root.
+const EMBEDDED_ICM: &[u8] = include_bytes!("../../../lg-ultragear-full-cal.icm");
+
+/// Size of the embedded ICC profile in bytes (useful for tests).
+pub const EMBEDDED_ICM_SIZE: usize = EMBEDDED_ICM.len();
+
+/// Ensure the ICC profile is installed in the Windows color store.
+///
+/// If the file already exists and matches the embedded size, this is a no-op.
+/// Otherwise, writes (or overwrites) the embedded profile to the color directory.
+///
+/// Returns `Ok(true)` if a new file was written, `Ok(false)` if already present.
+pub fn ensure_profile_installed(profile_path: &Path) -> Result<bool, Box<dyn Error>> {
+    // Check if it already exists with the correct size
+    if let Ok(meta) = std::fs::metadata(profile_path) {
+        if meta.len() == EMBEDDED_ICM.len() as u64 {
+            info!("ICC profile already installed: {}", profile_path.display());
+            return Ok(false);
+        }
+    }
+
+    // Ensure the parent directory exists
+    if let Some(parent) = profile_path.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    std::fs::write(profile_path, EMBEDDED_ICM)?;
+    info!("ICC profile extracted to {}", profile_path.display());
+    Ok(true)
+}
 
 // ============================================================================
 // mscms.dll FFI — WCS color profile APIs
@@ -155,34 +194,54 @@ pub fn refresh_display(display_settings: bool, broadcast_color: bool, invalidate
 
 /// Trigger the built-in Windows Calibration Loader scheduled task.
 ///
+/// Uses the COM Task Scheduler API directly (no external process spawning).
 /// If `enabled` is false, returns immediately.
 pub fn trigger_calibration_loader(enabled: bool) {
     if !enabled {
         return;
     }
 
-    // Use schtasks.exe — simplest reliable way from a service context
-    let result = std::process::Command::new("schtasks.exe")
-        .args([
-            "/Run",
-            "/TN",
-            r"\Microsoft\Windows\WindowsColorSystem\Calibration Loader",
-        ])
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW
-        .output();
-
-    match result {
-        Ok(output) if output.status.success() => {
-            info!("Calibration Loader task triggered");
-        }
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            warn!("Calibration Loader task trigger failed: {}", stderr.trim());
-        }
-        Err(e) => {
-            warn!("Failed to run schtasks.exe: {}", e);
-        }
+    match run_calibration_loader_task() {
+        Ok(()) => info!("Calibration Loader task triggered"),
+        Err(e) => warn!("Calibration Loader task trigger failed: {}", e),
     }
+}
+
+/// Run the Windows Calibration Loader scheduled task via COM Task Scheduler API.
+fn run_calibration_loader_task() -> Result<(), Box<dyn Error>> {
+    // Initialize COM on this thread (balanced with CoUninitialize below).
+    // ok() ignores S_FALSE (already initialized with same apartment model).
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED).ok();
+    }
+
+    let result = (|| -> Result<(), Box<dyn Error>> {
+        let service: ITaskService = unsafe {
+            CoCreateInstance(&TaskScheduler, None, CLSCTX_INPROC_SERVER)?
+        };
+
+        // Connect to local Task Scheduler with current credentials
+        let empty = windows::core::VARIANT::default();
+        unsafe {
+            service.Connect(&empty, &empty, &empty, &empty)?;
+        }
+
+        let folder = unsafe {
+            service.GetFolder(&BSTR::from(r"\Microsoft\Windows\WindowsColorSystem"))?
+        };
+
+        let task = unsafe { folder.GetTask(&BSTR::from("Calibration Loader"))? };
+
+        let _ = unsafe { task.Run(&windows::core::VARIANT::default())? };
+
+        Ok(())
+    })();
+
+    unsafe {
+        CoUninitialize();
+    }
+
+    result
 }
 
 /// Convert a Rust string to a null-terminated wide string (UTF-16).

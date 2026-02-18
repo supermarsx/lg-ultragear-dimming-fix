@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn show_reapply_toast_disabled_is_noop() {
-    // enabled=false returns immediately without spawning any process
+    // enabled=false returns immediately without calling any WinRT API
     show_reapply_toast(false, "Title", "Body", false);
 }
 
@@ -47,24 +47,47 @@ fn toast_verbose_flag_does_not_panic() {
     show_reapply_toast(false, "Test", "Test", true);
 }
 
-// ── show_toast_via_schtasks runs on separate thread ──────────────
+// ── escape_xml ───────────────────────────────────────────────────
 
 #[test]
-fn schtasks_fallback_does_not_block_caller() {
-    // Verify that the schtasks path is delegated to a thread (non-blocking).
-    // We can't easily test the actual toast, but we verify the thread-spawn
-    // pattern exists and handles owned strings correctly.
-    let title = "Test Title".to_owned();
-    let body = "Test Body".to_owned();
-    let verbose = false;
-    let handle = std::thread::Builder::new()
-        .name("toast-schtasks-test".into())
-        .spawn(move || {
-            // Just verify the closure captures work — don't actually run schtasks
-            assert!(!title.is_empty());
-            assert!(!body.is_empty());
-            let _ = verbose;
-        })
-        .unwrap();
-    handle.join().unwrap();
+fn escape_xml_plain_text_unchanged() {
+    assert_eq!(escape_xml("hello world"), "hello world");
+}
+
+#[test]
+fn escape_xml_escapes_ampersand() {
+    assert_eq!(escape_xml("a & b"), "a &amp; b");
+}
+
+#[test]
+fn escape_xml_escapes_angle_brackets() {
+    assert_eq!(escape_xml("<tag>"), "&lt;tag&gt;");
+}
+
+#[test]
+fn escape_xml_escapes_quotes() {
+    assert_eq!(escape_xml(r#"say "hi""#), "say &quot;hi&quot;");
+}
+
+#[test]
+fn escape_xml_escapes_apostrophe() {
+    assert_eq!(escape_xml("it's"), "it&apos;s");
+}
+
+#[test]
+fn escape_xml_empty_string() {
+    assert_eq!(escape_xml(""), "");
+}
+
+#[test]
+fn escape_xml_combined() {
+    assert_eq!(
+        escape_xml(r#"<a & "b" > 'c'"#),
+        "&lt;a &amp; &quot;b&quot; &gt; &apos;c&apos;"
+    );
+}
+
+#[test]
+fn escape_xml_preserves_unicode() {
+    assert_eq!(escape_xml("Color profile ✓"), "Color profile ✓");
 }

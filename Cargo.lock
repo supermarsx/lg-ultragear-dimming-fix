@@ -584,6 +584,7 @@ name = "lg-notify"
 version = "1.0.0"
 dependencies = [
  "log",
+ "windows 0.58.0",
 ]
 
 [[package]]

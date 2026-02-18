@@ -545,6 +545,11 @@ fn handle_profile_reapply(config: &Config) {
     }
 
     let profile_path = config.profile_path();
+    // Auto-extract the embedded ICC profile if not already present
+    if let Err(e) = lg_profile::ensure_profile_installed(&profile_path) {
+        error!("Failed to extract ICC profile: {}", e);
+        return;
+    }
     if !lg_profile::is_profile_installed(&profile_path) {
         warn!(
             "ICC profile not found: {}, skipping reapply",
@@ -596,12 +601,27 @@ fn handle_profile_reapply(config: &Config) {
 // ============================================================================
 
 pub fn install(monitor_match: &str) -> Result<(), Box<dyn Error>> {
+    // Copy the running binary to the install directory so the service
+    // survives moves/deletes of the original file.
+    let src_path = std::env::current_exe()?;
+    let install_dir = config::config_dir();
+    if !install_dir.exists() {
+        std::fs::create_dir_all(&install_dir)?;
+    }
+    let dest_path = config::install_path();
+    std::fs::copy(&src_path, &dest_path)?;
+    info!("Binary copied to {}", dest_path.display());
+
+    // Extract the embedded ICC profile to the Windows color store
+    let cfg = Config::load();
+    let profile_path = cfg.profile_path();
+    lg_profile::ensure_profile_installed(&profile_path)?;
+    info!("ICC profile ensured at {}", profile_path.display());
+
     let manager = ServiceManager::local_computer(
         None::<&str>,
         ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
     )?;
-
-    let exe_path = std::env::current_exe()?;
 
     let service_info = ServiceInfo {
         name: SERVICE_NAME.into(),
@@ -609,7 +629,7 @@ pub fn install(monitor_match: &str) -> Result<(), Box<dyn Error>> {
         service_type: ServiceType::OWN_PROCESS,
         start_type: ServiceStartType::AutoStart,
         error_control: ServiceErrorControl::Normal,
-        executable_path: exe_path,
+        executable_path: dest_path,
         // Tell SCM to pass "service run" so clap dispatches to service mode
         launch_arguments: vec!["service".into(), "run".into()],
         dependencies: vec![],
@@ -640,6 +660,22 @@ pub fn uninstall() -> Result<(), Box<dyn Error>> {
     thread::sleep(Duration::from_secs(1));
 
     service.delete()?;
+
+    // Remove the installed binary (best-effort — may still be locked briefly)
+    let install_bin = config::install_path();
+    if install_bin.exists() {
+        // Brief delay to let the process fully terminate
+        thread::sleep(Duration::from_millis(500));
+        match std::fs::remove_file(&install_bin) {
+            Ok(()) => info!("Removed installed binary: {}", install_bin.display()),
+            Err(e) => warn!(
+                "Could not remove {}: {} (clean up manually)",
+                install_bin.display(),
+                e
+            ),
+        }
+    }
+
     info!("Service uninstalled");
     Ok(())
 }
@@ -666,6 +702,7 @@ pub fn print_status() -> Result<(), Box<dyn Error>> {
     println!("Service: {}", SERVICE_NAME);
     println!("State:   {:?}", status.current_state);
     println!("PID:     {:?}", status.process_id);
+    println!("Binary:  {}", config::install_path().display());
     println!("Config:  {}", config::config_path().display());
     println!("Monitor: {}", cfg.monitor_match);
     println!("Profile: {}", cfg.profile_name);

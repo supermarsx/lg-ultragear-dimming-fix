@@ -18,7 +18,7 @@ fn binary_path() -> std::path::PathBuf {
         .parent()
         .unwrap()
         .to_path_buf();
-    path.push("lg-ultragear.exe");
+    path.push("lg-ultragear-dimming-fix.exe");
     path
 }
 
@@ -73,7 +73,7 @@ fn version_flag_shows_version() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("lg-ultragear"),
+        stdout.contains("lg-ultragear-dimming-fix"),
         "should show binary name: {}",
         stdout
     );

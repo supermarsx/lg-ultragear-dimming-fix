@@ -12,7 +12,7 @@ use std::error::Error;
 
 #[derive(Parser)]
 #[command(
-    name = "lg-ultragear",
+    name = "lg-ultragear-dimming-fix",
     version,
     about = "LG UltraGear display color profile manager",
     long_about = "Prevents display dimming by managing ICC color profiles.\n\n\
@@ -157,12 +157,14 @@ fn cmd_detect(pattern: Option<String>) -> Result<(), Box<dyn Error>> {
     }
 
     println!("\nProfile: {}", cfg.profile_path().display());
+    // Auto-extract embedded ICC profile if not already present
+    let _ = lg_profile::ensure_profile_installed(&cfg.profile_path());
     println!(
         "Installed: {}",
         if lg_profile::is_profile_installed(&cfg.profile_path()) {
             "yes"
         } else {
-            "NO — install the ICM file first"
+            "NO — extraction failed, check permissions"
         }
     );
 
@@ -188,6 +190,9 @@ fn cmd_apply(pattern: Option<String>, verbose: bool) -> Result<(), Box<dyn Error
         if cfg.toast_enabled { "on" } else { "off" }
     );
     println!();
+
+    // Auto-extract embedded ICC profile if not already present
+    lg_profile::ensure_profile_installed(&profile_path)?;
 
     if !lg_profile::is_profile_installed(&profile_path) {
         return Err(format!("ICC profile not found: {}", profile_path.display()).into());
@@ -308,8 +313,9 @@ fn cmd_service(action: ServiceAction) -> Result<(), Box<dyn Error>> {
                 "[OK] Service installed. Monitor pattern: {}",
                 cfg.monitor_match
             );
+            println!("     Binary: {}", config::install_path().display());
             println!("     Config: {}", cfg_path.display());
-            println!("     Start with: lg-ultragear service start");
+            println!("     Start with: lg-ultragear-dimming-fix service start");
         }
         ServiceAction::Uninstall => {
             lg_service::uninstall()?;
@@ -318,6 +324,7 @@ fn cmd_service(action: ServiceAction) -> Result<(), Box<dyn Error>> {
                 "     Config preserved at: {}",
                 config::config_path().display()
             );
+            println!("     Binary removed from: {}", config::install_path().display());
         }
         ServiceAction::Start => {
             lg_service::start_service()?;
