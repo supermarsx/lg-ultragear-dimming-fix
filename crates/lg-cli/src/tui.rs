@@ -6,13 +6,29 @@
 
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     queue,
     style::{Color, ResetColor, SetForegroundColor},
     terminal::{self, Clear, ClearType},
 };
 use lg_core::config::{self, Config};
 use std::io::{self, Write};
+
+// ── UTF-8 console support (Windows) ──────────────────────────────────────
+
+/// Ensure the Windows console uses UTF-8 for output so box-drawing and
+/// other Unicode characters render correctly, even in cmd.exe or legacy
+/// PowerShell hosts that default to an OEM code page.
+fn enable_utf8_console() {
+    #[cfg(windows)]
+    {
+        use windows::Win32::System::Console::{SetConsoleCP, SetConsoleOutputCP};
+        unsafe {
+            let _ = SetConsoleOutputCP(65001);
+            let _ = SetConsoleCP(65001);
+        }
+    }
+}
 
 // ── Layout constants ─────────────────────────────────────────────────────
 
@@ -29,6 +45,8 @@ pub(crate) struct Options {
     pub(crate) toast: bool,
     pub(crate) dry_run: bool,
     pub(crate) verbose: bool,
+    pub(crate) hdr: bool,
+    pub(crate) sdr: bool,
 }
 
 impl Default for Options {
@@ -38,6 +56,8 @@ impl Default for Options {
             toast: cfg.toast_enabled,
             dry_run: false,
             verbose: cfg.verbose,
+            hdr: true,
+            sdr: true,
         }
     }
 }
@@ -47,6 +67,8 @@ pub(crate) struct Status {
     pub(crate) service_installed: bool,
     pub(crate) service_running: bool,
     pub(crate) monitor_count: usize,
+    pub(crate) hdr_enabled: bool,
+    pub(crate) sdr_enabled: bool,
 }
 
 pub(crate) enum Page {
@@ -57,12 +79,13 @@ pub(crate) enum Page {
 // ── Entry point ──────────────────────────────────────────────────────────
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+    enable_utf8_console();
     let mut out = io::stdout();
     let mut page = Page::Main;
     let mut opts = Options::default();
 
     loop {
-        let status = gather_status();
+        let status = gather_status(&opts);
 
         match page {
             Page::Main => draw_main(&mut out, &status, &opts)?,
@@ -106,6 +129,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             (Page::Advanced, '1') => opts.toast = !opts.toast,
             (Page::Advanced, '2') => opts.dry_run = !opts.dry_run,
             (Page::Advanced, '3') => opts.verbose = !opts.verbose,
+            (Page::Advanced, '4') => opts.hdr = !opts.hdr,
+            (Page::Advanced, '5') => opts.sdr = !opts.sdr,
             (Page::Advanced, 'b') => page = Page::Main,
             (Page::Advanced, 'q') => break,
 
@@ -123,17 +148,23 @@ fn read_key() -> io::Result<char> {
     terminal::enable_raw_mode()?;
     let ch = loop {
         match event::read()? {
+            // Only react to Press events — on Windows crossterm also emits
+            // Release and Repeat events which would double-toggle options.
             Event::Key(KeyEvent {
                 code: KeyCode::Char('c'),
                 modifiers: KeyModifiers::CONTROL,
+                kind: KeyEventKind::Press,
                 ..
             }) => break 'q',
             Event::Key(KeyEvent {
                 code: KeyCode::Char(c),
+                kind: KeyEventKind::Press,
                 ..
             }) => break c.to_ascii_lowercase(),
             Event::Key(KeyEvent {
-                code: KeyCode::Esc, ..
+                code: KeyCode::Esc,
+                kind: KeyEventKind::Press,
+                ..
             }) => break 'q',
             _ => continue,
         }
@@ -144,7 +175,7 @@ fn read_key() -> io::Result<char> {
 
 // ── Status gathering ─────────────────────────────────────────────────────
 
-pub(crate) fn gather_status() -> Status {
+pub(crate) fn gather_status(opts: &Options) -> Status {
     let cfg = Config::load();
     let profile_installed = lg_profile::is_profile_installed(&cfg.profile_path());
     let (service_installed, service_running) = lg_service::query_service_info();
@@ -156,6 +187,8 @@ pub(crate) fn gather_status() -> Status {
         service_installed,
         service_running,
         monitor_count,
+        hdr_enabled: opts.hdr,
+        sdr_enabled: opts.sdr,
     }
 }
 
@@ -200,6 +233,12 @@ pub(crate) fn draw_main(out: &mut impl Write, status: &Status, opts: &Options) -
     }
     if opts.verbose {
         active.push("Verbose");
+    }
+    if !opts.hdr {
+        active.push("NoHDR");
+    }
+    if !opts.sdr {
+        active.push("NoSDR");
     }
 
     if active.is_empty() {
@@ -249,6 +288,11 @@ pub(crate) fn draw_advanced(
     draw_toggle(out, "2", "Dry Run (Simulate without changes)", opts.dry_run)?;
     draw_toggle(out, "3", "Verbose Logging (Detailed output)", opts.verbose)?;
     draw_empty(out)?;
+
+    draw_section(out, "COLOR MODE")?;
+    draw_toggle(out, "4", "HDR Mode (Advanced color association)", opts.hdr)?;
+    draw_toggle(out, "5", "SDR Mode (Standard color association)", opts.sdr)?;
+    draw_empty(out)?;
     draw_line(
         out,
         "  These toggles affect main menu install options",
@@ -276,7 +320,7 @@ pub(crate) fn draw_advanced(
 pub(crate) fn draw_header(out: &mut impl Write, status: &Status) -> io::Result<()> {
     draw_top(out, TITLE)?;
 
-    let version_line = format!("Version {}  \u{2502}  {}", env!("CARGO_PKG_VERSION"), REPO);
+    let version_line = format!("Version {}  \u{2502}  {}", env!("APP_VERSION"), REPO);
     draw_line_center(out, &version_line, Color::DarkGrey)?;
 
     draw_sep(out, "")?;
@@ -323,6 +367,22 @@ pub(crate) fn draw_header(out: &mut impl Write, status: &Status) -> io::Result<(
         ("\u{25CB} None detected".to_string(), Color::DarkGrey)
     };
     draw_status(out, "LG UltraGear: ", &monitor_text, monitor_color)?;
+
+    // HDR mode status
+    let (hdr_text, hdr_color) = if status.hdr_enabled {
+        ("\u{25CF} Enabled", Color::Green)
+    } else {
+        ("\u{25CB} Disabled", Color::DarkGrey)
+    };
+    draw_status(out, "HDR Mode:     ", hdr_text, hdr_color)?;
+
+    // SDR mode status
+    let (sdr_text, sdr_color) = if status.sdr_enabled {
+        ("\u{25CF} Enabled", Color::Green)
+    } else {
+        ("\u{25CB} Disabled", Color::DarkGrey)
+    };
+    draw_status(out, "SDR Mode:     ", sdr_text, sdr_color)?;
 
     // Status sub-box bottom
     let status_bottom = format!("\u{2514}{}\u{2518}", "\u{2500}".repeat(INNER - 2));
@@ -868,6 +928,8 @@ mod tests {
             service_installed,
             service_running,
             monitor_count,
+            hdr_enabled: true,
+            sdr_enabled: true,
         }
     }
 
@@ -884,6 +946,8 @@ mod tests {
             toast: true,
             dry_run: false,
             verbose: false,
+            hdr: true,
+            sdr: true,
         }
     }
 
@@ -963,12 +1027,14 @@ mod tests {
 
     #[test]
     fn gather_status_does_not_panic() {
-        let _s = gather_status();
+        let opts = default_opts();
+        let _s = gather_status(&opts);
     }
 
     #[test]
     fn gather_status_returns_valid_data() {
-        let s = gather_status();
+        let opts = default_opts();
+        let s = gather_status(&opts);
         // If service not installed, it can't be running
         if !s.service_installed {
             assert!(!s.service_running);
@@ -1077,6 +1143,8 @@ mod tests {
             toast: false, // toggled off → shows NoToast
             dry_run: true,
             verbose: true,
+            hdr: true,
+            sdr: true,
         };
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
         assert!(output.contains("NoToast"), "should show NoToast");
@@ -1110,6 +1178,8 @@ mod tests {
         assert!(output.contains("[1]"), "toggle 1");
         assert!(output.contains("[2]"), "toggle 2");
         assert!(output.contains("[3]"), "toggle 3");
+        assert!(output.contains("[4]"), "toggle 4 (HDR)");
+        assert!(output.contains("[5]"), "toggle 5 (SDR)");
     }
 
     #[test]
@@ -1155,13 +1225,15 @@ mod tests {
             toast: false,
             dry_run: true,
             verbose: true,
+            hdr: true,
+            sdr: true,
         };
         let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
-        // With toast=false, dry_run=true, verbose=true
-        // We should see two ON and one OFF
+        // With toast=false, dry_run=true, verbose=true, hdr=true, sdr=true
+        // We should see four ON and one OFF
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
-        assert_eq!(on_count, 2, "dry_run+verbose should be ON");
+        assert_eq!(on_count, 4, "dry_run+verbose+hdr+sdr should be ON");
         assert_eq!(off_count, 1, "toast should be OFF");
     }
 
@@ -1197,8 +1269,8 @@ mod tests {
     fn draw_header_contains_version() {
         let output = render_to_string(|buf| draw_header(buf, &default_status()));
         assert!(
-            output.contains(env!("CARGO_PKG_VERSION")),
-            "header should show crate version"
+            output.contains(env!("APP_VERSION")),
+            "header should show version from VERSION file"
         );
     }
 
@@ -1263,6 +1335,8 @@ mod tests {
         assert!(output.contains("Color Profile:"));
         assert!(output.contains("Service:"));
         assert!(output.contains("LG UltraGear:"));
+        assert!(output.contains("HDR Mode:"));
+        assert!(output.contains("SDR Mode:"));
     }
 
     // ── Goodbye screen ───────────────────────────────────────────
@@ -1369,6 +1443,8 @@ mod tests {
             toast: false,
             dry_run: true,
             verbose: true,
+            hdr: false,
+            sdr: false,
         };
         let mut active: Vec<&str> = Vec::new();
         if !opts.toast {
@@ -1380,8 +1456,14 @@ mod tests {
         if opts.verbose {
             active.push("Verbose");
         }
-        assert_eq!(active.len(), 3);
-        assert_eq!(active, vec!["NoToast", "DryRun", "Verbose"]);
+        if !opts.hdr {
+            active.push("NoHDR");
+        }
+        if !opts.sdr {
+            active.push("NoSDR");
+        }
+        assert_eq!(active.len(), 5);
+        assert_eq!(active, vec!["NoToast", "DryRun", "Verbose", "NoHDR", "NoSDR"]);
     }
 
     // ── Rendering consistency ────────────────────────────────────
@@ -1441,16 +1523,282 @@ mod tests {
         for toast in [false, true] {
             for dry in [false, true] {
                 for verb in [false, true] {
-                    let opts = Options {
-                        toast,
-                        dry_run: dry,
-                        verbose: verb,
-                    };
-                    let output =
-                        render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
-                    assert!(!output.is_empty());
+                    for hdr in [false, true] {
+                        for sdr in [false, true] {
+                            let opts = Options {
+                                toast,
+                                dry_run: dry,
+                                verbose: verb,
+                                hdr,
+                                sdr,
+                            };
+                            let output = render_to_string(|buf| {
+                                draw_advanced(buf, &default_status(), &opts)
+                            });
+                            assert!(!output.is_empty());
+                        }
+                    }
                 }
             }
         }
+    }
+
+    // ── Toggle mechanics (simulates the run() key handling) ──────
+
+    #[test]
+    fn toggle_toast_flips_correctly() {
+        let mut opts = default_opts();
+        assert!(opts.toast);
+        // Simulate pressing '1' on Advanced page
+        opts.toast = !opts.toast;
+        assert!(!opts.toast);
+        // Re-draw should show OFF
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
+        // Toast is item [1]; find its toggle state
+        assert!(
+            output.contains("[OFF]"),
+            "toast should be OFF after toggle"
+        );
+        // Toggle back
+        opts.toast = !opts.toast;
+        assert!(opts.toast);
+    }
+
+    #[test]
+    fn toggle_dry_run_flips_correctly() {
+        let mut opts = default_opts();
+        assert!(!opts.dry_run);
+        opts.dry_run = !opts.dry_run;
+        assert!(opts.dry_run);
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
+        // dry_run ON + verbose OFF + toast ON + hdr ON + sdr ON → 4 ON, 1 OFF
+        let on_count = output.matches("[ON ]").count();
+        let off_count = output.matches("[OFF]").count();
+        assert_eq!(on_count, 4, "toast+dry_run+hdr+sdr ON");
+        assert_eq!(off_count, 1, "verbose OFF");
+    }
+
+    #[test]
+    fn toggle_verbose_flips_correctly() {
+        let mut opts = default_opts();
+        assert!(!opts.verbose);
+        opts.verbose = !opts.verbose;
+        assert!(opts.verbose);
+        opts.verbose = !opts.verbose;
+        assert!(!opts.verbose);
+    }
+
+    #[test]
+    fn toggle_hdr_flips_correctly() {
+        let mut opts = default_opts();
+        assert!(opts.hdr, "HDR should default ON");
+        opts.hdr = !opts.hdr;
+        assert!(!opts.hdr);
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
+        // With hdr=false: toast ON, dry_run OFF, verbose OFF, hdr OFF, sdr ON → 2 ON, 3 OFF
+        let on_count = output.matches("[ON ]").count();
+        let off_count = output.matches("[OFF]").count();
+        assert_eq!(on_count, 2);
+        assert_eq!(off_count, 3);
+    }
+
+    #[test]
+    fn toggle_sdr_flips_correctly() {
+        let mut opts = default_opts();
+        assert!(opts.sdr, "SDR should default ON");
+        opts.sdr = !opts.sdr;
+        assert!(!opts.sdr);
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
+        // With sdr=false: toast ON, dry_run OFF, verbose OFF, hdr ON, sdr OFF → 2 ON, 3 OFF
+        let on_count = output.matches("[ON ]").count();
+        let off_count = output.matches("[OFF]").count();
+        assert_eq!(on_count, 2);
+        assert_eq!(off_count, 3);
+    }
+
+    #[test]
+    fn toggle_sequence_round_trips() {
+        let mut opts = default_opts();
+        // Toggle all off
+        opts.toast = !opts.toast;
+        opts.dry_run = !opts.dry_run;
+        opts.verbose = !opts.verbose;
+        opts.hdr = !opts.hdr;
+        opts.sdr = !opts.sdr;
+        assert!(!opts.toast);
+        assert!(opts.dry_run);
+        assert!(opts.verbose);
+        assert!(!opts.hdr);
+        assert!(!opts.sdr);
+        // Toggle all back
+        opts.toast = !opts.toast;
+        opts.dry_run = !opts.dry_run;
+        opts.verbose = !opts.verbose;
+        opts.hdr = !opts.hdr;
+        opts.sdr = !opts.sdr;
+        assert!(opts.toast);
+        assert!(!opts.dry_run);
+        assert!(!opts.verbose);
+        assert!(opts.hdr);
+        assert!(opts.sdr);
+    }
+
+    // ── HDR/SDR status display in header ─────────────────────────
+
+    #[test]
+    fn draw_header_shows_hdr_enabled() {
+        let mut s = default_status();
+        s.hdr_enabled = true;
+        let output = render_to_string(|buf| draw_header(buf, &s));
+        assert!(output.contains("HDR Mode:"));
+        assert!(output.contains("Enabled"));
+    }
+
+    #[test]
+    fn draw_header_shows_hdr_disabled() {
+        let mut s = default_status();
+        s.hdr_enabled = false;
+        let output = render_to_string(|buf| draw_header(buf, &s));
+        assert!(output.contains("HDR Mode:"));
+        assert!(output.contains("Disabled"));
+    }
+
+    #[test]
+    fn draw_header_shows_sdr_enabled() {
+        let mut s = default_status();
+        s.sdr_enabled = true;
+        let output = render_to_string(|buf| draw_header(buf, &s));
+        assert!(output.contains("SDR Mode:"));
+        assert!(output.contains("Enabled"));
+    }
+
+    #[test]
+    fn draw_header_shows_sdr_disabled() {
+        let mut s = default_status();
+        s.sdr_enabled = false;
+        let output = render_to_string(|buf| draw_header(buf, &s));
+        assert!(output.contains("SDR Mode:"));
+        assert!(output.contains("Disabled"));
+    }
+
+    #[test]
+    fn draw_header_hdr_sdr_both_enabled_by_default() {
+        let s = default_status(); // hdr_enabled=true, sdr_enabled=true
+        let output = render_to_string(|buf| draw_header(buf, &s));
+        // Should show both as Enabled
+        let enabled_count = output.matches("Enabled").count();
+        assert!(
+            enabled_count >= 2,
+            "HDR and SDR should both show Enabled; got {} occurrences",
+            enabled_count
+        );
+    }
+
+    // ── HDR/SDR in advanced menu ─────────────────────────────────
+
+    #[test]
+    fn draw_advanced_contains_5_toggles() {
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[1]"), "toggle 1");
+        assert!(output.contains("[2]"), "toggle 2");
+        assert!(output.contains("[3]"), "toggle 3");
+        assert!(output.contains("[4]"), "toggle 4 (HDR)");
+        assert!(output.contains("[5]"), "toggle 5 (SDR)");
+    }
+
+    #[test]
+    fn draw_advanced_contains_hdr_sdr_labels() {
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        assert!(output.contains("HDR Mode"));
+        assert!(output.contains("SDR Mode"));
+    }
+
+    #[test]
+    fn draw_advanced_contains_color_mode_section() {
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        assert!(output.contains("COLOR MODE"));
+    }
+
+    #[test]
+    fn draw_advanced_hdr_sdr_on_by_default() {
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        // Default: toast=ON, dry_run=OFF, verbose=OFF, hdr=ON, sdr=ON → 3 ON, 2 OFF
+        let on_count = output.matches("[ON ]").count();
+        let off_count = output.matches("[OFF]").count();
+        assert_eq!(on_count, 3, "toast+hdr+sdr should be ON");
+        assert_eq!(off_count, 2, "dry_run+verbose should be OFF");
+    }
+
+    // ── Active toggles in main menu with HDR/SDR ─────────────────
+
+    #[test]
+    fn draw_main_shows_no_hdr_when_toggled_off() {
+        let opts = Options {
+            toast: true,
+            dry_run: false,
+            verbose: false,
+            hdr: false,
+            sdr: true,
+        };
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
+        assert!(output.contains("NoHDR"), "should show NoHDR");
+        assert!(!output.contains("NoSDR"), "should not show NoSDR");
+    }
+
+    #[test]
+    fn draw_main_shows_no_sdr_when_toggled_off() {
+        let opts = Options {
+            toast: true,
+            dry_run: false,
+            verbose: false,
+            hdr: true,
+            sdr: false,
+        };
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
+        assert!(!output.contains("NoHDR"), "should not show NoHDR");
+        assert!(output.contains("NoSDR"), "should show NoSDR");
+    }
+
+    #[test]
+    fn draw_main_no_active_when_hdr_sdr_on() {
+        let opts = default_opts(); // hdr=true, sdr=true
+        let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
+        assert!(
+            output.contains("None active"),
+            "default opts should show 'None active'"
+        );
+    }
+
+    // ── Status struct with HDR/SDR fields ────────────────────────
+
+    #[test]
+    fn status_hdr_sdr_defaults() {
+        let s = default_status();
+        assert!(s.hdr_enabled, "HDR should default enabled");
+        assert!(s.sdr_enabled, "SDR should default enabled");
+    }
+
+    #[test]
+    fn gather_status_reflects_options_hdr_sdr() {
+        let mut opts = default_opts();
+        opts.hdr = false;
+        opts.sdr = false;
+        let s = gather_status(&opts);
+        assert!(!s.hdr_enabled, "status should mirror opts.hdr=false");
+        assert!(!s.sdr_enabled, "status should mirror opts.sdr=false");
+    }
+
+    // ── Options defaults include HDR/SDR ─────────────────────────
+
+    #[test]
+    fn options_default_hdr_is_true() {
+        let opts = Options::default();
+        assert!(opts.hdr);
+    }
+
+    #[test]
+    fn options_default_sdr_is_true() {
+        let opts = Options::default();
+        assert!(opts.sdr);
     }
 }
