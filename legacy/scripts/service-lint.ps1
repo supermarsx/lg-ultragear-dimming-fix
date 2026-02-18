@@ -68,7 +68,8 @@ try {
     }
 
     Tag -Tag '[ OK ]' -Color Green -Message 'Clippy lint passed'
-} finally {
+}
+finally {
     Pop-Location
 }
 

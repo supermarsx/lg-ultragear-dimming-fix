@@ -80,6 +80,37 @@ fn ensure_profile_installed_writes_to_temp() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+// ── remove_profile ───────────────────────────────────────────────
+
+#[test]
+fn remove_profile_nonexistent_returns_false() {
+    let path = PathBuf::from(
+        r"C:\Windows\System32\spool\drivers\color\this-profile-does-not-exist-99999.icm",
+    );
+    let result = remove_profile(&path).expect("should succeed");
+    assert!(!result, "should return false for nonexistent file");
+}
+
+#[test]
+fn remove_profile_deletes_temp_file() {
+    let dir = std::env::temp_dir().join("lg-test-remove-profile");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("test-remove.icm");
+
+    // Write a test file
+    std::fs::write(&path, b"test data").unwrap();
+    assert!(path.exists());
+
+    // Remove it
+    let result = remove_profile(&path).expect("should succeed");
+    assert!(result, "should return true when file was removed");
+    assert!(!path.exists(), "file should be gone");
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // ── is_profile_installed ─────────────────────────────────────────
 
 #[test]

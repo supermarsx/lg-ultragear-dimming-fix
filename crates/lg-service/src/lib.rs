@@ -710,6 +710,24 @@ pub fn print_status() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Query service installation and running state for display purposes.
+/// Returns `(installed, running)`. Never panics.
+pub fn query_service_info() -> (bool, bool) {
+    (|| -> Option<(bool, bool)> {
+        let manager = ServiceManager::local_computer(
+            None::<&str>,
+            ServiceManagerAccess::CONNECT,
+        )
+        .ok()?;
+        let service = manager
+            .open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS)
+            .ok()?;
+        let status = service.query_status().ok()?;
+        Some((true, status.current_state == ServiceState::Running))
+    })()
+    .unwrap_or((false, false))
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================

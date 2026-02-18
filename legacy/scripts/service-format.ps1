@@ -60,7 +60,8 @@ try {
         }
 
         Tag -Tag '[ OK ]' -Color Green -Message 'Formatting applied'
-    } else {
+    }
+    else {
         Tag -Tag '[STEP]' -Color Yellow -Message 'cargo fmt --all --check'
         cargo fmt --all --check 2>&1 | Write-Host
 
@@ -71,7 +72,8 @@ try {
 
         Tag -Tag '[ OK ]' -Color Green -Message 'Formatting check passed'
     }
-} finally {
+}
+finally {
     Pop-Location
 }
 

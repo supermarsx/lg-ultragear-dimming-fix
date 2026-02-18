@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
+crossterm.workspace = true
 env_logger.workspace = true
 lg-core.workspace = true
 lg-monitor.workspace = true

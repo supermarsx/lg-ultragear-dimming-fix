@@ -46,7 +46,8 @@ try {
     if ($DebugBuild) {
         Tag -Tag '[STEP]' -Color Yellow -Message 'cargo build (debug)'
         cargo build 2>&1 | Write-Host
-    } else {
+    }
+    else {
         Tag -Tag '[STEP]' -Color Yellow -Message 'cargo build --release'
         cargo build --release 2>&1 | Write-Host
     }
@@ -58,7 +59,8 @@ try {
 
     if ($DebugBuild) {
         $bin = Join-Path $RepoRoot 'target\debug\lg-ultragear.exe'
-    } else {
+    }
+    else {
         $bin = Join-Path $RepoRoot 'target\release\lg-ultragear.exe'
     }
 
@@ -75,10 +77,12 @@ try {
         Copy-Item -LiteralPath $bin -Destination $DistBin -Force
         $distSize = [math]::Round((Get-Item $DistBin).Length / 1KB, 1)
         Tag -Tag '[ OK ]' -Color Green -Message "Copied to: $DistBin ($distSize KB)"
-    } else {
+    }
+    else {
         Tag -Tag '[WARN]' -Color Yellow -Message "Binary not found at expected path: $bin"
     }
-} finally {
+}
+finally {
     Pop-Location
 }
 

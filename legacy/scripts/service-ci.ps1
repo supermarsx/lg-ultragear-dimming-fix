@@ -61,7 +61,8 @@ try {
             exit 1
         }
         Tag -Tag '[ OK ]' -Color Green -Message 'Format check passed'
-    } else {
+    }
+    else {
         Tag -Tag '[SKIP]' -Color DarkYellow -Message 'format (--NoFormat)'
     }
 
@@ -81,7 +82,8 @@ try {
             exit 2
         }
         Tag -Tag '[ OK ]' -Color Green -Message 'Clippy lint passed'
-    } else {
+    }
+    else {
         Tag -Tag '[SKIP]' -Color DarkYellow -Message 'lint (--NoLint)'
     }
 
@@ -95,7 +97,8 @@ try {
             exit 3
         }
         Tag -Tag '[ OK ]' -Color Green -Message 'All tests passed'
-    } else {
+    }
+    else {
         Tag -Tag '[SKIP]' -Color DarkYellow -Message 'test (--NoTest)'
     }
 
@@ -122,13 +125,16 @@ try {
             $DistBin = Join-Path $DistDir 'lg-ultragear.exe'
             Copy-Item -LiteralPath $bin -Destination $DistBin -Force
             Tag -Tag '[ OK ]' -Color Green -Message "Copied to: $DistBin"
-        } else {
+        }
+        else {
             Tag -Tag '[ OK ]' -Color Green -Message 'Release build succeeded'
         }
-    } else {
+    }
+    else {
         Tag -Tag '[SKIP]' -Color DarkYellow -Message 'build (--NoBuild)'
     }
-} finally {
+}
+finally {
     Pop-Location
 }
 

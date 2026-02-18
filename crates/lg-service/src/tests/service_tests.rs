@@ -147,6 +147,18 @@ fn service_type_own_process() {
     assert_eq!(st, ServiceType::OWN_PROCESS);
 }
 
+// ── query_service_info ───────────────────────────────────────────
+
+#[test]
+fn query_service_info_returns_tuple() {
+    // Just verify it doesn't panic — actual result depends on system state
+    let (installed, running) = query_service_info();
+    // If not installed, it can't be running
+    if !installed {
+        assert!(!running, "service cannot be running if not installed");
+    }
+}
+
 // ── AtomicBool running flag ──────────────────────────────────────
 
 #[test]

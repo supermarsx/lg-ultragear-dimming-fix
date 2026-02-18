@@ -87,6 +87,19 @@ pub fn is_profile_installed(profile_path: &Path) -> bool {
     profile_path.exists()
 }
 
+/// Remove the ICC profile from the Windows color store.
+///
+/// Returns `Ok(true)` if the file was removed, `Ok(false)` if it didn't exist.
+pub fn remove_profile(profile_path: &Path) -> Result<bool, Box<dyn Error>> {
+    if !profile_path.exists() {
+        info!("ICC profile not present: {}", profile_path.display());
+        return Ok(false);
+    }
+    std::fs::remove_file(profile_path)?;
+    info!("ICC profile removed: {}", profile_path.display());
+    Ok(true)
+}
+
 /// Reapply the color profile for a single monitor device key using the toggle
 /// approach: disassociate (reverts to default) → pause → reassociate (applies fix).
 /// This forces Windows to actually reload the ICC profile.

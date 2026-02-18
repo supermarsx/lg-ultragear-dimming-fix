@@ -58,7 +58,8 @@ try {
     }
 
     Tag -Tag '[ OK ]' -Color Green -Message 'All Rust tests passed'
-} finally {
+}
+finally {
     Pop-Location
 }
 
