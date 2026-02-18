@@ -606,6 +606,10 @@ fn handle_profile_reapply(config: &Config) {
 // ============================================================================
 
 pub fn install(monitor_match: &str) -> Result<(), Box<dyn Error>> {
+    // If the service already exists, stop it first so we can overwrite the
+    // binary.  Errors here are expected (service may not exist yet).
+    stop_existing_service();
+
     // Copy the running binary to the install directory so the service
     // survives moves/deletes of the original file.
     let src_path = std::env::current_exe()?;
@@ -614,7 +618,7 @@ pub fn install(monitor_match: &str) -> Result<(), Box<dyn Error>> {
         std::fs::create_dir_all(&install_dir)?;
     }
     let dest_path = config::install_path();
-    std::fs::copy(&src_path, &dest_path)?;
+    copy_with_retry(&src_path, &dest_path)?;
     info!("Binary copied to {}", dest_path.display());
 
     // Extract the embedded ICC profile to the Windows color store
@@ -627,6 +631,15 @@ pub fn install(monitor_match: &str) -> Result<(), Box<dyn Error>> {
         None::<&str>,
         ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
     )?;
+
+    // If the service already exists in SCM, delete the old registration so
+    // create_service succeeds.  The binary was already stopped above.
+    if let Ok(existing) = manager.open_service(SERVICE_NAME, ServiceAccess::DELETE) {
+        let _ = existing.delete();
+        // Brief pause for SCM to finish the deletion.
+        thread::sleep(Duration::from_millis(500));
+        info!("Deleted previous service registration before reinstall");
+    }
 
     let service_info = ServiceInfo {
         name: SERVICE_NAME.into(),
@@ -661,37 +674,172 @@ pub fn install(monitor_match: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Stop the existing service (if any) so we can safely overwrite the binary.
+/// All errors are silently absorbed — the service may not exist yet.
+fn stop_existing_service() {
+    let Ok(manager) =
+        ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+    else {
+        return;
+    };
+    let Ok(service) = manager.open_service(
+        SERVICE_NAME,
+        ServiceAccess::STOP | ServiceAccess::QUERY_STATUS,
+    ) else {
+        return; // service doesn't exist yet
+    };
+
+    let _ = service.stop();
+
+    // Poll until stopped (up to ~10 s).
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Ok(status) = service.query_status() {
+            if status.current_state == ServiceState::Stopped {
+                info!("Existing service stopped before reinstall");
+                return;
+            }
+        }
+        if Instant::now() >= deadline {
+            warn!("Existing service did not stop within 10 s — proceeding anyway");
+            return;
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// Copy a file with retries on sharing violations (error 32).
+/// Retries up to 5 times with escalating back-off (~3.2 s total).
+fn copy_with_retry(src: &std::path::Path, dst: &std::path::Path) -> Result<u64, Box<dyn Error>> {
+    let delays_ms: &[u64] = &[0, 200, 500, 1000, 1500];
+    for (attempt, &ms) in delays_ms.iter().enumerate() {
+        if ms > 0 {
+            thread::sleep(Duration::from_millis(ms));
+        }
+        match std::fs::copy(src, dst) {
+            Ok(bytes) => return Ok(bytes),
+            Err(e) if e.raw_os_error() == Some(32) && attempt < delays_ms.len() - 1 => {
+                info!(
+                    "Binary copy attempt {} blocked (sharing violation) — retrying",
+                    attempt + 1
+                );
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+    unreachable!()
+}
+
 pub fn uninstall() -> Result<(), Box<dyn Error>> {
     let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
-    let service =
-        manager.open_service(SERVICE_NAME, ServiceAccess::STOP | ServiceAccess::DELETE)?;
 
-    // Try to stop first
-    let _ = service.stop();
-    thread::sleep(Duration::from_secs(1));
+    // Open the service — if it doesn't exist, that's fine (already removed).
+    match manager.open_service(
+        SERVICE_NAME,
+        ServiceAccess::STOP | ServiceAccess::DELETE | ServiceAccess::QUERY_STATUS,
+    ) {
+        Ok(service) => {
+            // Try to stop first, then poll until actually stopped (up to ~10 s).
+            let _ = service.stop();
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                if let Ok(status) = service.query_status() {
+                    if status.current_state == ServiceState::Stopped {
+                        break;
+                    }
+                }
+                if Instant::now() >= deadline {
+                    warn!("Service did not stop within 10 s — proceeding with delete");
+                    break;
+                }
+                thread::sleep(Duration::from_millis(250));
+            }
 
-    service.delete()?;
+            // Delete the service registration from SCM.
+            if let Err(e) = service.delete() {
+                warn!("service.delete() failed: {} (may already be marked for deletion)", e);
+            }
+        }
+        Err(e) => {
+            // Service not installed / already deleted — not an error.
+            info!("Service not found (already removed): {}", e);
+        }
+    }
 
     // Deregister the event log source (best-effort)
     deregister_event_source();
 
-    // Remove the installed binary (best-effort — may still be locked briefly)
+    // Remove the installed binary with retry + schedule-for-reboot fallback.
     let install_bin = config::install_path();
     if install_bin.exists() {
-        // Brief delay to let the process fully terminate
-        thread::sleep(Duration::from_millis(500));
-        match std::fs::remove_file(&install_bin) {
-            Ok(()) => info!("Removed installed binary: {}", install_bin.display()),
-            Err(e) => warn!(
-                "Could not remove {}: {} (clean up manually)",
-                install_bin.display(),
-                e
-            ),
-        }
+        force_remove_file(&install_bin);
     }
 
     info!("Service uninstalled");
     Ok(())
+}
+
+/// Attempt to delete a file with retries.  If still locked after all
+/// attempts, schedule it for deletion on next reboot via
+/// `MoveFileExW(MOVEFILE_DELAY_UNTIL_REBOOT)`.
+fn force_remove_file(path: &std::path::Path) {
+    // Retry up to 6 times with increasing back-off (total ~7 s).
+    let delays = [200, 500, 1000, 1500, 2000, 2000];
+    for (attempt, &ms) in delays.iter().enumerate() {
+        thread::sleep(Duration::from_millis(ms));
+        match std::fs::remove_file(path) {
+            Ok(()) => {
+                info!("Removed file: {} (attempt {})", path.display(), attempt + 1);
+                return;
+            }
+            Err(e) => {
+                info!(
+                    "Remove attempt {} for {}: {}",
+                    attempt + 1,
+                    path.display(),
+                    e
+                );
+            }
+        }
+    }
+
+    schedule_reboot_delete_impl(path);
+}
+
+/// Public wrapper: retry file deletion then fall back to reboot-delete.
+/// Used by the CLI for locked files outside the service crate.
+pub fn force_remove_file_public(path: &std::path::Path) {
+    force_remove_file(path);
+}
+
+/// Schedule a path (file or empty directory) for deletion on next reboot
+/// via `MoveFileExW(MOVEFILE_DELAY_UNTIL_REBOOT)`.
+pub fn schedule_reboot_delete(path: &std::path::Path) {
+    schedule_reboot_delete_impl(path);
+}
+
+fn schedule_reboot_delete_impl(path: &std::path::Path) {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_DELAY_UNTIL_REBOOT};
+
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let ok =
+        unsafe { MoveFileExW(PCWSTR(wide.as_ptr()), None, MOVEFILE_DELAY_UNTIL_REBOOT) };
+    match ok {
+        Ok(()) => info!(
+            "Scheduled for deletion on reboot: {}",
+            path.display()
+        ),
+        Err(e) => warn!(
+            "Could not schedule {} for reboot deletion: {} (clean up manually)",
+            path.display(),
+            e
+        ),
+    }
 }
 
 pub fn start_service() -> Result<(), Box<dyn Error>> {

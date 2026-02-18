@@ -9,6 +9,7 @@
 use log::{info, warn};
 use std::error::Error;
 use std::ffi::OsStr;
+use std::io;
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 use std::{ptr, thread, time::Duration};
@@ -38,12 +39,19 @@ pub const EMBEDDED_ICM_SIZE: usize = EMBEDDED_ICM.len();
 /// If the file already exists and matches the embedded size, this is a no-op.
 /// Otherwise, writes (or overwrites) the embedded profile to the color directory.
 ///
+/// After the file is placed, calls `InstallColorProfileW` to register the
+/// profile with the Windows Color System — the WCS APIs (`WcsAssociate…`,
+/// `WcsDisassociate…`) require profiles to be registered, not merely present
+/// on disk.
+///
 /// Returns `Ok(true)` if a new file was written, `Ok(false)` if already present.
 pub fn ensure_profile_installed(profile_path: &Path) -> Result<bool, Box<dyn Error>> {
     // Check if it already exists with the correct size
     if let Ok(meta) = std::fs::metadata(profile_path) {
         if meta.len() == EMBEDDED_ICM.len() as u64 {
             info!("ICC profile already installed: {}", profile_path.display());
+            // Even when the file exists, ensure it is registered with WCS.
+            register_color_profile(profile_path)?;
             return Ok(false);
         }
     }
@@ -56,7 +64,44 @@ pub fn ensure_profile_installed(profile_path: &Path) -> Result<bool, Box<dyn Err
     }
     std::fs::write(profile_path, EMBEDDED_ICM)?;
     info!("ICC profile extracted to {}", profile_path.display());
+
+    // Register with WCS so WcsAssociateColorProfileWithDevice will succeed.
+    register_color_profile(profile_path)?;
+
     Ok(true)
+}
+
+/// Register an ICC profile with the Windows Color System via
+/// `InstallColorProfileW` (mscms.dll).
+///
+/// This lets the WCS association/disassociation APIs find the profile.
+/// Calling it on an already-registered profile is harmless.
+pub fn register_color_profile(profile_path: &Path) -> Result<(), Box<dyn Error>> {
+    let path_wide: Vec<u16> = profile_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    let ok = unsafe { InstallColorProfileW(PCWSTR(ptr::null()), PCWSTR(path_wide.as_ptr())) };
+
+    if !ok.as_bool() {
+        let code = io::Error::last_os_error();
+        // Non-fatal: log a warning but do not block the install pipeline.
+        // Common failure: running without admin rights on a system-wide path.
+        warn!(
+            "InstallColorProfileW returned false for {} ({})",
+            profile_path.display(),
+            code
+        );
+    } else {
+        info!(
+            "Profile registered with WCS: {}",
+            profile_path.display()
+        );
+    }
+
+    Ok(())
 }
 
 // ============================================================================
@@ -75,9 +120,17 @@ const CPT_ICC: i32 = 1; // COLORPROFILETYPE::CPT_ICC
 /// Color Profile Subtype: device default.
 const CPST_NONE: i32 = 1; // COLORPROFILESUBTYPE::CPST_NONE
 
+/// SDR profile type for `ColorProfileSetDisplayDefaultAssociation`.
+const COLOR_PROFILE_TYPE_SDR: u32 = 0;
+
+/// SDR profile subtype for `ColorProfileSetDisplayDefaultAssociation`.
+const COLOR_PROFILE_SUBTYPE_SDR: u32 = 0;
+
 // These are not in the `windows` crate metadata, so we link manually.
 #[link(name = "mscms")]
 extern "system" {
+    fn InstallColorProfileW(machine_name: PCWSTR, profile_name: PCWSTR) -> BOOL;
+
     fn WcsAssociateColorProfileWithDevice(
         scope: u32,
         profile_name: PCWSTR,
@@ -98,6 +151,28 @@ extern "system" {
         profile_id: u32,
         profile_name: PCWSTR,
     ) -> BOOL;
+
+    /// Modern Win10+ API: sets the SDR default profile for a display.
+    /// This is what the Color Management control panel calls when you
+    /// select a profile — it triggers the WCS engine to actually apply
+    /// the profile to the display pipeline.
+    fn ColorProfileSetDisplayDefaultAssociation(
+        profile_name: PCWSTR,
+        device_name: PCWSTR,
+        scope: u32,
+        profile_type: u32,
+        profile_sub_type: u32,
+        profile_id: u32,
+    ) -> BOOL;
+
+    /// Modern Win10+ API: adds a profile to the HDR/advanced-color association
+    /// for a display.
+    fn ColorProfileAddDisplayAssociation(
+        profile_name: PCWSTR,
+        device_name: PCWSTR,
+        scope: u32,
+        profile_type: u32,
+    ) -> BOOL;
 }
 
 /// Check if the ICC profile is installed at the given path.
@@ -107,15 +182,67 @@ pub fn is_profile_installed(profile_path: &Path) -> bool {
 
 /// Remove the ICC profile from the Windows color store.
 ///
-/// Returns `Ok(true)` if the file was removed, `Ok(false)` if it didn't exist.
+/// Retries with exponential back-off if the file is locked (e.g. by the WCS
+/// engine or the service process).  After all retries, schedules the file for
+/// deletion on next reboot via `MoveFileExW(MOVEFILE_DELAY_UNTIL_REBOOT)`.
+///
+/// Returns `Ok(true)` if the file was removed (or scheduled for removal),
+/// `Ok(false)` if it didn't exist.
 pub fn remove_profile(profile_path: &Path) -> Result<bool, Box<dyn Error>> {
+    use windows::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_DELAY_UNTIL_REBOOT};
+
     if !profile_path.exists() {
         info!("ICC profile not present: {}", profile_path.display());
         return Ok(false);
     }
-    std::fs::remove_file(profile_path)?;
-    info!("ICC profile removed: {}", profile_path.display());
-    Ok(true)
+
+    // Retry up to 5 times with increasing back-off (total ~3 s).
+    let delays_ms: &[u64] = &[0, 200, 500, 1000, 1500];
+    for (attempt, &ms) in delays_ms.iter().enumerate() {
+        if ms > 0 {
+            thread::sleep(Duration::from_millis(ms));
+        }
+        match std::fs::remove_file(profile_path) {
+            Ok(()) => {
+                info!("ICC profile removed: {} (attempt {})", profile_path.display(), attempt + 1);
+                return Ok(true);
+            }
+            Err(e) if e.raw_os_error() == Some(32) => {
+                // ERROR_SHARING_VIOLATION — file is locked, retry.
+                info!(
+                    "Profile locked (attempt {}): {} — retrying",
+                    attempt + 1,
+                    profile_path.display()
+                );
+            }
+            Err(e) => {
+                return Err(e.into());
+            }
+        }
+    }
+
+    // Last resort: schedule for deletion on next reboot.
+    let wide: Vec<u16> = profile_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let ok = unsafe { MoveFileExW(PCWSTR(wide.as_ptr()), None, MOVEFILE_DELAY_UNTIL_REBOOT) };
+    match ok {
+        Ok(()) => {
+            warn!(
+                "ICC profile locked — scheduled for deletion on reboot: {}",
+                profile_path.display()
+            );
+            Ok(true)
+        }
+        Err(e) => Err(format!(
+            "Could not remove or schedule {} for deletion: {}",
+            profile_path.display(),
+            e
+        )
+        .into()),
+    }
 }
 
 /// Reapply the color profile for a single monitor device key using the toggle
@@ -153,9 +280,10 @@ pub fn reapply_profile(
             PCWSTR(device_wide.as_ptr()),
         );
         if !result.as_bool() {
+            let err = io::Error::last_os_error();
             warn!(
-                "WcsDisassociateColorProfileFromDevice failed for {} (non-fatal)",
-                device_key
+                "WcsDisassociateColorProfileFromDevice failed for {} (Win32={}) (non-fatal)",
+                device_key, err
             );
         }
 
@@ -167,9 +295,10 @@ pub fn reapply_profile(
                 PCWSTR(device_wide.as_ptr()),
             );
             if !result.as_bool() {
+                let err = io::Error::last_os_error();
                 warn!(
-                    "WcsDisassociateColorProfileFromDevice (per-user) failed for {} (non-fatal)",
-                    device_key
+                    "WcsDisassociateColorProfileFromDevice (per-user) failed for {} (Win32={}) (non-fatal)",
+                    device_key, err
                 );
             }
         }
@@ -185,9 +314,10 @@ pub fn reapply_profile(
             PCWSTR(device_wide.as_ptr()),
         );
         if !result.as_bool() {
+            let err = io::Error::last_os_error();
             return Err(format!(
-                "WcsAssociateColorProfileWithDevice failed for {}",
-                device_key
+                "WcsAssociateColorProfileWithDevice failed for {} (Win32={})",
+                device_key, err
             )
             .into());
         }
@@ -200,10 +330,52 @@ pub fn reapply_profile(
                 PCWSTR(device_wide.as_ptr()),
             );
             if !result.as_bool() {
+                let err = io::Error::last_os_error();
                 warn!(
-                    "WcsAssociateColorProfileWithDevice (per-user) failed for {} (non-fatal)",
-                    device_key
+                    "WcsAssociateColorProfileWithDevice (per-user) failed for {} (Win32={}) (non-fatal)",
+                    device_key, err
                 );
+            }
+        }
+
+        // Step 4: Tell the WCS display pipeline to use this profile (SDR default).
+        // This is the modern Win10+ equivalent of what the Color Management
+        // control panel does when you select a profile for a display.
+        let result = ColorProfileSetDisplayDefaultAssociation(
+            PCWSTR(profile_wide.as_ptr()),
+            PCWSTR(device_wide.as_ptr()),
+            WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE,
+            COLOR_PROFILE_TYPE_SDR,
+            COLOR_PROFILE_SUBTYPE_SDR,
+            0,
+        );
+        if !result.as_bool() {
+            let err = io::Error::last_os_error();
+            warn!(
+                "ColorProfileSetDisplayDefaultAssociation (system) failed for {} (Win32={}) (non-fatal)",
+                device_key, err
+            );
+        } else {
+            info!("SDR display default association set (system) for {}", device_key);
+        }
+
+        if per_user {
+            let result = ColorProfileSetDisplayDefaultAssociation(
+                PCWSTR(profile_wide.as_ptr()),
+                PCWSTR(device_wide.as_ptr()),
+                WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
+                COLOR_PROFILE_TYPE_SDR,
+                COLOR_PROFILE_SUBTYPE_SDR,
+                0,
+            );
+            if !result.as_bool() {
+                let err = io::Error::last_os_error();
+                warn!(
+                    "ColorProfileSetDisplayDefaultAssociation (per-user) failed for {} (Win32={}) (non-fatal)",
+                    device_key, err
+                );
+            } else {
+                info!("SDR display default association set (per-user) for {}", device_key);
             }
         }
     }
@@ -245,9 +417,10 @@ pub fn set_generic_default(
             PCWSTR(profile_wide.as_ptr()),
         );
         if !result.as_bool() {
+            let err = io::Error::last_os_error();
             warn!(
-                "WcsSetDefaultColorProfile (system) failed for {} (non-fatal)",
-                device_key
+                "WcsSetDefaultColorProfile (system) failed for {} (Win32={}) (non-fatal)",
+                device_key, err
             );
         } else {
             info!("Generic default profile set (system) for {}", device_key);
@@ -264,12 +437,138 @@ pub fn set_generic_default(
                 PCWSTR(profile_wide.as_ptr()),
             );
             if !result.as_bool() {
+                let err = io::Error::last_os_error();
                 warn!(
-                    "WcsSetDefaultColorProfile (per-user) failed for {} (non-fatal)",
-                    device_key
+                    "WcsSetDefaultColorProfile (per-user) failed for {} (Win32={}) (non-fatal)",
+                    device_key, err
                 );
             } else {
                 info!("Generic default profile set (per-user) for {}", device_key);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Set the SDR display-default association for a display device.
+///
+/// Calls `ColorProfileSetDisplayDefaultAssociation` (Win10+) which is the
+/// modern API that the Color Management control panel uses.  This tells the
+/// WCS display pipeline to actually apply the profile.
+///
+/// # Arguments
+/// * `device_key` — WMI device instance path
+/// * `profile_path` — Full path to the ICC profile file
+/// * `per_user` — If true, also set the per-user association
+pub fn set_display_default_association(
+    device_key: &str,
+    profile_path: &Path,
+    per_user: bool,
+) -> Result<(), Box<dyn Error>> {
+    let profile_wide: Vec<u16> = profile_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let device_wide = to_wide(device_key);
+
+    unsafe {
+        let result = ColorProfileSetDisplayDefaultAssociation(
+            PCWSTR(profile_wide.as_ptr()),
+            PCWSTR(device_wide.as_ptr()),
+            WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE,
+            COLOR_PROFILE_TYPE_SDR,
+            COLOR_PROFILE_SUBTYPE_SDR,
+            0,
+        );
+        if !result.as_bool() {
+            let err = io::Error::last_os_error();
+            warn!(
+                "ColorProfileSetDisplayDefaultAssociation (system) failed for {} (Win32={}) (non-fatal)",
+                device_key, err
+            );
+        } else {
+            info!("SDR display default association set (system) for {}", device_key);
+        }
+
+        if per_user {
+            let result = ColorProfileSetDisplayDefaultAssociation(
+                PCWSTR(profile_wide.as_ptr()),
+                PCWSTR(device_wide.as_ptr()),
+                WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
+                COLOR_PROFILE_TYPE_SDR,
+                COLOR_PROFILE_SUBTYPE_SDR,
+                0,
+            );
+            if !result.as_bool() {
+                let err = io::Error::last_os_error();
+                warn!(
+                    "ColorProfileSetDisplayDefaultAssociation (per-user) failed for {} (Win32={}) (non-fatal)",
+                    device_key, err
+                );
+            } else {
+                info!("SDR display default association set (per-user) for {}", device_key);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Add the profile to the HDR/advanced-color association for a display device.
+///
+/// Calls `ColorProfileAddDisplayAssociation` (Win10+).
+/// This is an opt-in operation for HDR displays.
+///
+/// # Arguments
+/// * `device_key` — WMI device instance path
+/// * `profile_path` — Full path to the ICC profile file
+/// * `per_user` — If true, also add the per-user association
+pub fn add_hdr_display_association(
+    device_key: &str,
+    profile_path: &Path,
+    per_user: bool,
+) -> Result<(), Box<dyn Error>> {
+    let profile_wide: Vec<u16> = profile_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let device_wide = to_wide(device_key);
+
+    unsafe {
+        let result = ColorProfileAddDisplayAssociation(
+            PCWSTR(profile_wide.as_ptr()),
+            PCWSTR(device_wide.as_ptr()),
+            WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE,
+            0, // advanced-color / HDR profile type
+        );
+        if !result.as_bool() {
+            let err = io::Error::last_os_error();
+            warn!(
+                "ColorProfileAddDisplayAssociation (system) failed for {} (Win32={}) (non-fatal)",
+                device_key, err
+            );
+        } else {
+            info!("HDR display association added (system) for {}", device_key);
+        }
+
+        if per_user {
+            let result = ColorProfileAddDisplayAssociation(
+                PCWSTR(profile_wide.as_ptr()),
+                PCWSTR(device_wide.as_ptr()),
+                WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
+                0,
+            );
+            if !result.as_bool() {
+                let err = io::Error::last_os_error();
+                warn!(
+                    "ColorProfileAddDisplayAssociation (per-user) failed for {} (Win32={}) (non-fatal)",
+                    device_key, err
+                );
+            } else {
+                info!("HDR display association added (per-user) for {}", device_key);
             }
         }
     }

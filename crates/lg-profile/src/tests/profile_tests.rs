@@ -533,3 +533,85 @@ fn cpt_icc_is_one() {
 fn cpst_none_is_one() {
     assert_eq!(CPST_NONE, 1);
 }
+
+// ── Display association constants ────────────────────────────────
+
+#[test]
+fn color_profile_type_sdr_is_zero() {
+    assert_eq!(COLOR_PROFILE_TYPE_SDR, 0);
+}
+
+#[test]
+fn color_profile_subtype_sdr_is_zero() {
+    assert_eq!(COLOR_PROFILE_SUBTYPE_SDR, 0);
+}
+
+// ── register_color_profile ───────────────────────────────────────
+
+#[test]
+fn register_color_profile_nonexistent_does_not_panic() {
+    let path = PathBuf::from(
+        r"C:\Windows\System32\spool\drivers\color\nonexistent-register-test-99999.icm",
+    );
+    // Should not panic — returns Ok even if the API warns (non-fatal)
+    let result = register_color_profile(&path);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn register_color_profile_temp_file() {
+    let dir = std::env::temp_dir().join("lg-profile-register-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("register-test.icm");
+
+    // Write the embedded profile
+    ensure_profile_installed(&path).unwrap();
+
+    // register_color_profile should not panic (may warn if no admin rights)
+    let result = register_color_profile(&path);
+    assert!(result.is_ok());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ── set_display_default_association ──────────────────────────────
+
+#[test]
+fn set_display_default_association_nonexistent_device_does_not_panic() {
+    let path = PathBuf::from(
+        r"C:\Windows\System32\spool\drivers\color\nonexistent-sdr-assoc-99999.icm",
+    );
+    // Should not panic — API calls are non-fatal
+    let result = set_display_default_association(r"DISPLAY\FAKE\999", &path, false);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn set_display_default_association_per_user_does_not_panic() {
+    let path = PathBuf::from(
+        r"C:\Windows\System32\spool\drivers\color\nonexistent-sdr-assoc-per-user-99999.icm",
+    );
+    let result = set_display_default_association(r"DISPLAY\FAKE\999", &path, true);
+    assert!(result.is_ok());
+}
+
+// ── add_hdr_display_association ──────────────────────────────────
+
+#[test]
+fn add_hdr_display_association_nonexistent_device_does_not_panic() {
+    let path = PathBuf::from(
+        r"C:\Windows\System32\spool\drivers\color\nonexistent-hdr-assoc-99999.icm",
+    );
+    let result = add_hdr_display_association(r"DISPLAY\FAKE\999", &path, false);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn add_hdr_display_association_per_user_does_not_panic() {
+    let path = PathBuf::from(
+        r"C:\Windows\System32\spool\drivers\color\nonexistent-hdr-assoc-per-user-99999.icm",
+    );
+    let result = add_hdr_display_association(r"DISPLAY\FAKE\999", &path, true);
+    assert!(result.is_ok());
+}

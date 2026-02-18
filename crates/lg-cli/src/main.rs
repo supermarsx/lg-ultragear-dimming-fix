@@ -792,10 +792,6 @@ fn cmd_uninstall(full: bool, profile: bool, dry_run: bool) -> Result<(), Box<dyn
         match lg_service::uninstall() {
             Ok(()) => {
                 println!("[OK] Service uninstalled.");
-                println!(
-                    "     Binary removed from: {}",
-                    config::install_path().display()
-                );
             }
             Err(e) => {
                 if full {
@@ -821,12 +817,41 @@ fn cmd_uninstall(full: bool, profile: bool, dry_run: bool) -> Result<(), Box<dyn
     if full {
         let cfg_dir = config::config_dir();
         if cfg_dir.exists() {
-            match std::fs::remove_dir_all(&cfg_dir) {
-                Ok(()) => println!("[OK] Config directory removed: {}", cfg_dir.display()),
-                Err(e) => println!(
-                    "[WARN] Could not remove config dir: {} (clean up manually)",
-                    e
-                ),
+            // Force-remove any known files that may be locked (e.g. the
+            // installed binary that the service was running from).
+            let install_bin = config::install_path();
+            if install_bin.exists() {
+                lg_service::force_remove_file_public(&install_bin);
+            }
+
+            // Now try to remove the whole directory tree.
+            let mut removed = false;
+            for attempt in 0..5 {
+                if attempt > 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
+                match std::fs::remove_dir_all(&cfg_dir) {
+                    Ok(()) => {
+                        println!("[OK] Config directory removed: {}", cfg_dir.display());
+                        removed = true;
+                        break;
+                    }
+                    Err(_) if attempt < 4 => continue,
+                    Err(e) => {
+                        println!(
+                            "[WARN] Could not remove config dir: {}",
+                            e
+                        );
+                    }
+                }
+            }
+            if !removed {
+                // Schedule the directory itself for reboot-deletion.
+                lg_service::schedule_reboot_delete(&cfg_dir);
+                println!(
+                    "[NOTE] Config directory scheduled for removal on next reboot: {}",
+                    cfg_dir.display()
+                );
             }
         }
     }
@@ -838,7 +863,11 @@ fn cmd_uninstall(full: bool, profile: bool, dry_run: bool) -> Result<(), Box<dyn
         );
     }
 
-    println!("[DONE] Uninstall complete.");
+    if full {
+        println!("\n[DONE] Full uninstall complete.");
+    } else {
+        println!("\n[DONE] Uninstall complete.");
+    }
     Ok(())
 }
 
