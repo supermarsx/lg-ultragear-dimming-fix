@@ -19,13 +19,95 @@ use std::io::{self, Write};
 /// Ensure the Windows console uses UTF-8 for output so box-drawing and
 /// other Unicode characters render correctly, even in cmd.exe or legacy
 /// PowerShell hosts that default to an OEM code page.
-fn enable_utf8_console() {
+///
+/// This does three things:
+/// 1. Sets the input and output code pages to 65001 (UTF-8).
+/// 2. Switches the console font to Consolas (a TrueType font with full
+///    Unicode box-drawing support). The default "Raster Fonts" in cmd.exe
+///    cannot render ╔═╗║ etc.
+/// 3. Enables Virtual Terminal Processing so ANSI escape sequences (used by
+///    crossterm for colours and cursor movement) work correctly.
+pub fn enable_utf8_console() {
     #[cfg(windows)]
     {
-        use windows::Win32::System::Console::{SetConsoleCP, SetConsoleOutputCP};
+        use windows::Win32::System::Console::{
+            GetConsoleMode, GetStdHandle, SetConsoleCP, SetConsoleMode, SetConsoleOutputCP,
+            SetCurrentConsoleFontEx, CONSOLE_FONT_INFOEX, COORD, ENABLE_PROCESSED_OUTPUT,
+            ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE,
+        };
+
         unsafe {
+            // 1. UTF-8 code pages
             let _ = SetConsoleOutputCP(65001);
             let _ = SetConsoleCP(65001);
+
+            let handle = match GetStdHandle(STD_OUTPUT_HANDLE) {
+                Ok(h) => h,
+                Err(_) => return,
+            };
+
+            // 2. TrueType font with Unicode support
+            let mut font = CONSOLE_FONT_INFOEX {
+                cbSize: std::mem::size_of::<CONSOLE_FONT_INFOEX>() as u32,
+                dwFontSize: COORD { X: 0, Y: 18 },
+                FontWeight: 400, // FW_NORMAL
+                ..Default::default()
+            };
+            let name: Vec<u16> = "Consolas\0".encode_utf16().collect();
+            font.FaceName[..name.len()].copy_from_slice(&name);
+            let _ = SetCurrentConsoleFontEx(handle, false, &font);
+
+            // 3. Enable VT processing (ANSI escape sequences)
+            let mut mode = Default::default();
+            if GetConsoleMode(handle, &mut mode).is_ok() {
+                let _ = SetConsoleMode(
+                    handle,
+                    mode | ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING,
+                );
+            }
+        }
+    }
+}
+
+/// Resize the console window so the TUI fits without scrolling.
+/// Targets 40 rows × 80 columns — enough for the main menu with
+/// status header, all menu sections, and the prompt line.
+fn ensure_console_size() {
+    #[cfg(windows)]
+    {
+        use windows::Win32::System::Console::{
+            GetConsoleScreenBufferInfo, GetStdHandle, SetConsoleScreenBufferSize,
+            SetConsoleWindowInfo, CONSOLE_SCREEN_BUFFER_INFO, COORD, SMALL_RECT,
+            STD_OUTPUT_HANDLE,
+        };
+        unsafe {
+            let handle = match GetStdHandle(STD_OUTPUT_HANDLE) {
+                Ok(h) => h,
+                Err(_) => return,
+            };
+            let mut info = CONSOLE_SCREEN_BUFFER_INFO::default();
+            if GetConsoleScreenBufferInfo(handle, &mut info).is_err() {
+                return;
+            }
+            let current_cols = info.dwSize.X;
+            let current_rows = info.srWindow.Bottom - info.srWindow.Top + 1;
+            let want_cols = current_cols.max(80);
+            let want_rows = current_rows.max(40);
+
+            // Shrink window first so buffer resize doesn't fail
+            let small_rect = SMALL_RECT {
+                Top: 0,
+                Left: 0,
+                Right: want_cols - 1,
+                Bottom: want_rows - 1,
+            };
+            // Set buffer large enough
+            let buf_size = COORD {
+                X: want_cols,
+                Y: want_rows.max(300), // large buffer for scroll-back
+            };
+            let _ = SetConsoleScreenBufferSize(handle, buf_size);
+            let _ = SetConsoleWindowInfo(handle, true, &small_rect);
         }
     }
 }
@@ -79,7 +161,7 @@ pub(crate) enum Page {
 // ── Entry point ──────────────────────────────────────────────────────────
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
-    enable_utf8_console();
+    ensure_console_size();
     let mut out = io::stdout();
     let mut page = Page::Main;
     let mut opts = Options::default();

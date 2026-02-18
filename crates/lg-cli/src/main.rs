@@ -256,6 +256,11 @@ enum TestAction {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // Set console to UTF-8 early — before any output or elevation relaunch.
+    // This ensures box-drawing characters render correctly even in cmd.exe
+    // or legacy PowerShell that default to OEM code pages (437/850).
+    tui::enable_utf8_console();
+
     let cli = Cli::parse();
 
     // SCM dispatch — must happen before any logger initialization
