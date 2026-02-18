@@ -583,6 +583,7 @@ dependencies = [
  "serde",
  "tempfile",
  "toml",
+ "windows 0.58.0",
  "winlog",
 ]
 

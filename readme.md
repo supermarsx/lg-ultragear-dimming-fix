@@ -115,15 +115,25 @@ lg-ultragear-dimming-fix.exe install --profile-only
 # Install service only
 lg-ultragear-dimming-fix.exe install --service-only
 
+# Force overwrite with custom profile path
+lg-ultragear-dimming-fix.exe install --force --profile-path "C:\my-profile.icm"
+
+# Dry-run install (simulate without changes)
+lg-ultragear-dimming-fix.exe --dry-run install
+
 # Detect monitors matching a pattern
 lg-ultragear-dimming-fix.exe detect
 lg-ultragear-dimming-fix.exe detect --pattern "LG"
+lg-ultragear-dimming-fix.exe detect --pattern "27G.*850" --regex
 
 # One-shot profile reapply
 lg-ultragear-dimming-fix.exe apply
 
 # Run event watcher in foreground (Ctrl+C to stop)
 lg-ultragear-dimming-fix.exe watch
+
+# Probe status (monitors, profile, service, config)
+lg-ultragear-dimming-fix.exe probe
 
 # Uninstall service
 lg-ultragear-dimming-fix.exe uninstall
@@ -139,8 +149,15 @@ lg-ultragear-dimming-fix.exe config show
 lg-ultragear-dimming-fix.exe config path
 lg-ultragear-dimming-fix.exe config reset
 
+# Diagnostics
+lg-ultragear-dimming-fix.exe test toast
+lg-ultragear-dimming-fix.exe test toast --title "Hello" --body "Custom message"
+lg-ultragear-dimming-fix.exe test profile
+lg-ultragear-dimming-fix.exe test monitors
+
 # Windows service control (advanced)
 lg-ultragear-dimming-fix.exe service install
+lg-ultragear-dimming-fix.exe service install --service-name my-custom-svc
 lg-ultragear-dimming-fix.exe service start
 lg-ultragear-dimming-fix.exe service stop
 lg-ultragear-dimming-fix.exe service status
@@ -156,6 +173,7 @@ lg-ultragear-dimming-fix.exe service uninstall
 | `--verbose` | `-v` | Enable verbose output |
 | `--dry-run` | | Simulate operations without making changes |
 | `--non-interactive` | | Force CLI mode (skip TUI even if a terminal is attached) |
+| `--skip-elevation` | | Do not auto-elevate to administrator |
 | `--help` | `-h` | Show help |
 | `--version` | `-V` | Show version |
 
@@ -165,21 +183,57 @@ lg-ultragear-dimming-fix.exe service uninstall
 
 | Command | Flags | Description |
 |---------|-------|-------------|
-| `install` | `--pattern <TEXT>` `-p` | Install color profile and/or service. Pattern overrides the default monitor name match. |
+| `install` | | Install color profile and/or service |
+| | `--pattern <TEXT>` `-p` | Monitor name pattern (case-insensitive substring match) |
+| | `--regex` | Use regex pattern matching instead of substring |
 | | `--profile-only` | Install ICC profile only (no service) |
 | | `--service-only` | Install service only (skip profile extraction) |
+| | `--profile-path <PATH>` | Path to a custom ICC/ICM profile (embedded by default) |
+| | `--per-user` | Also associate profile in per-user scope (default: system-wide) |
+| | `--skip-hdr` | Skip HDR/advanced-color association |
+| | `--skip-hash-check` | Skip hash check — always overwrite profile in color store |
+| | `--force` | Force overwrite even if profile and service already exist |
+| | `--skip-detect` | Skip monitor detection during install |
 | `uninstall` | | Uninstall service |
 | | `--full` | Remove everything (service + profile + config) |
 | | `--profile` | Also remove the ICC profile from the color store |
-| `reinstall` | `--pattern <TEXT>` `-p` | Clean reinstall (uninstall then install) |
+| `reinstall` | | Clean reinstall (uninstall then install) |
+| | `--pattern <TEXT>` `-p` | Monitor name pattern override |
+| | `--regex` | Use regex pattern matching instead of substring |
 
 **Monitor & Profile**
 
 | Command | Flags | Description |
 |---------|-------|-------------|
-| `detect` | `--pattern <TEXT>` `-p` | Detect connected monitors matching a pattern |
-| `apply` | `--pattern <TEXT>` `-p` | One-shot profile reapply for matching monitors |
-| `watch` | `--pattern <TEXT>` `-p` | Run event watcher in foreground (Ctrl+C to stop) |
+| `detect` | | Detect connected monitors matching a pattern |
+| | `--pattern <TEXT>` `-p` | Monitor name pattern (case-insensitive substring match) |
+| | `--regex` | Use regex pattern matching instead of substring |
+| `apply` | | One-shot profile reapply for matching monitors |
+| | `--pattern <TEXT>` `-p` | Monitor name pattern override |
+| | `--regex` | Use regex pattern matching instead of substring |
+| | `--profile-path <PATH>` | Path to a custom ICC/ICM profile |
+| | `--per-user` | Also associate profile in per-user scope |
+| | `--skip-hdr` | Skip HDR/advanced-color association |
+| | `--toast` | Enable toast notification for this run |
+| | `--no-toast` | Disable toast notification for this run |
+| `watch` | | Run event watcher in foreground (Ctrl+C to stop) |
+| | `--pattern <TEXT>` `-p` | Monitor name pattern override |
+| | `--regex` | Use regex pattern matching instead of substring |
+| `probe` | | Probe monitors, profile, service, and config status |
+| | `--pattern <TEXT>` `-p` | Monitor name pattern |
+| | `--regex` | Use regex pattern matching instead of substring |
+
+**Diagnostics**
+
+| Command | Flags | Description |
+|---------|-------|-------------|
+| `test toast` | | Send a test toast notification |
+| | `--title <TEXT>` | Custom title (default: "LG UltraGear Test") |
+| | `--body <TEXT>` | Custom body (default: "Toast notification is working ✓") |
+| `test profile` | | Verify ICC profile integrity (hash check) |
+| `test monitors` | | Test monitor detection |
+| | `--pattern <TEXT>` `-p` | Monitor name pattern |
+| | `--regex` | Use regex pattern matching instead of substring |
 
 **Configuration**
 
@@ -193,7 +247,9 @@ lg-ultragear-dimming-fix.exe service uninstall
 
 | Command | Flags | Description |
 |---------|-------|-------------|
-| `service install` | `--pattern <TEXT>` `-p` | Install the Windows service |
+| `service install` | | Install the Windows service |
+| | `--pattern <TEXT>` `-p` | Monitor name pattern |
+| | `--service-name <NAME>` | Custom service name (default: lg-ultragear-color-svc) |
 | `service uninstall` | | Uninstall the Windows service |
 | `service start` | | Start the service |
 | `service stop` | | Stop the service |

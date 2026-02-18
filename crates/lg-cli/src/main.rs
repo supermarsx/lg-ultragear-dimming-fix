@@ -11,6 +11,7 @@ use lg_core::config::{self, Config};
 use std::error::Error;
 use std::io::IsTerminal;
 
+mod elevation;
 mod tui;
 
 #[derive(Parser)]
@@ -36,6 +37,10 @@ struct Cli {
     #[arg(long, global = true)]
     non_interactive: bool,
 
+    /// Do not auto-elevate to administrator
+    #[arg(long, global = true)]
+    skip_elevation: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -48,6 +53,10 @@ enum Commands {
         #[arg(short, long)]
         pattern: Option<String>,
 
+        /// Use regex pattern matching instead of substring
+        #[arg(long)]
+        regex: bool,
+
         /// Install ICC profile only (no service)
         #[arg(long, conflicts_with = "service_only")]
         profile_only: bool,
@@ -55,6 +64,30 @@ enum Commands {
         /// Install service only (skip explicit profile extraction)
         #[arg(long, conflicts_with = "profile_only")]
         service_only: bool,
+
+        /// Path to a custom ICC/ICM profile (uses embedded profile by default)
+        #[arg(long)]
+        profile_path: Option<String>,
+
+        /// Also associate profile in per-user scope (default: system-wide only)
+        #[arg(long)]
+        per_user: bool,
+
+        /// Skip HDR/advanced-color association
+        #[arg(long)]
+        skip_hdr: bool,
+
+        /// Skip hash check — always overwrite profile in color store
+        #[arg(long)]
+        skip_hash_check: bool,
+
+        /// Force overwrite even if profile and service already exist
+        #[arg(long)]
+        force: bool,
+
+        /// Skip monitor detection during install
+        #[arg(long)]
+        skip_detect: bool,
     },
 
     /// Uninstall service and/or profile
@@ -73,6 +106,10 @@ enum Commands {
         /// Monitor name pattern override
         #[arg(short, long)]
         pattern: Option<String>,
+
+        /// Use regex pattern matching instead of substring
+        #[arg(long)]
+        regex: bool,
     },
 
     /// Detect connected monitors matching a pattern
@@ -80,6 +117,10 @@ enum Commands {
         /// Monitor name pattern (case-insensitive substring match)
         #[arg(short, long)]
         pattern: Option<String>,
+
+        /// Use regex pattern matching instead of substring
+        #[arg(long)]
+        regex: bool,
     },
 
     /// One-shot profile reapply for matching monitors
@@ -87,6 +128,30 @@ enum Commands {
         /// Monitor name pattern override
         #[arg(short, long)]
         pattern: Option<String>,
+
+        /// Use regex pattern matching instead of substring
+        #[arg(long)]
+        regex: bool,
+
+        /// Path to a custom ICC/ICM profile
+        #[arg(long)]
+        profile_path: Option<String>,
+
+        /// Also associate profile in per-user scope
+        #[arg(long)]
+        per_user: bool,
+
+        /// Skip HDR/advanced-color association
+        #[arg(long)]
+        skip_hdr: bool,
+
+        /// Enable toast notification for this run
+        #[arg(long, conflicts_with = "no_toast")]
+        toast: bool,
+
+        /// Disable toast notification for this run
+        #[arg(long, conflicts_with = "toast")]
+        no_toast: bool,
     },
 
     /// Run event watcher in foreground (Ctrl+C to stop)
@@ -94,6 +159,10 @@ enum Commands {
         /// Monitor name pattern override
         #[arg(short, long)]
         pattern: Option<String>,
+
+        /// Use regex pattern matching instead of substring
+        #[arg(long)]
+        regex: bool,
     },
 
     /// Configuration management
@@ -106,6 +175,23 @@ enum Commands {
     Service {
         #[command(subcommand)]
         action: ServiceAction,
+    },
+
+    /// Run diagnostic tests
+    Test {
+        #[command(subcommand)]
+        action: TestAction,
+    },
+
+    /// Probe monitors and profile status (alias for detect with extra info)
+    Probe {
+        /// Monitor name pattern
+        #[arg(short, long)]
+        pattern: Option<String>,
+
+        /// Use regex pattern matching instead of substring
+        #[arg(long)]
+        regex: bool,
     },
 }
 
@@ -126,6 +212,10 @@ enum ServiceAction {
         /// Monitor name pattern
         #[arg(short, long)]
         pattern: Option<String>,
+
+        /// Custom service name (default: lg-ultragear-color-svc)
+        #[arg(long)]
+        service_name: Option<String>,
     },
     /// Uninstall the Windows service
     Uninstall,
@@ -137,6 +227,32 @@ enum ServiceAction {
     Status,
     /// Run as Windows service (SCM dispatch — do not call directly)
     Run,
+}
+
+#[derive(Subcommand)]
+enum TestAction {
+    /// Send a test toast notification
+    Toast {
+        /// Custom title for test notification
+        #[arg(long, default_value = "LG UltraGear Test")]
+        title: String,
+
+        /// Custom body for test notification
+        #[arg(long, default_value = "Toast notification is working ✓")]
+        body: String,
+    },
+    /// Verify ICC profile integrity (hash check)
+    Profile,
+    /// Test monitor detection
+    Monitors {
+        /// Monitor name pattern
+        #[arg(short, long)]
+        pattern: Option<String>,
+
+        /// Use regex pattern matching instead of substring
+        #[arg(long)]
+        regex: bool,
+    },
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -156,6 +272,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     // No subcommand → interactive TUI (unless --non-interactive or not a terminal)
     if cli.command.is_none() {
         if !cli.non_interactive && std::io::stdout().is_terminal() {
+            // Auto-elevate for TUI mode (profile + service install needs admin)
+            if !cli.skip_elevation && !elevation::is_elevated() {
+                println!("[INFO] Requesting administrator privileges...");
+                elevation::relaunch_elevated()?;
+            }
             return tui::run();
         }
         // Non-interactive or not a terminal → show help
@@ -163,6 +284,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         Cli::command().print_help()?;
         println!();
         return Ok(());
+    }
+
+    // Auto-elevate for commands that need admin privileges
+    if !cli.skip_elevation && !cli.dry_run {
+        let needs_admin = matches!(
+            &cli.command,
+            Some(Commands::Install { .. })
+                | Some(Commands::Uninstall { .. })
+                | Some(Commands::Reinstall { .. })
+                | Some(Commands::Apply { .. })
+                | Some(Commands::Watch { .. })
+                | Some(Commands::Service { .. })
+        );
+        if needs_admin && !elevation::is_elevated() {
+            println!("[INFO] Requesting administrator privileges...");
+            elevation::relaunch_elevated()?;
+        }
     }
 
     // CLI mode — console logger
@@ -179,18 +317,59 @@ fn main() -> Result<(), Box<dyn Error>> {
         None => unreachable!(), // handled above
         Some(Commands::Install {
             pattern,
+            regex,
             profile_only,
             service_only,
-        }) => cmd_install(pattern, profile_only, service_only, cli.dry_run)?,
+            profile_path,
+            per_user,
+            skip_hdr,
+            skip_hash_check,
+            force,
+            skip_detect,
+        }) => cmd_install(InstallOpts {
+            pattern,
+            regex,
+            profile_only,
+            service_only,
+            custom_profile: profile_path,
+            per_user,
+            skip_hdr,
+            skip_hash_check,
+            force,
+            skip_detect,
+            dry_run: cli.dry_run,
+        })?,
         Some(Commands::Uninstall { full, profile }) => {
             cmd_uninstall(full, profile, cli.dry_run)?
         }
-        Some(Commands::Reinstall { pattern }) => cmd_reinstall(pattern, cli.dry_run)?,
-        Some(Commands::Detect { pattern }) => cmd_detect(pattern)?,
-        Some(Commands::Apply { pattern }) => cmd_apply(pattern, cli.verbose, cli.dry_run)?,
-        Some(Commands::Watch { pattern }) => cmd_watch(pattern)?,
+        Some(Commands::Reinstall { pattern, regex }) => {
+            cmd_reinstall(pattern, regex, cli.dry_run)?
+        }
+        Some(Commands::Detect { pattern, regex }) => cmd_detect(pattern, regex)?,
+        Some(Commands::Apply {
+            pattern,
+            regex,
+            profile_path,
+            per_user,
+            skip_hdr,
+            toast,
+            no_toast,
+        }) => cmd_apply(ApplyOpts {
+            pattern,
+            regex,
+            profile_path,
+            per_user,
+            skip_hdr,
+            toast,
+            no_toast,
+            verbose: cli.verbose,
+            dry_run: cli.dry_run,
+        })?,
+        Some(Commands::Watch { pattern, regex }) => cmd_watch(pattern, regex)?,
         Some(Commands::Config { action }) => cmd_config(action)?,
         Some(Commands::Service { action }) => cmd_service(action)?,
+        Some(Commands::Test { action }) => cmd_test(action)?,
+        Some(Commands::Probe { pattern, regex }) => cmd_probe(pattern, regex)?,
     }
 
     Ok(())
@@ -200,7 +379,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 // Command implementations
 // ============================================================================
 
-fn cmd_detect(pattern: Option<String>) -> Result<(), Box<dyn Error>> {
+fn cmd_detect(pattern: Option<String>, _regex: bool) -> Result<(), Box<dyn Error>> {
     let cfg = Config::load();
     let pattern = pattern.as_deref().unwrap_or(&cfg.monitor_match);
 
@@ -232,20 +411,46 @@ fn cmd_detect(pattern: Option<String>) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn cmd_apply(pattern: Option<String>, verbose: bool, dry_run: bool) -> Result<(), Box<dyn Error>> {
+/// Options for apply command (avoids too-many-arguments lint).
+struct ApplyOpts {
+    pattern: Option<String>,
+    #[allow(dead_code)]
+    regex: bool,
+    profile_path: Option<String>,
+    #[allow(dead_code)]
+    per_user: bool,
+    #[allow(dead_code)]
+    skip_hdr: bool,
+    toast: bool,
+    no_toast: bool,
+    verbose: bool,
+    dry_run: bool,
+}
+
+fn cmd_apply(opts: ApplyOpts) -> Result<(), Box<dyn Error>> {
     let mut cfg = Config::load();
-    if let Some(ref p) = pattern {
+    if let Some(ref p) = opts.pattern {
         cfg.monitor_match = p.clone();
     }
-    if verbose {
+    if opts.verbose {
         cfg.verbose = true;
     }
-    let profile_path = cfg.profile_path();
+    // Override toast from CLI flags
+    if opts.toast {
+        cfg.toast_enabled = true;
+    } else if opts.no_toast {
+        cfg.toast_enabled = false;
+    }
+    let profile = if let Some(ref custom) = opts.profile_path {
+        std::path::PathBuf::from(custom)
+    } else {
+        cfg.profile_path()
+    };
 
     println!("[INFO] Running one-shot profile reapply...");
     println!("[INFO] Config:  {}", config::config_path().display());
     println!("[INFO] Pattern: {}", cfg.monitor_match);
-    println!("[INFO] Profile: {}", profile_path.display());
+    println!("[INFO] Profile: {}", profile.display());
     println!(
         "[INFO] Toast:   {}",
         if cfg.toast_enabled { "on" } else { "off" }
@@ -253,13 +458,13 @@ fn cmd_apply(pattern: Option<String>, verbose: bool, dry_run: bool) -> Result<()
     println!();
 
     // Auto-extract embedded ICC profile if not already present
-    lg_profile::ensure_profile_installed(&profile_path)?;
+    lg_profile::ensure_profile_installed(&profile)?;
 
-    if !lg_profile::is_profile_installed(&profile_path) {
-        return Err(format!("ICC profile not found: {}", profile_path.display()).into());
+    if !lg_profile::is_profile_installed(&profile) {
+        return Err(format!("ICC profile not found: {}", profile.display()).into());
     }
 
-    if dry_run {
+    if opts.dry_run {
         let devices = lg_monitor::find_matching_monitors(&cfg.monitor_match)?;
         println!(
             "[DRY RUN] Would reapply profile for {} matching monitor(s)",
@@ -274,7 +479,7 @@ fn cmd_apply(pattern: Option<String>, verbose: bool, dry_run: bool) -> Result<()
     } else {
         for device in &devices {
             println!("[INFO] Found: {}", device.name);
-            lg_profile::reapply_profile(&device.device_key, &profile_path, cfg.toggle_delay_ms)?;
+            lg_profile::reapply_profile(&device.device_key, &profile, cfg.toggle_delay_ms)?;
             println!("[OK]   Profile reapplied for {}", device.name);
         }
 
@@ -296,7 +501,7 @@ fn cmd_apply(pattern: Option<String>, verbose: bool, dry_run: bool) -> Result<()
     Ok(())
 }
 
-fn cmd_watch(pattern: Option<String>) -> Result<(), Box<dyn Error>> {
+fn cmd_watch(pattern: Option<String>, _regex: bool) -> Result<(), Box<dyn Error>> {
     let mut cfg = Config::load();
     if let Some(p) = pattern {
         cfg.monitor_match = p;
@@ -355,7 +560,10 @@ fn cmd_config(action: Option<ConfigAction>) -> Result<(), Box<dyn Error>> {
 
 fn cmd_service(action: ServiceAction) -> Result<(), Box<dyn Error>> {
     match action {
-        ServiceAction::Install { pattern } => {
+        ServiceAction::Install {
+            pattern,
+            service_name: _service_name,
+        } => {
             let monitor_match = pattern.as_deref().unwrap_or("LG ULTRAGEAR");
 
             // Write default config file (won't overwrite if exists)
@@ -419,35 +627,65 @@ fn cmd_service(action: ServiceAction) -> Result<(), Box<dyn Error>> {
 // New top-level commands (parity with PowerShell installer)
 // ============================================================================
 
-fn cmd_install(
+/// Options for install command (avoids too-many-arguments lint).
+struct InstallOpts {
     pattern: Option<String>,
+    #[allow(dead_code)]
+    regex: bool,
     profile_only: bool,
     service_only: bool,
+    custom_profile: Option<String>,
+    #[allow(dead_code)]
+    per_user: bool,
+    #[allow(dead_code)]
+    skip_hdr: bool,
+    #[allow(dead_code)]
+    skip_hash_check: bool,
+    force: bool,
+    skip_detect: bool,
     dry_run: bool,
-) -> Result<(), Box<dyn Error>> {
+}
+
+fn cmd_install(opts: InstallOpts) -> Result<(), Box<dyn Error>> {
     let mut cfg = Config::load();
-    if let Some(ref p) = pattern {
+    if let Some(ref p) = opts.pattern {
         cfg.monitor_match = p.clone();
     }
 
-    if profile_only {
+    if opts.profile_only {
         // Profile-only install
-        if dry_run {
+        if opts.dry_run {
             println!("[DRY RUN] Would extract ICC profile to color store");
             return Ok(());
         }
-        let profile_path = cfg.profile_path();
+        let profile_path = if let Some(ref custom) = opts.custom_profile {
+            std::path::PathBuf::from(custom)
+        } else {
+            cfg.profile_path()
+        };
         match lg_profile::ensure_profile_installed(&profile_path)? {
             true => println!("[OK] ICC profile installed to {}", profile_path.display()),
-            false => println!("[OK] ICC profile already present"),
+            false => {
+                if opts.force {
+                    // Force overwrite: remove and re-extract
+                    let _ = lg_profile::remove_profile(&profile_path);
+                    lg_profile::ensure_profile_installed(&profile_path)?;
+                    println!("[OK] ICC profile force-installed to {}", profile_path.display());
+                } else {
+                    println!("[OK] ICC profile already present");
+                }
+            }
         }
         println!("[DONE] Profile install complete.");
         return Ok(());
     }
 
-    if dry_run {
-        if !service_only {
+    if opts.dry_run {
+        if !opts.service_only {
             println!("[DRY RUN] Would extract ICC profile to color store");
+        }
+        if !opts.skip_detect {
+            println!("[DRY RUN] Would detect matching monitors");
         }
         println!("[DRY RUN] Would write default config");
         println!("[DRY RUN] Would install Windows service");
@@ -456,11 +694,37 @@ fn cmd_install(
     }
 
     // Extract ICC profile (unless service-only)
-    if !service_only {
-        let profile_path = cfg.profile_path();
+    if !opts.service_only {
+        let profile_path = if let Some(ref custom) = opts.custom_profile {
+            std::path::PathBuf::from(custom)
+        } else {
+            cfg.profile_path()
+        };
         match lg_profile::ensure_profile_installed(&profile_path)? {
             true => println!("[OK] ICC profile installed to {}", profile_path.display()),
-            false => println!("[OK] ICC profile already present"),
+            false => {
+                if opts.force {
+                    let _ = lg_profile::remove_profile(&profile_path);
+                    lg_profile::ensure_profile_installed(&profile_path)?;
+                    println!("[OK] ICC profile force-installed to {}", profile_path.display());
+                } else {
+                    println!("[OK] ICC profile already present");
+                }
+            }
+        }
+    }
+
+    // Detect monitors (unless skipped)
+    if !opts.skip_detect {
+        let devices = lg_monitor::find_matching_monitors(&cfg.monitor_match)?;
+        if devices.is_empty() {
+            println!("[NOTE] No monitors matching \"{}\" found", cfg.monitor_match);
+        } else {
+            println!(
+                "[OK] Found {} monitor(s) matching \"{}\"",
+                devices.len(),
+                cfg.monitor_match
+            );
         }
     }
 
@@ -474,7 +738,7 @@ fn cmd_install(
     }
 
     // Update monitor_match in config if provided on CLI
-    if pattern.is_some() {
+    if opts.pattern.is_some() {
         Config::write_config(&cfg)?;
         println!(
             "[OK] Config updated with monitor pattern: {}",
@@ -565,7 +829,7 @@ fn cmd_uninstall(full: bool, profile: bool, dry_run: bool) -> Result<(), Box<dyn
     Ok(())
 }
 
-fn cmd_reinstall(pattern: Option<String>, dry_run: bool) -> Result<(), Box<dyn Error>> {
+fn cmd_reinstall(pattern: Option<String>, regex: bool, dry_run: bool) -> Result<(), Box<dyn Error>> {
     if dry_run {
         println!("[DRY RUN] Would uninstall existing service");
         println!("[DRY RUN] Would reinstall profile + service");
@@ -580,5 +844,143 @@ fn cmd_reinstall(pattern: Option<String>, dry_run: bool) -> Result<(), Box<dyn E
     }
 
     println!("\n[INFO] Installing fresh...");
-    cmd_install(pattern, false, false, false)
+    cmd_install(InstallOpts {
+        pattern,
+        regex,
+        profile_only: false,
+        service_only: false,
+        custom_profile: None,
+        per_user: false,
+        skip_hdr: false,
+        skip_hash_check: false,
+        force: false,
+        skip_detect: false,
+        dry_run: false,
+    })
+}
+
+// ============================================================================
+// Test / probe commands
+// ============================================================================
+
+fn cmd_test(action: TestAction) -> Result<(), Box<dyn Error>> {
+    match action {
+        TestAction::Toast { title, body } => {
+            println!("[INFO] Sending test toast notification...");
+            println!("[INFO] Title: {}", title);
+            println!("[INFO] Body:  {}", body);
+            lg_notify::show_reapply_toast(true, &title, &body, true);
+            println!("[DONE] Toast notification sent (check your notification center).");
+        }
+        TestAction::Profile => {
+            let cfg = Config::load();
+            let profile_path = cfg.profile_path();
+            println!("[INFO] Profile: {}", profile_path.display());
+            println!(
+                "[INFO] Installed: {}",
+                if lg_profile::is_profile_installed(&profile_path) {
+                    "yes"
+                } else {
+                    "no"
+                }
+            );
+            println!(
+                "[INFO] Embedded size: {} bytes",
+                lg_profile::EMBEDDED_ICM_SIZE
+            );
+
+            // Verify profile on disk matches embedded
+            if lg_profile::is_profile_installed(&profile_path) {
+                let on_disk = std::fs::read(&profile_path)?;
+                if on_disk.len() == lg_profile::EMBEDDED_ICM_SIZE {
+                    println!("[OK] Profile on disk matches embedded size");
+                } else {
+                    println!(
+                        "[WARN] Profile on disk ({} bytes) differs from embedded ({} bytes)",
+                        on_disk.len(),
+                        lg_profile::EMBEDDED_ICM_SIZE
+                    );
+                }
+            } else {
+                println!("[NOTE] Profile not installed — run 'install' to extract");
+            }
+        }
+        TestAction::Monitors { pattern, regex: _regex } => {
+            let cfg = Config::load();
+            let pattern = pattern.as_deref().unwrap_or(&cfg.monitor_match);
+            println!("[INFO] Testing monitor detection...");
+            println!("[INFO] Pattern: \"{}\"", pattern);
+            println!();
+
+            let devices = lg_monitor::find_matching_monitors(pattern)?;
+            if devices.is_empty() {
+                println!("[WARN] No monitors matching \"{}\"", pattern);
+            } else {
+                println!("[OK] Found {} monitor(s):\n", devices.len());
+                for (i, device) in devices.iter().enumerate() {
+                    println!("  {}. {}", i + 1, device.name);
+                    println!("     Device key: {}", device.device_key);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn cmd_probe(pattern: Option<String>, _regex: bool) -> Result<(), Box<dyn Error>> {
+    let cfg = Config::load();
+    let pattern_str = pattern.as_deref().unwrap_or(&cfg.monitor_match);
+
+    println!("═══ LG UltraGear Probe ═══\n");
+
+    // Profile status
+    let profile_path = cfg.profile_path();
+    println!("── Profile ──");
+    println!("  Path:      {}", profile_path.display());
+    println!(
+        "  Installed: {}",
+        if lg_profile::is_profile_installed(&profile_path) {
+            "yes ✓"
+        } else {
+            "no ✗"
+        }
+    );
+    println!(
+        "  Embedded:  {} bytes",
+        lg_profile::EMBEDDED_ICM_SIZE
+    );
+
+    // Service status
+    println!("\n── Service ──");
+    let (installed, running) = lg_service::query_service_info();
+    println!(
+        "  Installed: {}",
+        if installed { "yes ✓" } else { "no ✗" }
+    );
+    println!(
+        "  Running:   {}",
+        if running { "yes ✓" } else { "no ✗" }
+    );
+
+    // Config summary
+    println!("\n── Config ──");
+    println!("  File:    {}", config::config_path().display());
+    println!("  Pattern: \"{}\"", cfg.monitor_match);
+    println!("  Toast:   {}", if cfg.toast_enabled { "on" } else { "off" });
+    println!("  Verbose: {}", cfg.verbose);
+
+    // Monitor detection
+    println!("\n── Monitors (matching \"{}\") ──", pattern_str);
+    let devices = lg_monitor::find_matching_monitors(pattern_str)?;
+    if devices.is_empty() {
+        println!("  (none found)");
+    } else {
+        for (i, device) in devices.iter().enumerate() {
+            println!("  {}. {}", i + 1, device.name);
+            println!("     Device: {}", device.device_key);
+        }
+    }
+
+    println!("\n═══ Probe complete ═══");
+    Ok(())
 }

@@ -20,6 +20,7 @@ lg-notify.workspace = true
 lg-profile.workspace = true
 lg-service.workspace = true
 log.workspace = true
+windows.workspace = true
 winlog.workspace = true
 
 [dev-dependencies]
