@@ -695,10 +695,43 @@ pub fn stop_service() -> Result<(), Box<dyn Error>> {
 }
 
 pub fn print_status() -> Result<(), Box<dyn Error>> {
-    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
-    let service = manager.open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS)?;
-    let status = service.query_status()?;
     let cfg = Config::load();
+
+    let manager = match ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+    {
+        Ok(m) => m,
+        Err(e) => {
+            return Err(format!(
+                "Cannot connect to Service Control Manager: {}",
+                e
+            )
+            .into());
+        }
+    };
+
+    let service = match manager.open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS) {
+        Ok(s) => s,
+        Err(_) => {
+            println!("Service: {}  (NOT INSTALLED)", SERVICE_NAME);
+            println!("Binary:  {}", config::install_path().display());
+            println!("Config:  {}", config::config_path().display());
+            println!("Monitor: {}", cfg.monitor_match);
+            println!("Profile: {}", cfg.profile_name);
+            println!(
+                "Toast:   {}",
+                if cfg.toast_enabled { "on" } else { "off" }
+            );
+            return Ok(());
+        }
+    };
+
+    let status = match service.query_status() {
+        Ok(s) => s,
+        Err(e) => {
+            return Err(format!("Cannot query service status: {}", e).into());
+        }
+    };
+
     println!("Service: {}", SERVICE_NAME);
     println!("State:   {:?}", status.current_state);
     println!("PID:     {:?}", status.process_id);

@@ -224,10 +224,15 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             (Page::Maintenance, '7') => run_action(
                 &mut out,
+                "Sending test toast notification...",
+                || action_test_toast(&opts),
+            )?,
+            (Page::Maintenance, '8') => run_action(
+                &mut out,
                 "Force refreshing color profile...",
                 action_force_refresh_profile,
             )?,
-            (Page::Maintenance, '8') => run_action(
+            (Page::Maintenance, '9') => run_action(
                 &mut out,
                 "Force refreshing color management...",
                 action_force_refresh_color_mgmt,
@@ -391,11 +396,12 @@ pub(crate) fn draw_maintenance(
     draw_item(out, "4", "Check Service Status")?;
     draw_item(out, "5", "Recheck Service (Stop + Start)")?;
     draw_item(out, "6", "Check Applicability")?;
+    draw_item(out, "7", "Test Toast Notification")?;
     draw_empty(out)?;
 
     draw_section(out, "FORCE REFRESH")?;
-    draw_item(out, "7", "Force Refresh Color Profile")?;
-    draw_item(out, "8", "Force Refresh Color Management")?;
+    draw_item(out, "8", "Force Refresh Color Profile")?;
+    draw_item(out, "9", "Force Refresh Color Management")?;
     draw_empty(out)?;
 
     draw_section(out, "NAVIGATION")?;
@@ -1100,6 +1106,17 @@ fn action_full_uninstall(opts: &Options) -> Result<(), Box<dyn std::error::Error
 // ============================================================================
 
 fn action_service_status() -> Result<(), Box<dyn std::error::Error>> {
+    let (installed, running) = lg_service::query_service_info();
+    if installed {
+        if running {
+            log_ok("Service is installed and running");
+        } else {
+            log_warn("Service is installed but NOT running");
+        }
+    } else {
+        log_warn("Service is NOT installed");
+    }
+    println!();
     lg_service::print_status()?;
     Ok(())
 }
@@ -1184,6 +1201,19 @@ fn action_check_applicability() -> Result<(), Box<dyn std::error::Error>> {
         log_done("Some issues detected — see warnings above.");
     }
 
+    Ok(())
+}
+
+fn action_test_toast(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
+    let cfg = Config::load();
+    log_info("Sending test toast notification...");
+    lg_notify::show_reapply_toast(true, &cfg.toast_title, &cfg.toast_body, opts.verbose);
+    if opts.toast {
+        log_ok("Toast notification sent (check your notification area)");
+    } else {
+        log_note("Toast toggle is OFF in Advanced Options — sent anyway for testing");
+    }
+    log_done("Test toast complete.");
     Ok(())
 }
 
@@ -1590,6 +1620,7 @@ mod tests {
         assert!(output.contains("[6]"), "item 6");
         assert!(output.contains("[7]"), "item 7");
         assert!(output.contains("[8]"), "item 8");
+        assert!(output.contains("[9]"), "item 9");
         assert!(output.contains("[B]"), "back key");
         assert!(output.contains("[Q]"), "quit key");
     }
@@ -1642,6 +1673,10 @@ mod tests {
         assert!(
             output.contains("Check Applicability"),
             "should have Applicability"
+        );
+        assert!(
+            output.contains("Test Toast Notification"),
+            "should have Test Toast"
         );
         assert!(
             output.contains("Force Refresh Color Profile"),
