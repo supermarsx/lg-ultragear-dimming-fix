@@ -17,7 +17,7 @@ mod tui;
 #[derive(Parser)]
 #[command(
     name = "lg-ultragear-dimming-fix",
-    version,
+    version = env!("APP_VERSION"),
     about = "LG UltraGear display color profile manager",
     long_about = "Prevents display dimming by managing ICC color profiles.\n\n\
         Reapplies a calibrated color profile on display connect, session unlock,\n\

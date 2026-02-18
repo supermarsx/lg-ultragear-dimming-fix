@@ -22,6 +22,7 @@ try {
         exit $LASTEXITCODE
     }
     Write-Host '[lint] OK' -ForegroundColor Green
-} finally {
+}
+finally {
     Pop-Location
 }

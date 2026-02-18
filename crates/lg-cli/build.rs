@@ -1,16 +1,23 @@
 fn main() {
     // Read version from the root VERSION file (single source of truth).
-    let version_str = std::fs::read_to_string("../../VERSION")
+    let raw_version = std::fs::read_to_string("../../VERSION")
         .expect("Failed to read VERSION file")
         .trim()
         .to_string();
 
-    // Convert to four-part Windows version (e.g. "26.1" → "26.1.0.0")
+    // Canonical version string: 0.0.{VERSION}  (e.g. VERSION="26.1" → "0.0.26.1")
+    let version_str = format!("0.0.{raw_version}");
+
+    // Expose to the binary so clap --version picks it up at compile time.
+    println!("cargo:rustc-env=APP_VERSION={version_str}");
+
+    // Convert to four-part Windows version quad (e.g. "0.0.26.1")
     let parts: Vec<&str> = version_str.split('.').collect();
     let major = parts.first().copied().unwrap_or("0");
     let minor = parts.get(1).copied().unwrap_or("0");
     let patch = parts.get(2).copied().unwrap_or("0");
-    let win_version = format!("{}.{}.{}.0", major, minor, patch);
+    let build = parts.get(3).copied().unwrap_or("0");
+    let win_version = format!("{major}.{minor}.{patch}.{build}");
 
     // Embed the application icon and version metadata into the Windows executable.
     let mut res = winres::WindowsResource::new();

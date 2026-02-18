@@ -569,7 +569,7 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "lg-cli"
-version = "26.1.0"
+version = "0.0.0"
 dependencies = [
  "clap",
  "crossterm",
@@ -590,7 +590,7 @@ dependencies = [
 
 [[package]]
 name = "lg-core"
-version = "26.1.0"
+version = "0.0.0"
 dependencies = [
  "log",
  "serde",
@@ -600,7 +600,7 @@ dependencies = [
 
 [[package]]
 name = "lg-monitor"
-version = "26.1.0"
+version = "0.0.0"
 dependencies = [
  "log",
  "serde",
@@ -609,7 +609,7 @@ dependencies = [
 
 [[package]]
 name = "lg-notify"
-version = "26.1.0"
+version = "0.0.0"
 dependencies = [
  "log",
  "windows 0.58.0",
@@ -617,7 +617,7 @@ dependencies = [
 
 [[package]]
 name = "lg-profile"
-version = "26.1.0"
+version = "0.0.0"
 dependencies = [
  "log",
  "windows 0.58.0",
@@ -625,7 +625,7 @@ dependencies = [
 
 [[package]]
 name = "lg-service"
-version = "26.1.0"
+version = "0.0.0"
 dependencies = [
  "ctrlc",
  "lg-core",

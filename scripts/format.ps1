@@ -21,7 +21,8 @@ try {
     if ($Fix) {
         Write-Host '[fmt] Formatting all crates...' -ForegroundColor Cyan
         cargo fmt --all
-    } else {
+    }
+    else {
         Write-Host '[fmt] Checking formatting...' -ForegroundColor Cyan
         cargo fmt --all -- --check
     }
@@ -31,6 +32,7 @@ try {
         exit $LASTEXITCODE
     }
     Write-Host '[fmt] OK' -ForegroundColor Green
-} finally {
+}
+finally {
     Pop-Location
 }
