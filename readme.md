@@ -101,6 +101,8 @@ When run without arguments, the tool opens an interactive terminal menu:
 
 Advanced options let you toggle toast notifications, dry-run mode, and verbose output.
 
+The **Maintenance** page has a second page (**DDC Lab**) accessible via `[N]` that lets you read/write DDC/CI VCP codes targeting your LG UltraGear monitor — test color presets, display modes, resets, and more.
+
 ### CLI Mode
 
 For scripting, automation, or headless environments, use subcommands directly:
@@ -162,6 +164,20 @@ lg-ultragear-dimming-fix.exe service start
 lg-ultragear-dimming-fix.exe service stop
 lg-ultragear-dimming-fix.exe service status
 lg-ultragear-dimming-fix.exe service uninstall
+
+# DDC/CI monitor control
+lg-ultragear-dimming-fix.exe ddc list
+lg-ultragear-dimming-fix.exe ddc brightness 50
+lg-ultragear-dimming-fix.exe ddc brightness 75 --pattern "LG"
+lg-ultragear-dimming-fix.exe ddc color-preset
+lg-ultragear-dimming-fix.exe ddc set-color-preset 6
+lg-ultragear-dimming-fix.exe ddc display-mode
+lg-ultragear-dimming-fix.exe ddc set-display-mode 3
+lg-ultragear-dimming-fix.exe ddc reset-brightness-contrast
+lg-ultragear-dimming-fix.exe ddc reset-color
+lg-ultragear-dimming-fix.exe ddc version
+lg-ultragear-dimming-fix.exe ddc get-vcp 10
+lg-ultragear-dimming-fix.exe ddc set-vcp 10 50
 ```
 
 ### CLI Reference
@@ -255,6 +271,34 @@ lg-ultragear-dimming-fix.exe service uninstall
 | `service stop` | | Stop the service |
 | `service status` | | Show service status |
 
+**DDC/CI Monitor Control**
+
+All `ddc` commands default to the configured `monitor_match` pattern (e.g. `"LG ULTRAGEAR"`). Use `--pattern` to override.
+
+| Command | Flags | Description |
+|---------|-------|-------------|
+| `ddc list` | | List all physical monitors visible via DDC/CI |
+| `ddc brightness <VALUE>` | | Set brightness (0–100) on all monitors |
+| | `--pattern <TEXT>` `-p` | Target a specific monitor |
+| `ddc color-preset` | | Read current color preset (VCP 0x14) |
+| | `--pattern <TEXT>` `-p` | Monitor pattern |
+| `ddc set-color-preset <VALUE>` | | Set color preset (1=sRGB, 6=6500K, 10=9300K, 11=User1…) |
+| | `--pattern <TEXT>` `-p` | Monitor pattern |
+| `ddc display-mode` | | Read current display/picture mode (VCP 0xDC) |
+| | `--pattern <TEXT>` `-p` | Monitor pattern |
+| `ddc set-display-mode <VALUE>` | | Set display mode |
+| | `--pattern <TEXT>` `-p` | Monitor pattern |
+| `ddc reset-brightness-contrast` | | Reset brightness + contrast to factory (VCP 0x06) |
+| | `--pattern <TEXT>` `-p` | Monitor pattern |
+| `ddc reset-color` | | Reset color to factory defaults (VCP 0x0A) |
+| | `--pattern <TEXT>` `-p` | Monitor pattern |
+| `ddc version` | | Read VCP/MCCS version (VCP 0xDF) |
+| | `--pattern <TEXT>` `-p` | Monitor pattern |
+| `ddc get-vcp <CODE>` | | Read any VCP code (hex, e.g. `10`, `14`, `DC`) |
+| | `--pattern <TEXT>` `-p` | Monitor pattern |
+| `ddc set-vcp <CODE> <VALUE>` | | Write any VCP code (hex) — **use with caution** |
+| | `--pattern <TEXT>` `-p` | Monitor pattern |
+
 
 ## Manual Install (No Tool)
 
@@ -281,7 +325,7 @@ The tool is built as a Rust workspace with six crates:
 |-------|---------|
 | **lg-cli** | CLI entry point (clap) + interactive TUI (crossterm) |
 | **lg-core** | Shared configuration (TOML-based, stored in `%ProgramData%`) |
-| **lg-monitor** | WMI-based monitor discovery (`WmiMonitorId` queries) |
+| **lg-monitor** | WMI monitor discovery + DDC/CI control (`dxva2.dll`) |
 | **lg-profile** | ICC profile management via Windows Color System (`mscms.dll`) |
 | **lg-notify** | Toast notifications via WinRT (`ToastNotificationManager`) |
 | **lg-service** | Windows service runtime (SCM, device notifications, session events) |
@@ -298,6 +342,14 @@ The tool is built as a Rust workspace with six crates:
 - Uses WMI `WmiMonitorId` to enumerate connected displays
 - Matches by user-friendly name (case-insensitive substring, default: `"LG ULTRAGEAR"`)
 - Override with `--pattern` flag or `monitor_name_match` in config
+
+### DDC/CI Monitor Control
+
+- Uses the Windows Monitor Configuration API (`dxva2.dll`) for low-level DDC/CI communication
+- Reads and writes MCCS VCP codes (brightness, contrast, color preset, display mode, etc.)
+- Monitor targeting works by matching the DDC physical monitor description or the GDI device string against the configured `monitor_match` pattern — this correctly identifies LG monitors even when they appear as "Generic PnP Monitor" in dxva2
+- Supports factory reset commands (brightness/contrast reset, color reset) via VCP codes 0x06 and 0x0A
+- Auto-set brightness on profile reapply can be enabled via `ddc_brightness_on_reapply` in config
 
 ### Service Mode
 
@@ -323,6 +375,8 @@ refresh_enabled = true
 invalidate_enabled = true
 calibration_loader_enabled = true
 debounce_ms = 3000
+ddc_brightness_on_reapply = false
+ddc_brightness_value = 50
 ```
 
 ### File Locations
@@ -401,7 +455,7 @@ cargo build
 # Release build (optimized, LTO, stripped)
 cargo build --release
 
-# Run tests (317 tests across all crates)
+# Run tests (580+ tests across all crates)
 cargo test --all-targets
 
 # Format check
@@ -419,7 +473,7 @@ The release binary is at `target\release\lg-ultragear-dimming-fix.exe`.
 crates/
   lg-cli/        CLI entry point + interactive TUI
   lg-core/       Configuration management (TOML)
-  lg-monitor/    WMI monitor detection
+  lg-monitor/    WMI monitor detection + DDC/CI control
   lg-profile/    ICC profile + WCS APIs
   lg-notify/     WinRT toast notifications
   lg-service/    Windows service runtime

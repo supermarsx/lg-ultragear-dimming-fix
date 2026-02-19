@@ -259,12 +259,13 @@ pub fn get_vcp_all(vcp_code: u8) -> Result<Vec<(String, VcpValue)>, Box<dyn Erro
     let mut results = Vec::new();
 
     for mh in &handles {
+        let name = resolve_display_name(&mh.description, mh.hmonitor);
         match get_vcp_raw(mh.handle, vcp_code) {
-            Ok(val) => results.push((mh.description.clone(), val)),
+            Ok(val) => results.push((name, val)),
             Err(e) => warn!(
                 "VCP 0x{:02X} read failed for {}: {}",
                 vcp_code,
-                if mh.description.is_empty() { "unknown" } else { &mh.description },
+                if name.is_empty() { "unknown" } else { &name },
                 e
             ),
         }
@@ -280,12 +281,15 @@ pub fn get_vcp_all(vcp_code: u8) -> Result<Vec<(String, VcpValue)>, Box<dyn Erro
 
 /// List all physical monitors with their descriptions and HMONITOR index.
 /// Useful for the TUI to show what monitors are available via DDC.
+///
+/// If the DDC description is "Generic PnP Monitor", the GDI device string
+/// is used instead so the real product name is shown (e.g. "LG ULTRAGEAR").
 pub fn list_physical_monitors() -> Result<Vec<(usize, String)>, Box<dyn Error>> {
     let handles = get_all_monitor_handles()?;
     let result: Vec<(usize, String)> = handles
         .iter()
         .enumerate()
-        .map(|(i, mh)| (i, mh.description.clone()))
+        .map(|(i, mh)| (i, resolve_display_name(&mh.description, mh.hmonitor)))
         .collect();
 
     // Cleanup
@@ -394,8 +398,9 @@ fn find_monitor_by_pattern(pattern: &str) -> Result<MonitorHandle, Box<dyn Error
         if let Some(ref name) = gdi_name {
             if name.to_uppercase().contains(&pat) {
                 let matched_handle = mh.handle;
-                let matched_desc = mh.description.clone();
                 let matched_hmon = mh.hmonitor;
+                // Prefer the GDI name so callers see the real product name
+                let resolved = name.clone();
                 for other in &handles {
                     if !std::ptr::eq(other.handle, matched_handle) {
                         unsafe { let _ = DestroyPhysicalMonitor(other.handle); };
@@ -403,11 +408,11 @@ fn find_monitor_by_pattern(pattern: &str) -> Result<MonitorHandle, Box<dyn Error
                 }
                 info!(
                     "DDC: matched monitor by GDI device name: {} (DDC desc: {})",
-                    name, matched_desc
+                    name, mh.description
                 );
                 return Ok(MonitorHandle {
                     handle: matched_handle,
-                    description: matched_desc,
+                    description: resolved,
                     hmonitor: matched_hmon,
                 });
             }
@@ -419,14 +424,14 @@ fn find_monitor_by_pattern(pattern: &str) -> Result<MonitorHandle, Box<dyn Error
         unsafe { let _ = DestroyPhysicalMonitor(mh.handle); };
     }
 
+    let names: Vec<String> = handles
+        .iter()
+        .map(|m| resolve_display_name(&m.description, m.hmonitor))
+        .collect();
     Err(format!(
         "No DDC/CI monitor matched pattern '{}'. Found: {}",
         pattern,
-        handles
-            .iter()
-            .map(|m| m.description.as_str())
-            .collect::<Vec<_>>()
-            .join(", ")
+        names.join(", ")
     )
     .into())
 }
@@ -677,10 +682,11 @@ fn get_brightness_for_hmonitor(hmon: isize) -> Result<Vec<BrightnessInfo>, Box<d
         };
         if ok.as_bool() {
             let desc = decode_description(&pm.description);
+            let display = resolve_display_name(&desc, hmon);
             results.push(BrightnessInfo {
                 current,
                 max: maximum,
-                description: desc,
+                description: display,
             });
         } else {
             let err = io::Error::last_os_error();
@@ -694,6 +700,25 @@ fn get_brightness_for_hmonitor(hmon: isize) -> Result<Vec<BrightnessInfo>, Box<d
     }
 
     Ok(results)
+}
+
+/// Return the best human-readable name for a physical monitor.
+///
+/// If the DDC description is the unhelpful "Generic PnP Monitor", we fall
+/// back to the GDI device string (via `EnumDisplayDevicesA`) which usually
+/// contains the real product name (e.g. "LG ULTRAGEAR").
+fn resolve_display_name(ddc_desc: &str, hmon: isize) -> String {
+    const GENERIC: &str = "generic pnp monitor";
+    if !ddc_desc.trim().eq_ignore_ascii_case(GENERIC) {
+        return ddc_desc.to_string();
+    }
+    // DDC gave us the generic name — try GDI
+    if let Some(gdi) = get_gdi_device_name(hmon) {
+        if !gdi.trim().is_empty() {
+            return gdi;
+        }
+    }
+    ddc_desc.to_string()
 }
 
 /// Decode the physical monitor description from a null-terminated UTF-16 array.
@@ -841,6 +866,37 @@ mod tests {
     fn list_physical_monitors_does_not_panic() {
         let result = list_physical_monitors();
         assert!(result.is_ok());
+    }
+
+    // ── resolve_display_name ─────────────────────────────────────
+
+    #[test]
+    fn resolve_display_name_keeps_real_name() {
+        // A real product name should be returned as-is (GDI is not consulted
+        // because the hmonitor 0 is invalid, but the function never reaches
+        // the GDI path for non-generic names).
+        let name = resolve_display_name("LG ULTRAGEAR", 0);
+        assert_eq!(name, "LG ULTRAGEAR");
+    }
+
+    #[test]
+    fn resolve_display_name_keeps_empty() {
+        let name = resolve_display_name("", 0);
+        assert_eq!(name, "");
+    }
+
+    #[test]
+    fn resolve_display_name_generic_with_invalid_hmon_falls_back() {
+        // hmonitor 0 is invalid so GDI lookup will fail; should fall back
+        // to the original description.
+        let name = resolve_display_name("Generic PnP Monitor", 0);
+        assert_eq!(name, "Generic PnP Monitor");
+    }
+
+    #[test]
+    fn resolve_display_name_generic_case_insensitive() {
+        let name = resolve_display_name("GENERIC PNP MONITOR", 0);
+        assert_eq!(name, "GENERIC PNP MONITOR");
     }
 
     // ── get_vcp_all ──────────────────────────────────────────────

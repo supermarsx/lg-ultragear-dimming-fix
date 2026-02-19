@@ -183,6 +183,12 @@ enum Commands {
         action: TestAction,
     },
 
+    /// DDC/CI monitor control (brightness, color presets, display mode, resets)
+    Ddc {
+        #[command(subcommand)]
+        action: DdcAction,
+    },
+
     /// Probe monitors and profile status (alias for detect with extra info)
     Probe {
         /// Monitor name pattern
@@ -253,6 +259,98 @@ enum TestAction {
         #[arg(long)]
         regex: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum DdcAction {
+    /// Set brightness on all monitors (or use --pattern to target one)
+    Brightness {
+        /// Brightness value (0–100)
+        value: u32,
+
+        /// Monitor name pattern (targets specific monitor)
+        #[arg(short, long)]
+        pattern: Option<String>,
+    },
+    /// Read color preset (VCP 0x14) from the target monitor
+    ColorPreset {
+        /// Monitor name pattern override
+        #[arg(short, long)]
+        pattern: Option<String>,
+    },
+    /// Set color preset (VCP 0x14)
+    SetColorPreset {
+        /// Preset value (1=sRGB, 2=Native, 4=4000K, 5=5000K, 6=6500K, 8=7500K, 10=9300K, 11=User1)
+        value: u32,
+
+        /// Monitor name pattern override
+        #[arg(short, long)]
+        pattern: Option<String>,
+    },
+    /// Read display mode / picture mode (VCP 0xDC)
+    DisplayMode {
+        /// Monitor name pattern override
+        #[arg(short, long)]
+        pattern: Option<String>,
+    },
+    /// Set display mode / picture mode (VCP 0xDC)
+    SetDisplayMode {
+        /// Mode value
+        value: u32,
+
+        /// Monitor name pattern override
+        #[arg(short, long)]
+        pattern: Option<String>,
+    },
+    /// Reset brightness and contrast to factory defaults (VCP 0x06)
+    ResetBrightnessContrast {
+        /// Monitor name pattern override
+        #[arg(short, long)]
+        pattern: Option<String>,
+    },
+    /// Reset color to factory defaults (VCP 0x0A)
+    ResetColor {
+        /// Monitor name pattern override
+        #[arg(short, long)]
+        pattern: Option<String>,
+    },
+    /// Read VCP version from the target monitor (VCP 0xDF)
+    Version {
+        /// Monitor name pattern override
+        #[arg(short, long)]
+        pattern: Option<String>,
+    },
+    /// Read any VCP code (advanced)
+    GetVcp {
+        /// VCP code in hex (e.g. 10, 14, DC)
+        #[arg(value_parser = parse_hex_u8)]
+        code: u8,
+
+        /// Monitor name pattern override
+        #[arg(short, long)]
+        pattern: Option<String>,
+    },
+    /// Write any VCP code (advanced — use with caution)
+    SetVcp {
+        /// VCP code in hex (e.g. 10, 14, DC)
+        #[arg(value_parser = parse_hex_u8)]
+        code: u8,
+
+        /// Value to write
+        value: u32,
+
+        /// Monitor name pattern override
+        #[arg(short, long)]
+        pattern: Option<String>,
+    },
+    /// List all physical monitors visible via DDC/CI
+    List,
+}
+
+/// Parse a hex string (with or without 0x prefix) into a u8.
+fn parse_hex_u8(s: &str) -> Result<u8, String> {
+    let s = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
+    u8::from_str_radix(s, 16).map_err(|e| format!("Invalid hex byte '{}': {}", s, e))
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -370,6 +468,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Some(Commands::Config { action }) => cmd_config(action)?,
         Some(Commands::Service { action }) => cmd_service(action)?,
         Some(Commands::Test { action }) => cmd_test(action)?,
+        Some(Commands::Ddc { action }) => cmd_ddc(action, cli.dry_run)?,
         Some(Commands::Probe { pattern, regex }) => cmd_probe(pattern, regex)?,
     }
 
@@ -541,6 +640,15 @@ fn cmd_config(action: Option<ConfigAction>) -> Result<(), Box<dyn Error>> {
             println!(
                 "  refresh_calibration_loader = {}",
                 cfg.refresh_calibration_loader
+            );
+            println!("\n── DDC/CI Brightness ──");
+            println!(
+                "  ddc_brightness_on_reapply = {}",
+                cfg.ddc_brightness_on_reapply
+            );
+            println!(
+                "  ddc_brightness_value      = {}",
+                cfg.ddc_brightness_value
             );
             println!("\n── Debug ──");
             println!("  verbose                  = {}", cfg.verbose);
@@ -987,6 +1095,159 @@ fn cmd_test(action: TestAction) -> Result<(), Box<dyn Error>> {
         }
     }
     Ok(())
+}
+
+// ============================================================================
+// DDC/CI commands
+// ============================================================================
+
+fn cmd_ddc(action: DdcAction, dry_run: bool) -> Result<(), Box<dyn Error>> {
+    let cfg = Config::load();
+
+    match action {
+        DdcAction::Brightness { value, pattern } => {
+            if value > 100 {
+                return Err("Brightness value must be 0–100".into());
+            }
+            if dry_run {
+                println!("[DRY RUN] Would set DDC brightness to {}", value);
+                return Ok(());
+            }
+            if let Some(ref pat) = pattern {
+                println!("[INFO] Setting DDC brightness to {} for monitors matching \"{}\"...", value, pat);
+                lg_monitor::ddc::set_vcp_by_pattern(pat, lg_monitor::ddc::VCP_BRIGHTNESS, value)?;
+                println!("[OK] Brightness set to {}", value);
+            } else {
+                println!("[INFO] Setting DDC brightness to {} on all monitors...", value);
+                let count = lg_monitor::ddc::set_brightness_all(value)?;
+                println!("[OK] Brightness set to {} on {} monitor(s)", value, count);
+            }
+        }
+
+        DdcAction::ColorPreset { pattern } => {
+            let pat = pattern.as_deref().unwrap_or(&cfg.monitor_match);
+            println!("[INFO] Reading color preset from \"{}\"...", pat);
+            let val = lg_monitor::ddc::get_vcp_by_pattern(pat, lg_monitor::ddc::VCP_COLOR_PRESET)?;
+            let name = color_preset_name(val.current);
+            println!("[OK] Color Preset: {} (value={}, max={})", name, val.current, val.max);
+        }
+
+        DdcAction::SetColorPreset { value, pattern } => {
+            let pat = pattern.as_deref().unwrap_or(&cfg.monitor_match);
+            if dry_run {
+                println!("[DRY RUN] Would set color preset to {} for \"{}\"", value, pat);
+                return Ok(());
+            }
+            let name = color_preset_name(value);
+            println!("[INFO] Setting color preset to {} ({}) for \"{}\"...", name, value, pat);
+            lg_monitor::ddc::set_vcp_by_pattern(pat, lg_monitor::ddc::VCP_COLOR_PRESET, value)?;
+            println!("[OK] Color preset set to {} ({})", name, value);
+        }
+
+        DdcAction::DisplayMode { pattern } => {
+            let pat = pattern.as_deref().unwrap_or(&cfg.monitor_match);
+            println!("[INFO] Reading display mode from \"{}\"...", pat);
+            let val = lg_monitor::ddc::get_vcp_by_pattern(pat, lg_monitor::ddc::VCP_DISPLAY_MODE)?;
+            println!("[OK] Display Mode: current={}, max={} (type={})", val.current, val.max, val.vcp_type);
+        }
+
+        DdcAction::SetDisplayMode { value, pattern } => {
+            let pat = pattern.as_deref().unwrap_or(&cfg.monitor_match);
+            if dry_run {
+                println!("[DRY RUN] Would set display mode to {} for \"{}\"", value, pat);
+                return Ok(());
+            }
+            println!("[INFO] Setting display mode to {} for \"{}\"...", value, pat);
+            lg_monitor::ddc::set_vcp_by_pattern(pat, lg_monitor::ddc::VCP_DISPLAY_MODE, value)?;
+            println!("[OK] Display mode set to {}", value);
+        }
+
+        DdcAction::ResetBrightnessContrast { pattern } => {
+            let pat = pattern.as_deref().unwrap_or(&cfg.monitor_match);
+            if dry_run {
+                println!("[DRY RUN] Would reset brightness/contrast for \"{}\"", pat);
+                return Ok(());
+            }
+            println!("[INFO] Resetting brightness + contrast for \"{}\"...", pat);
+            lg_monitor::ddc::set_vcp_by_pattern(pat, lg_monitor::ddc::VCP_RESET_BRIGHTNESS_CONTRAST, 1)?;
+            println!("[OK] Brightness + contrast reset sent");
+        }
+
+        DdcAction::ResetColor { pattern } => {
+            let pat = pattern.as_deref().unwrap_or(&cfg.monitor_match);
+            if dry_run {
+                println!("[DRY RUN] Would reset color for \"{}\"", pat);
+                return Ok(());
+            }
+            println!("[INFO] Resetting color for \"{}\"...", pat);
+            lg_monitor::ddc::set_vcp_by_pattern(pat, lg_monitor::ddc::VCP_RESET_COLOR, 1)?;
+            println!("[OK] Color reset sent");
+        }
+
+        DdcAction::Version { pattern } => {
+            let pat = pattern.as_deref().unwrap_or(&cfg.monitor_match);
+            println!("[INFO] Reading VCP version from \"{}\"...", pat);
+            let val = lg_monitor::ddc::get_vcp_by_pattern(pat, lg_monitor::ddc::VCP_VERSION)?;
+            let major = (val.current >> 8) & 0xFF;
+            let minor = val.current & 0xFF;
+            println!("[OK] VCP Version: {}.{} (raw={})", major, minor, val.current);
+        }
+
+        DdcAction::GetVcp { code, pattern } => {
+            let pat = pattern.as_deref().unwrap_or(&cfg.monitor_match);
+            println!("[INFO] Reading VCP 0x{:02X} from \"{}\"...", code, pat);
+            let val = lg_monitor::ddc::get_vcp_by_pattern(pat, code)?;
+            println!(
+                "[OK] VCP 0x{:02X}: current={}, max={}, type={}",
+                code, val.current, val.max, val.vcp_type
+            );
+        }
+
+        DdcAction::SetVcp { code, value, pattern } => {
+            let pat = pattern.as_deref().unwrap_or(&cfg.monitor_match);
+            if dry_run {
+                println!("[DRY RUN] Would set VCP 0x{:02X} = {} for \"{}\"", code, value, pat);
+                return Ok(());
+            }
+            println!("[INFO] Setting VCP 0x{:02X} = {} for \"{}\"...", code, value, pat);
+            lg_monitor::ddc::set_vcp_by_pattern(pat, code, value)?;
+            println!("[OK] VCP 0x{:02X} set to {}", code, value);
+        }
+
+        DdcAction::List => {
+            println!("[INFO] Listing physical monitors via DDC/CI...\n");
+            let monitors = lg_monitor::ddc::list_physical_monitors()?;
+            if monitors.is_empty() {
+                println!("  (no physical monitors found)");
+            } else {
+                for (idx, desc) in &monitors {
+                    let label = if desc.is_empty() { "(no description)" } else { desc.as_str() };
+                    println!("  [{}] {}", idx, label);
+                }
+                println!("\n[OK] {} physical monitor(s) found", monitors.len());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Human-readable color preset name from VCP 0x14 value.
+fn color_preset_name(value: u32) -> &'static str {
+    match value {
+        1 => "sRGB",
+        2 => "Native",
+        4 => "4000K",
+        5 => "5000K",
+        6 => "6500K",
+        8 => "7500K",
+        9 => "8200K",
+        10 => "9300K",
+        11 => "User 1",
+        12 => "User 2",
+        13 => "User 3",
+        _ => "Unknown",
+    }
 }
 
 fn cmd_probe(pattern: Option<String>, _regex: bool) -> Result<(), Box<dyn Error>> {
