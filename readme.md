@@ -66,10 +66,10 @@ This dimming behavior is frustrating for gamers and professionals because:
 
 ### Why Other Solutions Don't Work
 
-**❌ Disabling OSD power-saving options** — Often does not fully disable firmware-level dimming on UltraGear models
-**❌ Windows/GPU settings changes** — Disabling adaptive brightness, CABC, or toggling HDR commonly fails to stop firmware behavior
-**❌ Waiting for firmware updates** — Many screens either have no user-accessible updates, or LG hasn't released fixes
-**✅ Color profile approach** — Works immediately with current firmware, no waiting required
+- **❌ Disabling OSD power-saving options** — Often does not fully disable firmware-level dimming on UltraGear models
+- **❌ Windows/GPU settings changes** — Disabling adaptive brightness, CABC, or toggling HDR commonly fails to stop firmware behavior
+- **❌ Waiting for firmware updates** — Many screens either have no user-accessible updates, or LG hasn't released fixes
+- **✅ Color profile approach** — Works immediately with current firmware, no waiting required
 
 ### LG Service Menu — Disable CPC / LEA Refresh (OLED Models)
 
