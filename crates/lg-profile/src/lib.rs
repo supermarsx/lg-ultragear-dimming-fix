@@ -220,8 +220,10 @@ pub fn cleanup_stale_profiles(expected_name: &str) -> Vec<PathBuf> {
 // mscms.dll FFI — WCS color profile APIs
 // ============================================================================
 
-/// Scope constant for system-wide color profile operations.
-const WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE: u32 = 2;
+/// WCS_PROFILE_MANAGEMENT_SCOPE enum values from the Windows SDK (`icm.h`).
+///   SYSTEM_WIDE  = 0   (applies to all users)
+///   CURRENT_USER = 1   (applies to current user only)
+const WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE: u32 = 0;
 
 /// Scope constant for per-user (current user) color profile operations.
 const WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER: u32 = 1;

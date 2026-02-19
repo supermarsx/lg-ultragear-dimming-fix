@@ -204,26 +204,39 @@ fn run_inner(mut out: &mut impl Write) -> Result<(), Box<dyn std::error::Error>>
 
         let ch = read_key()?;
 
+        let color_dir = lg_profile::color_directory();
+        let program_dir = config::config_dir();
+        let both_folders: Vec<(char, &str, std::path::PathBuf)> = vec![
+            ('1', "Color profiles", color_dir.clone()),
+            ('2', "Program / config", program_dir.clone()),
+        ];
+        let profile_folder: Vec<(char, &str, std::path::PathBuf)> = vec![
+            ('1', "Color profiles", color_dir.clone()),
+        ];
+        let service_folder: Vec<(char, &str, std::path::PathBuf)> = vec![
+            ('1', "Program / config", program_dir.clone()),
+        ];
+
         match (&page, ch) {
             // ── Main menu ──────────────────────────────────
-            (Page::Main, '1') => run_action(&mut out, "Installing profile + service...", || {
+            (Page::Main, '1') => run_action_offer_folder(&mut out, "Installing profile + service...", || {
                 action_default_install(&opts)
-            })?,
-            (Page::Main, '2') => run_action(&mut out, "Installing profile only...", || {
+            }, &both_folders)?,
+            (Page::Main, '2') => run_action_offer_folder(&mut out, "Installing profile only...", || {
                 action_profile_only(&opts)
-            })?,
-            (Page::Main, '3') => run_action(&mut out, "Installing service only...", || {
+            }, &profile_folder)?,
+            (Page::Main, '3') => run_action_offer_folder(&mut out, "Installing service only...", || {
                 action_service_only(&opts)
-            })?,
-            (Page::Main, '4') => run_action(&mut out, "Removing service...", || {
+            }, &service_folder)?,
+            (Page::Main, '4') => run_action_offer_folder(&mut out, "Removing service...", || {
                 action_remove_service(&opts)
-            })?,
-            (Page::Main, '5') => run_action(&mut out, "Removing profile...", || {
+            }, &service_folder)?,
+            (Page::Main, '5') => run_action_offer_folder(&mut out, "Removing profile...", || {
                 action_remove_profile(&opts)
-            })?,
-            (Page::Main, '6') => run_action(&mut out, "Full uninstall...", || {
+            }, &profile_folder)?,
+            (Page::Main, '6') => run_action_offer_folder(&mut out, "Full uninstall...", || {
                 action_full_uninstall(&opts)
-            })?,
+            }, &both_folders)?,
             (Page::Main, 'm') => page = Page::Maintenance,
             (Page::Main, 'a') => page = Page::Advanced,
             (Page::Main, 'q') => break,
@@ -232,9 +245,9 @@ fn run_inner(mut out: &mut impl Write) -> Result<(), Box<dyn std::error::Error>>
             (Page::Maintenance, '1') => {
                 run_action(&mut out, "Refreshing profile...", || action_refresh(&opts))?
             }
-            (Page::Maintenance, '2') => run_action(&mut out, "Reinstalling everything...", || {
+            (Page::Maintenance, '2') => run_action_offer_folder(&mut out, "Reinstalling everything...", || {
                 action_reinstall(&opts)
-            })?,
+            }, &both_folders)?,
             (Page::Maintenance, '3') => {
                 run_action(&mut out, "Detecting monitors...", action_detect)?
             }
@@ -1177,6 +1190,76 @@ where
     queue!(out, ResetColor)?;
     out.flush()?;
     let _ = read_key();
+    Ok(())
+}
+
+/// Like `run_action`, but on failure offers to open one or two relevant
+/// folders in Explorer so the user can inspect them manually.
+///
+/// `folders` is a slice of `(key, label, path)`:
+///   - `('1', "color profile", color_dir)`
+///   - `('2', "program",       config_dir)`
+fn run_action_offer_folder<F>(
+    out: &mut impl Write,
+    banner: &str,
+    action: F,
+    folders: &[(char, &str, std::path::PathBuf)],
+) -> io::Result<()>
+where
+    F: FnOnce() -> Result<(), Box<dyn std::error::Error>>,
+{
+    queue!(out, Clear(ClearType::Purge), Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    out.flush()?;
+    draw_top(out, " PROCESSING ")?;
+    draw_empty(out)?;
+    draw_line(out, banner, Color::Yellow)?;
+    draw_empty(out)?;
+    draw_bottom(out)?;
+    writeln!(out)?;
+    out.flush()?;
+
+    let failed = match action() {
+        Ok(()) => false,
+        Err(e) => {
+            write_err(out, &e.to_string())?;
+            queue!(out, SetForegroundColor(Color::DarkYellow))?;
+            writeln!(out, "  Tip: If Event Viewer or another MMC snap-in is open, close it and retry.")?;
+            queue!(out, ResetColor)?;
+            true
+        }
+    };
+
+    writeln!(out)?;
+    if failed && !folders.is_empty() {
+        queue!(out, SetForegroundColor(Color::Yellow))?;
+        writeln!(out, "  Open folder in Explorer?")?;
+        queue!(out, ResetColor)?;
+        for &(key, label, ref path) in folders {
+            queue!(out, SetForegroundColor(Color::Yellow))?;
+            write!(out, "    [{}]", key.to_ascii_uppercase())?;
+            queue!(out, SetForegroundColor(Color::White))?;
+            writeln!(out, " {} — {}", label, path.display())?;
+        }
+        queue!(out, SetForegroundColor(Color::DarkGrey))?;
+        writeln!(out, "    Any other key to skip")?;
+        queue!(out, ResetColor)?;
+        out.flush()?;
+        let ch = read_key()?;
+        for &(key, _, ref path) in folders {
+            if ch == key {
+                let _ = std::process::Command::new("explorer.exe")
+                    .arg(path)
+                    .spawn();
+                break;
+            }
+        }
+    } else {
+        queue!(out, SetForegroundColor(Color::DarkGrey))?;
+        write!(out, "  Press any key to continue...")?;
+        queue!(out, ResetColor)?;
+        out.flush()?;
+        let _ = read_key();
+    }
     Ok(())
 }
 

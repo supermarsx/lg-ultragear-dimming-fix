@@ -458,6 +458,10 @@ ddc_brightness_value = 50
 - Works alongside G-SYNC, FreeSync, and other monitor features
 - No input lag or response time changes
 
+### Install / Uninstall / Reinstall fails with "access denied" or file-lock errors
+- **Close Event Viewer** (and any other MMC snap-in) before running install, uninstall, or reinstall. Event Viewer holds open handles to the service's event log, which can prevent Windows from removing or replacing the service binary.
+- Run the tool from an **elevated** (Administrator) terminal.
+
 ### Completely uninstall everything
 
 ```powershell

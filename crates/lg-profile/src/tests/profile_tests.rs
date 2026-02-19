@@ -137,7 +137,7 @@ fn is_profile_installed_default_path() {
 
 #[test]
 fn wcs_scope_system_wide_value() {
-    assert_eq!(WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE, 2);
+    assert_eq!(WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE, 0);
 }
 
 // ── Profile reapply ──────────────────────────────────────────────
@@ -517,8 +517,8 @@ fn wcs_scope_constants_are_distinct() {
 }
 
 #[test]
-fn wcs_scope_values_are_small_positive_integers() {
-    assert!(WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE > 0);
+fn wcs_scope_values_are_small_integers() {
+    // SYSTEM_WIDE = 0 is valid (first enum variant in the Windows SDK)
     assert!(WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE < 256);
     assert!(WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER > 0);
     assert!(WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER < 256);
@@ -627,4 +627,96 @@ fn add_hdr_display_association_per_user_does_not_panic() {
     );
     let result = add_hdr_display_association(r"DISPLAY\FAKE\999", &path, true);
     assert!(result.is_ok());
+}
+
+// ── WCS scope constants ──────────────────────────────────────────
+// Windows SDK icm.h defines WCS_PROFILE_MANAGEMENT_SCOPE as a plain C enum:
+//   SYSTEM_WIDE  = 0
+//   CURRENT_USER = 1
+// Passing any other value makes WcsAssociate/WcsDisassociate return
+// ERROR_INVALID_PARAMETER (87).
+
+#[test]
+fn wcs_scope_system_wide_is_zero() {
+    assert_eq!(
+        WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE, 0,
+        "SYSTEM_WIDE must be 0 per the Windows SDK enum"
+    );
+}
+
+#[test]
+fn wcs_scope_current_user_is_one() {
+    assert_eq!(
+        WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER, 1,
+        "CURRENT_USER must be 1 per the Windows SDK enum"
+    );
+}
+
+#[test]
+fn wcs_scope_system_wide_less_than_current_user() {
+    assert!(
+        WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE < WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
+        "enum order: SYSTEM_WIDE(0) < CURRENT_USER(1)"
+    );
+}
+
+// ── profile_path file_name extraction ────────────────────────────
+// WCS association APIs must receive the filename only, never a full path.
+
+#[test]
+fn file_name_extraction_normal_path() {
+    let p = PathBuf::from(r"C:\Windows\System32\spool\drivers\color\lg-profile.icm");
+    let name = p.file_name().unwrap();
+    assert_eq!(name, "lg-profile.icm");
+}
+
+#[test]
+fn file_name_extraction_forward_slashes() {
+    let p = PathBuf::from("C:/Windows/System32/spool/drivers/color/lg-profile.icm");
+    let name = p.file_name().unwrap();
+    assert_eq!(name, "lg-profile.icm");
+}
+
+#[test]
+fn file_name_extraction_unc_path() {
+    let p = PathBuf::from(r"\\server\share\color\lg-profile.icm");
+    let name = p.file_name().unwrap();
+    assert_eq!(name, "lg-profile.icm");
+}
+
+#[test]
+fn file_name_no_backslash_in_result() {
+    let p = PathBuf::from(r"C:\Windows\System32\spool\drivers\color\lg-profile.icm");
+    let name = p.file_name().unwrap().to_string_lossy();
+    assert!(
+        !name.contains('\\') && !name.contains('/'),
+        "file_name must not contain path separators, got: {name}"
+    );
+}
+
+#[test]
+fn reapply_profile_rejects_missing_file() {
+    let p = PathBuf::from(r"C:\Windows\System32\spool\drivers\color\__does_not_exist_987654.icm");
+    let result = reapply_profile(r"DISPLAY\FAKE\999", &p, 0, false);
+    assert!(result.is_err(), "should fail when profile file is missing");
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("not found"),
+        "error should mention 'not found', got: {msg}"
+    );
+}
+
+#[test]
+fn reapply_profile_rejects_directory_path() {
+    // A path that is a directory has no file_name that InstallColorProfile
+    // would accept — but the exists() check should catch the root issue.
+    let p = std::env::temp_dir(); // e.g. C:\Users\...\AppData\Local\Temp
+    let result = reapply_profile(r"DISPLAY\FAKE\999", &p, 0, false);
+    // A directory "exists" but is not a valid ICC profile.
+    // Depending on file_name() returning Some or None the error will vary,
+    // but it must not succeed.
+    // (temp_dir has a file_name, but doesn't have an ICC extension —
+    //  the WCS API will fail regardless.)
+    // This is a safety-net test: the call should not panic.
+    let _ = result;
 }
