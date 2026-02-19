@@ -1844,6 +1844,7 @@ mod tests {
     fn page_variants_exist() {
         let _main = Page::Main;
         let _maint = Page::Maintenance;
+        let _maint2 = Page::Maintenance2;
         let _adv = Page::Advanced;
     }
 
@@ -2110,6 +2111,8 @@ mod tests {
         assert!(output.contains("NAVIGATION"));
         assert!(output.contains("Back to Main Menu"));
         assert!(output.contains("Quit"));
+        assert!(output.contains("[N]"), "should have Next Page key");
+        assert!(output.contains("DDC Lab"), "should mention DDC Lab");
     }
 
     #[test]
@@ -2212,6 +2215,97 @@ mod tests {
         assert!(output.contains("DDC/CI"), "should contain DDC/CI section");
         assert!(output.contains("[0]"), "should contain item 0 for DDC test");
         assert!(output.contains("Set DDC Brightness"), "should have DDC brightness label");
+    }
+
+    // ── Maintenance Page 2 (DDC Lab) drawing ──────────────────
+
+    #[test]
+    fn draw_maintenance2_contains_all_items() {
+        let output =
+            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts()));
+        assert!(output.contains("[1]"), "item 1 — VCP version");
+        assert!(output.contains("[2]"), "item 2 — color preset read");
+        assert!(output.contains("[3]"), "item 3 — color preset cycle");
+        assert!(output.contains("[4]"), "item 4 — display mode read");
+        assert!(output.contains("[5]"), "item 5 — display mode cycle");
+        assert!(output.contains("[6]"), "item 6 — reset brightness+contrast");
+        assert!(output.contains("[7]"), "item 7 — reset color");
+        assert!(output.contains("[8]"), "item 8 — list monitors");
+        assert!(output.contains("[P]"), "prev page key");
+        assert!(output.contains("[B]"), "back key");
+        assert!(output.contains("[Q]"), "quit key");
+    }
+
+    #[test]
+    fn draw_maintenance2_title() {
+        let output =
+            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts()));
+        assert!(output.contains("DDC LAB"), "should show DDC LAB title");
+    }
+
+    #[test]
+    fn draw_maintenance2_sections() {
+        let output =
+            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts()));
+        assert!(output.contains("READ"), "should have READ section");
+        assert!(output.contains("WRITE"), "should have WRITE section");
+        assert!(output.contains("RESET"), "should have RESET section");
+        assert!(output.contains("INFO"), "should have INFO section");
+        assert!(output.contains("NAVIGATION"), "should have NAVIGATION section");
+    }
+
+    #[test]
+    fn draw_maintenance2_lg_note() {
+        let output =
+            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts()));
+        assert!(
+            output.contains("monitor_match"),
+            "should mention config monitor_match pattern"
+        );
+    }
+
+    #[test]
+    fn draw_maintenance2_item_labels() {
+        let output =
+            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts()));
+        assert!(output.contains("VCP Version"), "should have VCP Version");
+        assert!(output.contains("Color Preset"), "should have Color Preset");
+        assert!(output.contains("Display Mode"), "should have Display Mode");
+        assert!(output.contains("Reset Brightness"), "should have Reset Brightness");
+        assert!(output.contains("Reset Color"), "should have Reset Color");
+        assert!(output.contains("List Physical Monitors"), "should have List Monitors");
+    }
+
+    #[test]
+    fn draw_maintenance2_navigation() {
+        let output =
+            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts()));
+        assert!(output.contains("Previous Page"), "should have Previous Page");
+        assert!(output.contains("Back to Main Menu"), "should have Back");
+        assert!(output.contains("Quit"), "should have Quit");
+    }
+
+    #[test]
+    fn draw_maintenance2_produces_nonempty_output() {
+        let output =
+            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts()));
+        assert!(!output.is_empty());
+        assert!(output.len() > 200, "DDC Lab page should produce substantial output");
+    }
+
+    #[test]
+    fn draw_maintenance2_all_status_combos() {
+        for profile in [false, true] {
+            for svc_installed in [false, true] {
+                for svc_running in [false, true] {
+                    let s = test_status(profile, svc_installed, svc_running, 1);
+                    let output = render_to_string(|buf| {
+                        draw_maintenance2(buf, &s, &default_opts())
+                    });
+                    assert!(!output.is_empty());
+                }
+            }
+        }
     }
 
     #[test]

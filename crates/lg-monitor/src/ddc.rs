@@ -787,4 +787,68 @@ mod tests {
         let result = enumerate_hmonitors();
         assert!(result.is_ok());
     }
+
+    // ── VCP constants ────────────────────────────────────────────
+
+    #[test]
+    fn vcp_constants_are_correct() {
+        assert_eq!(VCP_CONTRAST, 0x12);
+        assert_eq!(VCP_COLOR_PRESET, 0x14);
+        assert_eq!(VCP_RED_GAIN, 0x16);
+        assert_eq!(VCP_GREEN_GAIN, 0x18);
+        assert_eq!(VCP_BLUE_GAIN, 0x1A);
+        assert_eq!(VCP_INPUT_SOURCE, 0x60);
+        assert_eq!(VCP_VOLUME, 0x62);
+        assert_eq!(VCP_DISPLAY_MODE, 0xDC);
+        assert_eq!(VCP_POWER_MODE, 0xD6);
+        assert_eq!(VCP_VERSION, 0xDF);
+        assert_eq!(VCP_FACTORY_RESET, 0x04);
+        assert_eq!(VCP_RESET_BRIGHTNESS_CONTRAST, 0x06);
+        assert_eq!(VCP_RESET_COLOR, 0x0A);
+    }
+
+    // ── VcpValue struct ──────────────────────────────────────────
+
+    #[test]
+    fn vcp_value_debug_format() {
+        let val = VcpValue {
+            code: 0x10,
+            current: 50,
+            max: 100,
+            vcp_type: 0,
+        };
+        let debug = format!("{:?}", val);
+        assert!(debug.contains("VcpValue"));
+        assert!(debug.contains("50"));
+    }
+
+    #[test]
+    fn vcp_value_clone() {
+        let val = VcpValue {
+            code: 0xDF,
+            current: 0x0202,
+            max: 0,
+            vcp_type: 0,
+        };
+        let cloned = val.clone();
+        assert_eq!(cloned.code, 0xDF);
+        assert_eq!(cloned.current, 0x0202);
+    }
+
+    // ── list_physical_monitors ───────────────────────────────────
+
+    #[test]
+    fn list_physical_monitors_does_not_panic() {
+        let result = list_physical_monitors();
+        assert!(result.is_ok());
+    }
+
+    // ── get_vcp_all ──────────────────────────────────────────────
+
+    #[test]
+    fn get_vcp_all_does_not_panic() {
+        // Read VCP version from all monitors — safe, read-only
+        let result = get_vcp_all(VCP_VERSION);
+        assert!(result.is_ok());
+    }
 }
