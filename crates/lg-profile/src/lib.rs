@@ -264,8 +264,12 @@ pub fn reapply_profile(
         return Err(format!("Profile not found: {}", profile_path.display()).into());
     }
 
-    let profile_wide: Vec<u16> = profile_path
-        .as_os_str()
+    // WCS association APIs expect just the filename, not the full path.
+    // The profile must already be registered via InstallColorProfileW.
+    let profile_name = profile_path
+        .file_name()
+        .ok_or_else(|| format!("Invalid profile path: {}", profile_path.display()))?;
+    let profile_wide: Vec<u16> = profile_name
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
@@ -399,8 +403,11 @@ pub fn set_generic_default(
     profile_path: &Path,
     per_user: bool,
 ) -> Result<(), Box<dyn Error>> {
-    let profile_wide: Vec<u16> = profile_path
-        .as_os_str()
+    // WCS APIs expect just the filename, not the full path.
+    let profile_name = profile_path
+        .file_name()
+        .ok_or_else(|| format!("Invalid profile path: {}", profile_path.display()))?;
+    let profile_wide: Vec<u16> = profile_name
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
@@ -466,8 +473,11 @@ pub fn set_display_default_association(
     profile_path: &Path,
     per_user: bool,
 ) -> Result<(), Box<dyn Error>> {
-    let profile_wide: Vec<u16> = profile_path
-        .as_os_str()
+    // WCS APIs expect just the filename, not the full path.
+    let profile_name = profile_path
+        .file_name()
+        .ok_or_else(|| format!("Invalid profile path: {}", profile_path.display()))?;
+    let profile_wide: Vec<u16> = profile_name
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
@@ -530,8 +540,11 @@ pub fn add_hdr_display_association(
     profile_path: &Path,
     per_user: bool,
 ) -> Result<(), Box<dyn Error>> {
-    let profile_wide: Vec<u16> = profile_path
-        .as_os_str()
+    // WCS APIs expect just the filename, not the full path.
+    let profile_name = profile_path
+        .file_name()
+        .ok_or_else(|| format!("Invalid profile path: {}", profile_path.display()))?;
+    let profile_wide: Vec<u16> = profile_name
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
