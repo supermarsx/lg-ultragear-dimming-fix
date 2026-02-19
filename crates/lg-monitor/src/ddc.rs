@@ -252,6 +252,56 @@ pub fn set_vcp_by_pattern(
     result
 }
 
+/// Read a VCP feature from a specific physical monitor by 0-based index.
+///
+/// The index corresponds to the order returned by `list_physical_monitors()`.
+pub fn get_vcp_by_index(index: usize, vcp_code: u8) -> Result<VcpValue, Box<dyn Error>> {
+    let handles = get_all_monitor_handles()?;
+    if index >= handles.len() {
+        for mh in &handles {
+            unsafe { let _ = DestroyPhysicalMonitor(mh.handle); };
+        }
+        return Err(format!(
+            "Monitor index {} out of range (found {} monitors)",
+            index,
+            handles.len()
+        )
+        .into());
+    }
+    let result = get_vcp_raw(handles[index].handle, vcp_code);
+    for mh in &handles {
+        unsafe { let _ = DestroyPhysicalMonitor(mh.handle); };
+    }
+    result
+}
+
+/// Write a VCP feature to a specific physical monitor by 0-based index.
+///
+/// The index corresponds to the order returned by `list_physical_monitors()`.
+pub fn set_vcp_by_index(
+    index: usize,
+    vcp_code: u8,
+    value: u32,
+) -> Result<(), Box<dyn Error>> {
+    let handles = get_all_monitor_handles()?;
+    if index >= handles.len() {
+        for mh in &handles {
+            unsafe { let _ = DestroyPhysicalMonitor(mh.handle); };
+        }
+        return Err(format!(
+            "Monitor index {} out of range (found {} monitors)",
+            index,
+            handles.len()
+        )
+        .into());
+    }
+    let result = set_vcp_raw(handles[index].handle, vcp_code, value);
+    for mh in &handles {
+        unsafe { let _ = DestroyPhysicalMonitor(mh.handle); };
+    }
+    result
+}
+
 /// Read a VCP feature from all physical monitors, returning results
 /// paired with their descriptions.
 pub fn get_vcp_all(vcp_code: u8) -> Result<Vec<(String, VcpValue)>, Box<dyn Error>> {

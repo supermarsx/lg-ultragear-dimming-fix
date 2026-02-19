@@ -7,9 +7,9 @@
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
-    queue,
+    execute, queue,
     style::{Color, ResetColor, SetForegroundColor},
-    terminal::{self, Clear, ClearType},
+    terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use lg_core::config::{self, Config};
 use std::io::{self, Write};
@@ -70,8 +70,8 @@ pub fn enable_utf8_console() {
 }
 
 /// Resize the console window so the TUI fits without scrolling.
-/// Targets 40 rows × 80 columns — enough for the main menu with
-/// status header, all menu sections, and the prompt line.
+/// Targets 45 rows × 80 columns — enough for the tallest menu page
+/// (Advanced with all toggles) plus the status header and prompt.
 fn ensure_console_size() {
     #[cfg(windows)]
     {
@@ -92,7 +92,7 @@ fn ensure_console_size() {
             let current_cols = info.dwSize.X;
             let current_rows = info.srWindow.Bottom - info.srWindow.Top + 1;
             let want_cols = current_cols.max(80);
-            let want_rows = current_rows.max(40);
+            let want_rows = current_rows.max(45);
 
             // Shrink window first so buffer resize doesn't fail
             let small_rect = SMALL_RECT {
@@ -173,8 +173,23 @@ pub(crate) enum Page {
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     ensure_console_size();
     let mut out = io::stdout();
+
+    // Enter the alternate screen buffer so TUI output never pollutes
+    // the main scrollback — scrolling up won't show stale content.
+    execute!(out, EnterAlternateScreen)?;
+
+    let result = run_inner(&mut out);
+
+    // Always leave the alternate screen, even on error
+    let _ = execute!(out, LeaveAlternateScreen);
+    result
+}
+
+fn run_inner(mut out: &mut impl Write) -> Result<(), Box<dyn std::error::Error>> {
     let mut page = Page::Main;
     let mut opts = Options::default();
+    // DDC Lab target: None = use config monitor_match, Some((idx, name)) = specific monitor by index
+    let mut ddc_target: Option<(usize, String)> = None;
 
     loop {
         let status = gather_status(&opts);
@@ -182,7 +197,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         match page {
             Page::Main => draw_main(&mut out, &status, &opts)?,
             Page::Maintenance => draw_maintenance(&mut out, &status, &opts)?,
-            Page::Maintenance2 => draw_maintenance2(&mut out, &status, &opts)?,
+            Page::Maintenance2 => draw_maintenance2(&mut out, &status, &opts, ddc_target.as_ref())?,
             Page::Advanced => draw_advanced(&mut out, &status, &opts)?,
         }
         out.flush()?;
@@ -260,43 +275,161 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             (Page::Maintenance2, '1') => run_action(
                 &mut out,
                 "Reading VCP version...",
-                action_ddc_vcp_version,
+                || action_ddc_vcp_version(&ddc_target),
             )?,
             (Page::Maintenance2, '2') => run_action(
                 &mut out,
                 "Reading color preset...",
-                action_ddc_read_color_preset,
+                || action_ddc_read_color_preset(&ddc_target),
             )?,
-            (Page::Maintenance2, '3') => run_action(
-                &mut out,
-                "Cycling color preset...",
-                action_ddc_cycle_color_preset,
-            )?,
+            (Page::Maintenance2, '3') => {
+                let cur = ddc_get_vcp(
+                    &ddc_target,
+                    lg_monitor::ddc::VCP_COLOR_PRESET,
+                )
+                .map(|v| v.current)
+                .unwrap_or(0);
+
+                const PRESETS: &[(char, &str, u32)] = &[
+                    ('1', "sRGB", 1),
+                    ('2', "Native", 2),
+                    ('3', "4000 K", 4),
+                    ('4', "5000 K", 5),
+                    ('5', "6500 K", 6),
+                    ('6', "7500 K", 8),
+                    ('7', "8200 K", 9),
+                    ('8', "9300 K", 10),
+                    ('9', "User 1", 11),
+                    ('a', "User 2", 12),
+                    ('b', "User 3", 13),
+                ];
+                let items: Vec<(char, &str, bool)> = PRESETS
+                    .iter()
+                    .map(|&(k, label, val)| (k, label, val == cur))
+                    .collect();
+
+                if let Some(idx) = run_submenu(&mut out, " COLOR PRESET ", &items)? {
+                    let (_, name, value) = PRESETS[idx];
+                    run_action(
+                        &mut out,
+                        &format!("Setting color preset to {}...", name),
+                        || {
+                            ddc_set_vcp(
+                                &ddc_target,
+                                lg_monitor::ddc::VCP_COLOR_PRESET,
+                                value,
+                            )?;
+                            log_ok(&format!("Color preset set to {} (value {})", name, value));
+                            log_done("Color preset updated.");
+                            Ok(())
+                        },
+                    )?;
+                }
+            }
             (Page::Maintenance2, '4') => run_action(
                 &mut out,
                 "Reading display mode...",
-                action_ddc_read_display_mode,
+                || action_ddc_read_display_mode(&ddc_target),
             )?,
-            (Page::Maintenance2, '5') => run_action(
-                &mut out,
-                "Cycling display mode...",
-                action_ddc_cycle_display_mode,
-            )?,
+            (Page::Maintenance2, '5') => {
+                match ddc_get_vcp(
+                    &ddc_target,
+                    lg_monitor::ddc::VCP_DISPLAY_MODE,
+                ) {
+                    Ok(val) => {
+                        let max = (val.max as usize).max(1);
+                        let current = val.current;
+                        let keys = b"123456789abcdefghijklmnop";
+                        let count = max.min(keys.len());
+
+                        let labels: Vec<String> =
+                            (1..=count).map(|i| format!("Mode {}", i)).collect();
+                        let items: Vec<(char, &str, bool)> = (0..count)
+                            .map(|i| {
+                                (
+                                    keys[i] as char,
+                                    labels[i].as_str(),
+                                    (i + 1) as u32 == current,
+                                )
+                            })
+                            .collect();
+
+                        if let Some(idx) = run_submenu(&mut out, " DISPLAY MODE ", &items)? {
+                            let mode = (idx + 1) as u32;
+                            run_action(
+                                &mut out,
+                                &format!("Setting display mode to {}...", mode),
+                                || {
+                                    ddc_set_vcp(
+                                        &ddc_target,
+                                        lg_monitor::ddc::VCP_DISPLAY_MODE,
+                                        mode,
+                                    )?;
+                                    log_ok(&format!("Display mode set to {}", mode));
+                                    log_done("Display mode updated.");
+                                    Ok(())
+                                },
+                            )?;
+                        }
+                    }
+                    Err(e) => {
+                        run_action(&mut out, "Reading display mode...", || {
+                            Err(format!("Could not read display modes: {}", e).into())
+                        })?;
+                    }
+                }
+            }
             (Page::Maintenance2, '6') => run_action(
                 &mut out,
                 "Resetting brightness + contrast...",
-                action_ddc_reset_brightness_contrast,
+                || action_ddc_reset_brightness_contrast(&ddc_target),
             )?,
             (Page::Maintenance2, '7') => run_action(
                 &mut out,
                 "Resetting color...",
-                action_ddc_reset_color,
+                || action_ddc_reset_color(&ddc_target),
             )?,
             (Page::Maintenance2, '8') => run_action(
                 &mut out,
                 "Listing physical monitors...",
                 action_ddc_list_monitors,
             )?,
+            (Page::Maintenance2, '9') => {
+                match lg_monitor::ddc::list_physical_monitors() {
+                    Ok(monitors) if !monitors.is_empty() => {
+                        let keys = b"123456789abcdefghijklmnop";
+                        let count = monitors.len().min(keys.len());
+
+                        let labels: Vec<String> = monitors[..count]
+                            .iter()
+                            .map(|(idx, desc)| format!("#{} {}", idx, desc))
+                            .collect();
+                        let items: Vec<(char, &str, bool)> = monitors[..count]
+                            .iter()
+                            .enumerate()
+                            .map(|(i, (idx, _))| {
+                                let is_cur = ddc_target
+                                    .as_ref()
+                                    .map_or(false, |(cur_idx, _)| cur_idx == idx);
+                                (keys[i] as char, labels[i].as_str(), is_cur)
+                            })
+                            .collect();
+
+                        if let Some(sel) = run_submenu(&mut out, " SELECT MONITOR ", &items)? {
+                            let (idx, name) = &monitors[sel];
+                            ddc_target = Some((*idx, name.clone()));
+                        }
+                    }
+                    _ => {
+                        run_action(&mut out, "Listing monitors...", || {
+                            Err("No physical monitors found via DDC".into())
+                        })?;
+                    }
+                }
+            }
+            (Page::Maintenance2, '0') => {
+                ddc_target = None; // reset to config default
+            }
             (Page::Maintenance2, 'p') => page = Page::Maintenance,
             (Page::Maintenance2, 'b') => page = Page::Main,
             (Page::Maintenance2, 'q') => break,
@@ -311,12 +444,21 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             (Page::Advanced, '7') => opts.generic_default = !opts.generic_default,
             (Page::Advanced, '8') => opts.ddc_brightness = !opts.ddc_brightness,
             (Page::Advanced, '9') => {
-                // Cycle brightness: 10 → 20 → … → 100 → 10
-                opts.ddc_brightness_value = if opts.ddc_brightness_value >= 100 {
-                    10
-                } else {
-                    opts.ddc_brightness_value + 10
-                };
+                let items: Vec<(char, &str, bool)> = vec![
+                    ('1', "10 %", opts.ddc_brightness_value == 10),
+                    ('2', "20 %", opts.ddc_brightness_value == 20),
+                    ('3', "30 %", opts.ddc_brightness_value == 30),
+                    ('4', "40 %", opts.ddc_brightness_value == 40),
+                    ('5', "50 %", opts.ddc_brightness_value == 50),
+                    ('6', "60 %", opts.ddc_brightness_value == 60),
+                    ('7', "70 %", opts.ddc_brightness_value == 70),
+                    ('8', "80 %", opts.ddc_brightness_value == 80),
+                    ('9', "90 %", opts.ddc_brightness_value == 90),
+                    ('0', "100 %", opts.ddc_brightness_value == 100),
+                ];
+                if let Some(idx) = run_submenu(&mut out, " BRIGHTNESS ", &items)? {
+                    opts.ddc_brightness_value = (idx as u32 + 1) * 10;
+                }
             }
             (Page::Advanced, 'b') => page = Page::Main,
             (Page::Advanced, 'q') => break,
@@ -325,7 +467,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    draw_goodbye(&mut out)?;
+    draw_goodbye(out)?;
     Ok(())
 }
 
@@ -384,7 +526,8 @@ pub(crate) fn gather_status(opts: &Options) -> Status {
 // ============================================================================
 
 pub(crate) fn draw_main(out: &mut impl Write, status: &Status, opts: &Options) -> io::Result<()> {
-    queue!(out, Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    queue!(out, Clear(ClearType::Purge), Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    out.flush()?;
 
     draw_header(out, status)?;
     draw_sep(out, " MAIN MENU ")?;
@@ -458,7 +601,8 @@ pub(crate) fn draw_maintenance(
     status: &Status,
     _opts: &Options,
 ) -> io::Result<()> {
-    queue!(out, Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    queue!(out, Clear(ClearType::Purge), Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    out.flush()?;
 
     draw_header(out, status)?;
     draw_sep(out, " MAINTENANCE ")?;
@@ -508,18 +652,20 @@ pub(crate) fn draw_maintenance2(
     out: &mut impl Write,
     status: &Status,
     _opts: &Options,
+    ddc_target: Option<&(usize, String)>,
 ) -> io::Result<()> {
-    queue!(out, Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    queue!(out, Clear(ClearType::Purge), Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    out.flush()?;
 
     draw_header(out, status)?;
-    draw_sep(out, " DDC LAB (LG UltraGear) ")?;
+    draw_sep(out, " DDC LAB ")?;
 
     draw_empty(out)?;
-    draw_line(
-        out,
-        "  Targets only the LG monitor (via config monitor_match)",
-        Color::DarkGrey,
-    )?;
+    let target_label = match ddc_target {
+        Some((idx, name)) => format!("  Target: #{} ({})", idx, name),
+        None => format!("  Target: config default ({})", Config::load().monitor_match),
+    };
+    draw_line(out, &target_label, Color::Green)?;
     draw_empty(out)?;
 
     draw_section(out, "READ")?;
@@ -530,7 +676,7 @@ pub(crate) fn draw_maintenance2(
 
     draw_section(out, "WRITE")?;
     draw_item(out, "3", "Cycle Color Preset (sRGB→6500K→9300K→User1)")?;
-    draw_item(out, "5", "Cycle Display Mode (+1)")?;
+    draw_item(out, "5", "Set Display Mode (VCP 0xDC)")?;
     draw_empty(out)?;
 
     draw_section(out, "RESET")?;
@@ -540,6 +686,11 @@ pub(crate) fn draw_maintenance2(
 
     draw_section(out, "INFO")?;
     draw_item(out, "8", "List Physical Monitors (DDC)")?;
+    draw_empty(out)?;
+
+    draw_section(out, "TARGET")?;
+    draw_item(out, "9", "Select Target Monitor")?;
+    draw_item(out, "0", "Reset Target (use config default)")?;
     draw_empty(out)?;
 
     draw_section(out, "NAVIGATION")?;
@@ -565,7 +716,8 @@ pub(crate) fn draw_advanced(
     status: &Status,
     opts: &Options,
 ) -> io::Result<()> {
-    queue!(out, Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    queue!(out, Clear(ClearType::Purge), Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    out.flush()?;
 
     draw_header(out, status)?;
     draw_sep(out, " ADVANCED OPTIONS (Toggles) ")?;
@@ -613,7 +765,7 @@ pub(crate) fn draw_advanced(
         opts.ddc_brightness,
     )?;
     {
-        let label = format!("Brightness Value: {} (press to cycle +10)", opts.ddc_brightness_value);
+        let label = format!("Brightness Value: {} (press to select)", opts.ddc_brightness_value);
         draw_item(out, "9", &label)?;
     }
     draw_empty(out)?;
@@ -721,7 +873,8 @@ pub(crate) fn draw_header(out: &mut impl Write, status: &Status) -> io::Result<(
 // ============================================================================
 
 pub(crate) fn draw_goodbye(out: &mut impl Write) -> io::Result<()> {
-    queue!(out, Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    queue!(out, Clear(ClearType::Purge), Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    out.flush()?;
 
     let thank = "Thank you for using LG UltraGear Auto-Dimming Fix!";
     let n = 68usize;
@@ -1001,7 +1154,8 @@ fn run_action<F>(out: &mut impl Write, banner: &str, action: F) -> io::Result<()
 where
     F: FnOnce() -> Result<(), Box<dyn std::error::Error>>,
 {
-    queue!(out, Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    queue!(out, Clear(ClearType::Purge), Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    out.flush()?;
     draw_top(out, " PROCESSING ")?;
     draw_empty(out)?;
     draw_line(out, banner, Color::Yellow)?;
@@ -1024,6 +1178,58 @@ where
     out.flush()?;
     let _ = read_key();
     Ok(())
+}
+
+// ============================================================================
+// Sub-menu — interactive selection screen
+// ============================================================================
+
+/// Show a sub-menu with selectable items. Returns the index of the selected
+/// item, or `None` if the user pressed Esc to cancel.
+///
+/// Each item is `(key, label, is_current)`. The `is_current` flag highlights
+/// the item that matches the active value.
+fn run_submenu(
+    out: &mut impl Write,
+    title: &str,
+    items: &[(char, &str, bool)],
+) -> io::Result<Option<usize>> {
+    queue!(out, Clear(ClearType::Purge), Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    out.flush()?;
+
+    draw_top(out, title)?;
+    draw_empty(out)?;
+
+    for &(key, label, current) in items {
+        let key_str = key.to_ascii_uppercase().to_string();
+        if current {
+            draw_item_colored(out, &key_str, &format!("{} \u{25C4}", label), Color::Green)?;
+        } else {
+            draw_item(out, &key_str, label)?;
+        }
+    }
+
+    draw_empty(out)?;
+    draw_line(out, "  Press Esc to cancel", Color::DarkGrey)?;
+    draw_empty(out)?;
+    draw_bottom(out)?;
+
+    writeln!(out)?;
+    queue!(out, SetForegroundColor(Color::White))?;
+    write!(out, "  Select: ")?;
+    queue!(out, ResetColor)?;
+    out.flush()?;
+
+    loop {
+        let ch = read_key()?;
+        // Esc is mapped to 'q' by read_key
+        if ch == 'q' {
+            return Ok(None);
+        }
+        if let Some(idx) = items.iter().position(|&(k, _, _)| k == ch) {
+            return Ok(Some(idx));
+        }
+    }
 }
 
 // ============================================================================
@@ -1504,16 +1710,51 @@ fn action_set_ddc_brightness(opts: &Options) -> Result<(), Box<dyn std::error::E
 
 // ── DDC Lab actions (LG UltraGear only) ──────────────────────────────────
 
-/// Helper: get the monitor match pattern from config.
-fn lg_pattern() -> String {
-    Config::load().monitor_match
+/// Read a VCP feature using the current DDC target.
+/// If a monitor index is selected, reads by index. Otherwise falls back
+/// to the config `monitor_match` pattern.
+fn ddc_get_vcp(
+    target: &Option<(usize, String)>,
+    vcp_code: u8,
+) -> Result<lg_monitor::ddc::VcpValue, Box<dyn std::error::Error>> {
+    match target {
+        Some((idx, _)) => lg_monitor::ddc::get_vcp_by_index(*idx, vcp_code),
+        None => {
+            let pat = Config::load().monitor_match;
+            lg_monitor::ddc::get_vcp_by_pattern(&pat, vcp_code)
+        }
+    }
 }
 
-fn action_ddc_vcp_version() -> Result<(), Box<dyn std::error::Error>> {
-    let pat = lg_pattern();
-    log_info(&format!("Target: '{}'", pat));
+/// Write a VCP feature using the current DDC target.
+/// If a monitor index is selected, writes by index. Otherwise falls back
+/// to the config `monitor_match` pattern.
+fn ddc_set_vcp(
+    target: &Option<(usize, String)>,
+    vcp_code: u8,
+    value: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match target {
+        Some((idx, _)) => lg_monitor::ddc::set_vcp_by_index(*idx, vcp_code, value),
+        None => {
+            let pat = Config::load().monitor_match;
+            lg_monitor::ddc::set_vcp_by_pattern(&pat, vcp_code, value)
+        }
+    }
+}
 
-    match lg_monitor::ddc::get_vcp_by_pattern(&pat, lg_monitor::ddc::VCP_VERSION) {
+/// Human-readable label for the current DDC target.
+fn ddc_target_label(target: &Option<(usize, String)>) -> String {
+    match target {
+        Some((idx, name)) => format!("#{} ({})", idx, name),
+        None => format!("config default ({})", Config::load().monitor_match),
+    }
+}
+
+fn action_ddc_vcp_version(target: &Option<(usize, String)>) -> Result<(), Box<dyn std::error::Error>> {
+    log_info(&format!("Target: {}", ddc_target_label(target)));
+
+    match ddc_get_vcp(target, lg_monitor::ddc::VCP_VERSION) {
         Ok(val) => {
             let major = (val.current >> 8) & 0xFF;
             let minor = val.current & 0xFF;
@@ -1526,11 +1767,10 @@ fn action_ddc_vcp_version() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn action_ddc_read_color_preset() -> Result<(), Box<dyn std::error::Error>> {
-    let pat = lg_pattern();
-    log_info(&format!("Target: '{}'", pat));
+fn action_ddc_read_color_preset(target: &Option<(usize, String)>) -> Result<(), Box<dyn std::error::Error>> {
+    log_info(&format!("Target: {}", ddc_target_label(target)));
 
-    match lg_monitor::ddc::get_vcp_by_pattern(&pat, lg_monitor::ddc::VCP_COLOR_PRESET) {
+    match ddc_get_vcp(target, lg_monitor::ddc::VCP_COLOR_PRESET) {
         Ok(val) => {
             let name = match val.current {
                 1 => "sRGB",
@@ -1558,52 +1798,10 @@ fn action_ddc_read_color_preset() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn action_ddc_cycle_color_preset() -> Result<(), Box<dyn std::error::Error>> {
-    let pat = lg_pattern();
-    log_info(&format!("Target: '{}'", pat));
+fn action_ddc_read_display_mode(target: &Option<(usize, String)>) -> Result<(), Box<dyn std::error::Error>> {
+    log_info(&format!("Target: {}", ddc_target_label(target)));
 
-    // Read current, then cycle: sRGB(1) → 6500K(6) → 9300K(10) → User1(11) → sRGB(1)
-    let current = match lg_monitor::ddc::get_vcp_by_pattern(&pat, lg_monitor::ddc::VCP_COLOR_PRESET) {
-        Ok(val) => {
-            log_info(&format!("  Current color preset value: {}", val.current));
-            val.current
-        }
-        Err(e) => {
-            log_note(&format!("Could not read current preset, defaulting cycle to sRGB: {}", e));
-            0
-        }
-    };
-
-    let next = match current {
-        1 => 6,   // sRGB → 6500K
-        6 => 10,  // 6500K → 9300K
-        10 => 11, // 9300K → User1
-        _ => 1,   // anything else → sRGB
-    };
-
-    let next_name = match next {
-        1 => "sRGB",
-        6 => "6500K",
-        10 => "9300K",
-        11 => "User 1",
-        _ => "Unknown",
-    };
-
-    log_info(&format!("  Setting color preset to {} (value {})...", next_name, next));
-    match lg_monitor::ddc::set_vcp_by_pattern(&pat, lg_monitor::ddc::VCP_COLOR_PRESET, next) {
-        Ok(()) => log_ok(&format!("Color preset set to {}", next_name)),
-        Err(e) => return Err(format!("Set color preset failed: {}", e).into()),
-    }
-
-    log_done("Color preset cycle complete.");
-    Ok(())
-}
-
-fn action_ddc_read_display_mode() -> Result<(), Box<dyn std::error::Error>> {
-    let pat = lg_pattern();
-    log_info(&format!("Target: '{}'", pat));
-
-    match lg_monitor::ddc::get_vcp_by_pattern(&pat, lg_monitor::ddc::VCP_DISPLAY_MODE) {
+    match ddc_get_vcp(target, lg_monitor::ddc::VCP_DISPLAY_MODE) {
         Ok(val) => {
             log_ok(&format!(
                 "Display Mode: current={}, max={} (type={})",
@@ -1617,42 +1815,11 @@ fn action_ddc_read_display_mode() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn action_ddc_cycle_display_mode() -> Result<(), Box<dyn std::error::Error>> {
-    let pat = lg_pattern();
-    log_info(&format!("Target: '{}'", pat));
-
-    let current = match lg_monitor::ddc::get_vcp_by_pattern(&pat, lg_monitor::ddc::VCP_DISPLAY_MODE) {
-        Ok(val) => {
-            log_info(&format!("  Current display mode: {} (max {})", val.current, val.max));
-            val
-        }
-        Err(e) => {
-            return Err(format!("Could not read display mode to cycle: {}", e).into());
-        }
-    };
-
-    let next = if current.max > 0 && current.current >= current.max {
-        1
-    } else {
-        current.current + 1
-    };
-
-    log_info(&format!("  Setting display mode to {}...", next));
-    match lg_monitor::ddc::set_vcp_by_pattern(&pat, lg_monitor::ddc::VCP_DISPLAY_MODE, next) {
-        Ok(()) => log_ok(&format!("Display mode set to {}", next)),
-        Err(e) => return Err(format!("Set display mode failed: {}", e).into()),
-    }
-
-    log_done("Display mode cycle complete.");
-    Ok(())
-}
-
-fn action_ddc_reset_brightness_contrast() -> Result<(), Box<dyn std::error::Error>> {
-    let pat = lg_pattern();
-    log_info(&format!("Target: '{}'", pat));
+fn action_ddc_reset_brightness_contrast(target: &Option<(usize, String)>) -> Result<(), Box<dyn std::error::Error>> {
+    log_info(&format!("Target: {}", ddc_target_label(target)));
     log_info("Sending VCP 0x06 reset (brightness + contrast)...");
 
-    match lg_monitor::ddc::set_vcp_by_pattern(&pat, lg_monitor::ddc::VCP_RESET_BRIGHTNESS_CONTRAST, 1) {
+    match ddc_set_vcp(target, lg_monitor::ddc::VCP_RESET_BRIGHTNESS_CONTRAST, 1) {
         Ok(()) => log_ok("Brightness + Contrast reset sent"),
         Err(e) => return Err(format!("Reset failed: {}", e).into()),
     }
@@ -1661,12 +1828,11 @@ fn action_ddc_reset_brightness_contrast() -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
-fn action_ddc_reset_color() -> Result<(), Box<dyn std::error::Error>> {
-    let pat = lg_pattern();
-    log_info(&format!("Target: '{}'", pat));
+fn action_ddc_reset_color(target: &Option<(usize, String)>) -> Result<(), Box<dyn std::error::Error>> {
+    log_info(&format!("Target: {}", ddc_target_label(target)));
     log_info("Sending VCP 0x0A reset (color)...");
 
-    match lg_monitor::ddc::set_vcp_by_pattern(&pat, lg_monitor::ddc::VCP_RESET_COLOR, 1) {
+    match ddc_set_vcp(target, lg_monitor::ddc::VCP_RESET_COLOR, 1) {
         Ok(()) => log_ok("Color reset sent"),
         Err(e) => return Err(format!("Reset failed: {}", e).into()),
     }
@@ -2222,7 +2388,7 @@ mod tests {
     #[test]
     fn draw_maintenance2_contains_all_items() {
         let output =
-            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts()));
+            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts(), None));
         assert!(output.contains("[1]"), "item 1 — VCP version");
         assert!(output.contains("[2]"), "item 2 — color preset read");
         assert!(output.contains("[3]"), "item 3 — color preset cycle");
@@ -2231,6 +2397,8 @@ mod tests {
         assert!(output.contains("[6]"), "item 6 — reset brightness+contrast");
         assert!(output.contains("[7]"), "item 7 — reset color");
         assert!(output.contains("[8]"), "item 8 — list monitors");
+        assert!(output.contains("[9]"), "item 9 — cycle target");
+        assert!(output.contains("[0]"), "item 0 — reset target");
         assert!(output.contains("[P]"), "prev page key");
         assert!(output.contains("[B]"), "back key");
         assert!(output.contains("[Q]"), "quit key");
@@ -2239,47 +2407,65 @@ mod tests {
     #[test]
     fn draw_maintenance2_title() {
         let output =
-            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts()));
+            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts(), None));
         assert!(output.contains("DDC LAB"), "should show DDC LAB title");
     }
 
     #[test]
     fn draw_maintenance2_sections() {
         let output =
-            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts()));
+            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts(), None));
         assert!(output.contains("READ"), "should have READ section");
         assert!(output.contains("WRITE"), "should have WRITE section");
         assert!(output.contains("RESET"), "should have RESET section");
         assert!(output.contains("INFO"), "should have INFO section");
+        assert!(output.contains("TARGET"), "should have TARGET section");
         assert!(output.contains("NAVIGATION"), "should have NAVIGATION section");
     }
 
     #[test]
-    fn draw_maintenance2_lg_note() {
+    fn draw_maintenance2_default_target() {
         let output =
-            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts()));
+            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts(), None));
         assert!(
-            output.contains("monitor_match"),
-            "should mention config monitor_match pattern"
+            output.contains("config default"),
+            "should show config default when no target selected"
+        );
+    }
+
+    #[test]
+    fn draw_maintenance2_specific_target() {
+        let target = (0usize, "LG ULTRAGEAR".to_string());
+        let output =
+            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts(), Some(&target)));
+        assert!(
+            output.contains("LG ULTRAGEAR"),
+            "should show specific target name"
+        );
+        assert!(
+            output.contains("#0"),
+            "should show monitor index"
         );
     }
 
     #[test]
     fn draw_maintenance2_item_labels() {
         let output =
-            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts()));
+            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts(), None));
         assert!(output.contains("VCP Version"), "should have VCP Version");
         assert!(output.contains("Color Preset"), "should have Color Preset");
         assert!(output.contains("Display Mode"), "should have Display Mode");
         assert!(output.contains("Reset Brightness"), "should have Reset Brightness");
         assert!(output.contains("Reset Color"), "should have Reset Color");
         assert!(output.contains("List Physical Monitors"), "should have List Monitors");
+        assert!(output.contains("Select Target"), "should have Select Target");
+        assert!(output.contains("Reset Target"), "should have Reset Target");
     }
 
     #[test]
     fn draw_maintenance2_navigation() {
         let output =
-            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts()));
+            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts(), None));
         assert!(output.contains("Previous Page"), "should have Previous Page");
         assert!(output.contains("Back to Main Menu"), "should have Back");
         assert!(output.contains("Quit"), "should have Quit");
@@ -2288,7 +2474,7 @@ mod tests {
     #[test]
     fn draw_maintenance2_produces_nonempty_output() {
         let output =
-            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts()));
+            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts(), None));
         assert!(!output.is_empty());
         assert!(output.len() > 200, "DDC Lab page should produce substantial output");
     }
@@ -2300,7 +2486,7 @@ mod tests {
                 for svc_running in [false, true] {
                     let s = test_status(profile, svc_installed, svc_running, 1);
                     let output = render_to_string(|buf| {
-                        draw_maintenance2(buf, &s, &default_opts())
+                        draw_maintenance2(buf, &s, &default_opts(), None)
                     });
                     assert!(!output.is_empty());
                 }
@@ -4541,7 +4727,7 @@ mod tests {
             // We avoid read_key by directly testing the wrapper output
             // before it hits the "Press any key" logic. We test the
             // write path only.
-            queue!(buf, Clear(ClearType::All), cursor::MoveTo(0, 0)).unwrap();
+            queue!(buf, Clear(ClearType::Purge), Clear(ClearType::All), cursor::MoveTo(0, 0)).unwrap();
             draw_top(buf, " PROCESSING ").unwrap();
             draw_empty(buf).unwrap();
             draw_line(buf, "Test banner text", Color::Yellow).unwrap();

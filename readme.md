@@ -69,6 +69,38 @@ This dimming behavior is frustrating for gamers and professionals because:
 **❌ Waiting for firmware updates** — Many screens either have no user-accessible updates, or LG hasn't released fixes
 **✅ Color profile approach** — Works immediately with current firmware, no waiting required
 
+### LG Service Menu — Disable CPC / LEA Refresh (OLED Models)
+
+Some LG UltraGear OLED monitors (confirmed on **27GR95QE**, **32GS95UE**, **32GS95UX**) have a hidden service menu that lets you disable **CPC** (Content-based Power Control) and **LEA Refresh** for higher sustained brightness. This is a complementary approach that can be combined with the color profile fix above.
+
+> **Note:** Service menu settings reset every time the monitor is fully powered off. See the deep sleep workaround below to preserve them across sleep cycles.
+
+**How to enter the service menu (no remote required):**
+
+1. **Power off** the monitor
+2. Push the joystick/thumbstick: **Left → Left → Left → Right**
+3. **Power on** the monitor
+4. Open the OSD settings — you will see the service menu instead of the normal menu
+
+**Recommended settings:**
+
+1. Turn **Aging → On** (this unlocks the OLED debug/tuning options)
+2. Disable **CPC** (Content-based Power Control) — prevents automatic brightness reduction based on screen content
+3. Disable **LEA Refresh** — prevents periodic brightness dips from the panel refresh cycle
+4. Turn **Aging → Off** when done, so the automatic image cleaning (pixel refresh) process remains enabled
+
+> **Tip:** If the CPC / LEA Refresh options are not visible, try enabling **Aging** first — that may be all that's needed on your model.
+
+**How to exit the service menu:**
+
+Repeat the same joystick sequence: power off → Left → Left → Left → Right → power on → open OSD. The normal settings menu will return.
+
+**Preserving settings across sleep cycles:**
+
+Disable **Deep Sleep** in the normal OSD *before* entering the service menu. The changed values will persist as long as the monitor is not fully powered off (standby/sleep is fine). Note: you must stay in "service menu mode" — switching back to the normal OSD requires the power-off sequence, which resets the service menu values.
+
+*Thanks to the [r/OLED_Gaming community](https://www.reddit.com/r/OLED_Gaming/comments/12ndpc8/27gr95qe_service_menu/) and user La773 for documenting these steps.*
+
 
 ## Quick Start
 
