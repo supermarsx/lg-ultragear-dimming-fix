@@ -11,7 +11,7 @@ use std::error::Error;
 use std::ffi::OsStr;
 use std::io;
 use std::os::windows::ffi::OsStrExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::{ptr, thread, time::Duration};
 use windows::core::{BSTR, HSTRING, PCWSTR};
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, WPARAM};
@@ -76,7 +76,21 @@ pub fn ensure_profile_installed(profile_path: &Path) -> Result<bool, Box<dyn Err
 ///
 /// This lets the WCS association/disassociation APIs find the profile.
 /// Calling it on an already-registered profile is harmless.
+///
+/// **Important:** `InstallColorProfileW` copies the file into the system color
+/// directory (`%WINDIR%\System32\spool\drivers\color`).  If the profile is
+/// *not* already in that directory, calling this would create an unwanted copy
+/// (e.g. from test paths).  To prevent that, this function is a no-op when the
+/// profile path is outside the color directory.
 pub fn register_color_profile(profile_path: &Path) -> Result<(), Box<dyn Error>> {
+    if !is_in_color_directory(profile_path) {
+        info!(
+            "Skipping WCS registration (not in color directory): {}",
+            profile_path.display()
+        );
+        return Ok(());
+    }
+
     let path_wide: Vec<u16> = profile_path
         .as_os_str()
         .encode_wide()
@@ -102,6 +116,104 @@ pub fn register_color_profile(profile_path: &Path) -> Result<(), Box<dyn Error>>
     }
 
     Ok(())
+}
+
+/// Return the Windows system color profile directory.
+pub fn color_directory() -> PathBuf {
+    let windir = std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".to_string());
+    PathBuf::from(windir)
+        .join("System32")
+        .join("spool")
+        .join("drivers")
+        .join("color")
+}
+
+/// Check whether `path` resides in the Windows color directory.
+fn is_in_color_directory(path: &Path) -> bool {
+    let color_dir = color_directory();
+    match path.parent() {
+        Some(parent) => {
+            // Case-insensitive comparison for Windows paths.
+            parent
+                .to_string_lossy()
+                .to_lowercase()
+                == color_dir.to_string_lossy().to_lowercase()
+        }
+        None => false,
+    }
+}
+
+/// Remove stale/leftover ICM files from the system color directory.
+///
+/// Scans for files that do NOT match `expected_name` and whose names
+/// match patterns known to come from test runs or previous versions of
+/// this tool.  Returns a list of paths that were deleted.
+pub fn cleanup_stale_profiles(expected_name: &str) -> Vec<PathBuf> {
+    let color_dir = color_directory();
+    let mut removed = Vec::new();
+
+    let entries = match std::fs::read_dir(&color_dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            warn!("Cannot read color directory {}: {}", color_dir.display(), e);
+            return removed;
+        }
+    };
+
+    // Known stale patterns from test runs and development.
+    let stale_patterns: &[&str] = &[
+        "test-embedded.icm",
+        "edge-test.icm",
+        "wrong-size.icm",
+        "nested.icm",
+        "remove-test.icm",
+        "check.icm",
+        "test-extract.icm",
+        "test-idempotent.icm",
+        "test-roundtrip.icm",
+        "test-re-extract.icm",
+        "test-is-installed.icm",
+        "test-content.icm",
+        "test-overwrite.icm",
+        "register-test.icm",
+        "wrong.icm",
+        "size-check.icm",
+    ];
+
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+
+        // Skip the expected profile
+        if name_str.eq_ignore_ascii_case(expected_name) {
+            continue;
+        }
+
+        // Only consider .icm files
+        if !name_str.to_lowercase().ends_with(".icm") {
+            continue;
+        }
+
+        let name_lower = name_str.to_lowercase();
+        if stale_patterns.iter().any(|p| name_lower == *p) {
+            let path = entry.path();
+            match std::fs::remove_file(&path) {
+                Ok(()) => {
+                    info!("Removed stale profile: {}", path.display());
+                    removed.push(path);
+                }
+                Err(e) => {
+                    warn!("Failed to remove stale profile {}: {}", path.display(), e);
+                }
+            }
+        }
+    }
+
+    if !removed.is_empty() {
+        info!("Cleaned up {} stale profile(s)", removed.len());
+    }
+
+    removed
 }
 
 // ============================================================================

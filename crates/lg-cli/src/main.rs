@@ -683,6 +683,13 @@ fn cmd_install(opts: InstallOpts) -> Result<(), Box<dyn Error>> {
                 }
             }
         }
+
+        // Clean up any stale/leftover ICM files (from test runs, etc.)
+        let stale = lg_profile::cleanup_stale_profiles(&cfg.profile_name);
+        for p in &stale {
+            println!("[OK] Removed stale profile: {}", p.display());
+        }
+
         println!("[DONE] Profile install complete.");
         return Ok(());
     }
@@ -810,6 +817,12 @@ fn cmd_uninstall(full: bool, profile: bool, dry_run: bool) -> Result<(), Box<dyn
         match lg_profile::remove_profile(&profile_path)? {
             true => println!("[OK] ICC profile removed from {}", profile_path.display()),
             false => println!("[NOTE] ICC profile not found (already removed)"),
+        }
+
+        // Clean up any stale/leftover ICM files (from test runs, etc.)
+        let stale = lg_profile::cleanup_stale_profiles(&cfg.profile_name);
+        for p in &stale {
+            println!("[OK] Removed stale profile: {}", p.display());
         }
     }
 

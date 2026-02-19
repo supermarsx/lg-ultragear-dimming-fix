@@ -559,18 +559,31 @@ fn register_color_profile_nonexistent_does_not_panic() {
 }
 
 #[test]
-fn register_color_profile_temp_file() {
+fn register_color_profile_temp_file_is_noop() {
+    // register_color_profile should be a no-op for paths outside the color
+    // directory — it must NOT call InstallColorProfileW which would copy
+    // the file into the system color store.
     let dir = std::env::temp_dir().join("lg-profile-register-test");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("register-test.icm");
 
-    // Write the embedded profile
+    // Clean up any previously-leaked copy from old test runs.
+    let leaked = color_directory().join("register-test.icm");
+    let _ = std::fs::remove_file(&leaked);
+
+    // Write the embedded profile to temp
     ensure_profile_installed(&path).unwrap();
 
-    // register_color_profile should not panic (may warn if no admin rights)
+    // register_color_profile should succeed (no-op since outside color dir)
     let result = register_color_profile(&path);
     assert!(result.is_ok());
+
+    // Verify it did NOT leak into the system color directory
+    assert!(
+        !leaked.exists(),
+        "register_color_profile should NOT copy temp files into the color directory"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
