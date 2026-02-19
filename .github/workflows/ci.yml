@@ -71,11 +71,29 @@ jobs:
         run: cargo test --all-targets
 
   # =========================================================================
+  # CHECK - cargo check (type check without linking)
+  # =========================================================================
+  check:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Type check
+        run: cargo check --all-targets --all-features
+
+  # =========================================================================
   # BUILD - Release binary and package
   # =========================================================================
   build:
     runs-on: windows-latest
-    needs: [format, lint, test]
+    needs: [format, lint, test, check]
     steps:
       - name: Checkout
         uses: actions/checkout@v4

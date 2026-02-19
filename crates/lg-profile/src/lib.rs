@@ -109,10 +109,7 @@ pub fn register_color_profile(profile_path: &Path) -> Result<(), Box<dyn Error>>
             code
         );
     } else {
-        info!(
-            "Profile registered with WCS: {}",
-            profile_path.display()
-        );
+        info!("Profile registered with WCS: {}", profile_path.display());
     }
 
     Ok(())
@@ -134,10 +131,7 @@ fn is_in_color_directory(path: &Path) -> bool {
     match path.parent() {
         Some(parent) => {
             // Case-insensitive comparison for Windows paths.
-            parent
-                .to_string_lossy()
-                .to_lowercase()
-                == color_dir.to_string_lossy().to_lowercase()
+            parent.to_string_lossy().to_lowercase() == color_dir.to_string_lossy().to_lowercase()
         }
         None => false,
     }
@@ -318,7 +312,11 @@ pub fn remove_profile(profile_path: &Path) -> Result<bool, Box<dyn Error>> {
         }
         match std::fs::remove_file(profile_path) {
             Ok(()) => {
-                info!("ICC profile removed: {} (attempt {})", profile_path.display(), attempt + 1);
+                info!(
+                    "ICC profile removed: {} (attempt {})",
+                    profile_path.display(),
+                    attempt + 1
+                );
                 return Ok(true);
             }
             Err(e) if e.raw_os_error() == Some(32) => {
@@ -474,7 +472,10 @@ pub fn reapply_profile(
                 device_key, err
             );
         } else {
-            info!("SDR display default association set (system) for {}", device_key);
+            info!(
+                "SDR display default association set (system) for {}",
+                device_key
+            );
         }
 
         if per_user {
@@ -493,7 +494,10 @@ pub fn reapply_profile(
                     device_key, err
                 );
             } else {
-                info!("SDR display default association set (per-user) for {}", device_key);
+                info!(
+                    "SDR display default association set (per-user) for {}",
+                    device_key
+                );
             }
         }
     }
@@ -613,7 +617,10 @@ pub fn set_display_default_association(
                 device_key, err
             );
         } else {
-            info!("SDR display default association set (system) for {}", device_key);
+            info!(
+                "SDR display default association set (system) for {}",
+                device_key
+            );
         }
 
         if per_user {
@@ -632,7 +639,10 @@ pub fn set_display_default_association(
                     device_key, err
                 );
             } else {
-                info!("SDR display default association set (per-user) for {}", device_key);
+                info!(
+                    "SDR display default association set (per-user) for {}",
+                    device_key
+                );
             }
         }
     }
@@ -695,7 +705,10 @@ pub fn add_hdr_display_association(
                     device_key, err
                 );
             } else {
-                info!("HDR display association added (per-user) for {}", device_key);
+                info!(
+                    "HDR display association added (per-user) for {}",
+                    device_key
+                );
             }
         }
     }

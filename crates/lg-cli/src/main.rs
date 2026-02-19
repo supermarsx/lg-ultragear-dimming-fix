@@ -349,7 +349,10 @@ enum DdcAction {
 
 /// Parse a hex string (with or without 0x prefix) into a u8.
 fn parse_hex_u8(s: &str) -> Result<u8, String> {
-    let s = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
+    let s = s
+        .strip_prefix("0x")
+        .or_else(|| s.strip_prefix("0X"))
+        .unwrap_or(s);
     u8::from_str_radix(s, 16).map_err(|e| format!("Invalid hex byte '{}': {}", s, e))
 }
 
@@ -646,10 +649,7 @@ fn cmd_config(action: Option<ConfigAction>) -> Result<(), Box<dyn Error>> {
                 "  ddc_brightness_on_reapply = {}",
                 cfg.ddc_brightness_on_reapply
             );
-            println!(
-                "  ddc_brightness_value      = {}",
-                cfg.ddc_brightness_value
-            );
+            println!("  ddc_brightness_value      = {}", cfg.ddc_brightness_value);
             println!("\n── Debug ──");
             println!("  verbose                  = {}", cfg.verbose);
         }
@@ -959,10 +959,7 @@ fn cmd_uninstall(full: bool, profile: bool, dry_run: bool) -> Result<(), Box<dyn
                     }
                     Err(_) if attempt < 4 => continue,
                     Err(e) => {
-                        println!(
-                            "[WARN] Could not remove config dir: {}",
-                            e
-                        );
+                        println!("[WARN] Could not remove config dir: {}", e);
                     }
                 }
             }
@@ -1114,11 +1111,17 @@ fn cmd_ddc(action: DdcAction, dry_run: bool) -> Result<(), Box<dyn Error>> {
                 return Ok(());
             }
             if let Some(ref pat) = pattern {
-                println!("[INFO] Setting DDC brightness to {} for monitors matching \"{}\"...", value, pat);
+                println!(
+                    "[INFO] Setting DDC brightness to {} for monitors matching \"{}\"...",
+                    value, pat
+                );
                 lg_monitor::ddc::set_vcp_by_pattern(pat, lg_monitor::ddc::VCP_BRIGHTNESS, value)?;
                 println!("[OK] Brightness set to {}", value);
             } else {
-                println!("[INFO] Setting DDC brightness to {} on all monitors...", value);
+                println!(
+                    "[INFO] Setting DDC brightness to {} on all monitors...",
+                    value
+                );
                 let count = lg_monitor::ddc::set_brightness_all(value)?;
                 println!("[OK] Brightness set to {} on {} monitor(s)", value, count);
             }
@@ -1129,17 +1132,26 @@ fn cmd_ddc(action: DdcAction, dry_run: bool) -> Result<(), Box<dyn Error>> {
             println!("[INFO] Reading color preset from \"{}\"...", pat);
             let val = lg_monitor::ddc::get_vcp_by_pattern(pat, lg_monitor::ddc::VCP_COLOR_PRESET)?;
             let name = color_preset_name(val.current);
-            println!("[OK] Color Preset: {} (value={}, max={})", name, val.current, val.max);
+            println!(
+                "[OK] Color Preset: {} (value={}, max={})",
+                name, val.current, val.max
+            );
         }
 
         DdcAction::SetColorPreset { value, pattern } => {
             let pat = pattern.as_deref().unwrap_or(&cfg.monitor_match);
             if dry_run {
-                println!("[DRY RUN] Would set color preset to {} for \"{}\"", value, pat);
+                println!(
+                    "[DRY RUN] Would set color preset to {} for \"{}\"",
+                    value, pat
+                );
                 return Ok(());
             }
             let name = color_preset_name(value);
-            println!("[INFO] Setting color preset to {} ({}) for \"{}\"...", name, value, pat);
+            println!(
+                "[INFO] Setting color preset to {} ({}) for \"{}\"...",
+                name, value, pat
+            );
             lg_monitor::ddc::set_vcp_by_pattern(pat, lg_monitor::ddc::VCP_COLOR_PRESET, value)?;
             println!("[OK] Color preset set to {} ({})", name, value);
         }
@@ -1148,16 +1160,25 @@ fn cmd_ddc(action: DdcAction, dry_run: bool) -> Result<(), Box<dyn Error>> {
             let pat = pattern.as_deref().unwrap_or(&cfg.monitor_match);
             println!("[INFO] Reading display mode from \"{}\"...", pat);
             let val = lg_monitor::ddc::get_vcp_by_pattern(pat, lg_monitor::ddc::VCP_DISPLAY_MODE)?;
-            println!("[OK] Display Mode: current={}, max={} (type={})", val.current, val.max, val.vcp_type);
+            println!(
+                "[OK] Display Mode: current={}, max={} (type={})",
+                val.current, val.max, val.vcp_type
+            );
         }
 
         DdcAction::SetDisplayMode { value, pattern } => {
             let pat = pattern.as_deref().unwrap_or(&cfg.monitor_match);
             if dry_run {
-                println!("[DRY RUN] Would set display mode to {} for \"{}\"", value, pat);
+                println!(
+                    "[DRY RUN] Would set display mode to {} for \"{}\"",
+                    value, pat
+                );
                 return Ok(());
             }
-            println!("[INFO] Setting display mode to {} for \"{}\"...", value, pat);
+            println!(
+                "[INFO] Setting display mode to {} for \"{}\"...",
+                value, pat
+            );
             lg_monitor::ddc::set_vcp_by_pattern(pat, lg_monitor::ddc::VCP_DISPLAY_MODE, value)?;
             println!("[OK] Display mode set to {}", value);
         }
@@ -1169,7 +1190,11 @@ fn cmd_ddc(action: DdcAction, dry_run: bool) -> Result<(), Box<dyn Error>> {
                 return Ok(());
             }
             println!("[INFO] Resetting brightness + contrast for \"{}\"...", pat);
-            lg_monitor::ddc::set_vcp_by_pattern(pat, lg_monitor::ddc::VCP_RESET_BRIGHTNESS_CONTRAST, 1)?;
+            lg_monitor::ddc::set_vcp_by_pattern(
+                pat,
+                lg_monitor::ddc::VCP_RESET_BRIGHTNESS_CONTRAST,
+                1,
+            )?;
             println!("[OK] Brightness + contrast reset sent");
         }
 
@@ -1190,7 +1215,10 @@ fn cmd_ddc(action: DdcAction, dry_run: bool) -> Result<(), Box<dyn Error>> {
             let val = lg_monitor::ddc::get_vcp_by_pattern(pat, lg_monitor::ddc::VCP_VERSION)?;
             let major = (val.current >> 8) & 0xFF;
             let minor = val.current & 0xFF;
-            println!("[OK] VCP Version: {}.{} (raw={})", major, minor, val.current);
+            println!(
+                "[OK] VCP Version: {}.{} (raw={})",
+                major, minor, val.current
+            );
         }
 
         DdcAction::GetVcp { code, pattern } => {
@@ -1203,13 +1231,23 @@ fn cmd_ddc(action: DdcAction, dry_run: bool) -> Result<(), Box<dyn Error>> {
             );
         }
 
-        DdcAction::SetVcp { code, value, pattern } => {
+        DdcAction::SetVcp {
+            code,
+            value,
+            pattern,
+        } => {
             let pat = pattern.as_deref().unwrap_or(&cfg.monitor_match);
             if dry_run {
-                println!("[DRY RUN] Would set VCP 0x{:02X} = {} for \"{}\"", code, value, pat);
+                println!(
+                    "[DRY RUN] Would set VCP 0x{:02X} = {} for \"{}\"",
+                    code, value, pat
+                );
                 return Ok(());
             }
-            println!("[INFO] Setting VCP 0x{:02X} = {} for \"{}\"...", code, value, pat);
+            println!(
+                "[INFO] Setting VCP 0x{:02X} = {} for \"{}\"...",
+                code, value, pat
+            );
             lg_monitor::ddc::set_vcp_by_pattern(pat, code, value)?;
             println!("[OK] VCP 0x{:02X} set to {}", code, value);
         }
@@ -1221,7 +1259,11 @@ fn cmd_ddc(action: DdcAction, dry_run: bool) -> Result<(), Box<dyn Error>> {
                 println!("  (no physical monitors found)");
             } else {
                 for (idx, desc) in &monitors {
-                    let label = if desc.is_empty() { "(no description)" } else { desc.as_str() };
+                    let label = if desc.is_empty() {
+                        "(no description)"
+                    } else {
+                        desc.as_str()
+                    };
                     println!("  [{}] {}", idx, label);
                 }
                 println!("\n[OK] {} physical monitor(s) found", monitors.len());

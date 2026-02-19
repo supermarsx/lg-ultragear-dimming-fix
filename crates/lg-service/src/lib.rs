@@ -591,7 +591,10 @@ fn handle_profile_reapply(config: &Config) {
             // DDC/CI brightness (if enabled)
             if config.ddc_brightness_on_reapply {
                 match lg_monitor::ddc::set_brightness_all(config.ddc_brightness_value) {
-                    Ok(n) => info!("DDC brightness set to {} on {} monitor(s)", config.ddc_brightness_value, n),
+                    Ok(n) => info!(
+                        "DDC brightness set to {} on {} monitor(s)",
+                        config.ddc_brightness_value, n
+                    ),
                     Err(e) => warn!("DDC brightness set failed: {} (non-fatal)", e),
                 }
             }
@@ -686,8 +689,7 @@ pub fn install(monitor_match: &str) -> Result<(), Box<dyn Error>> {
 /// Stop the existing service (if any) so we can safely overwrite the binary.
 /// All errors are silently absorbed — the service may not exist yet.
 fn stop_existing_service() {
-    let Ok(manager) =
-        ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+    let Ok(manager) = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
     else {
         return;
     };
@@ -766,7 +768,10 @@ pub fn uninstall() -> Result<(), Box<dyn Error>> {
 
             // Delete the service registration from SCM.
             if let Err(e) = service.delete() {
-                warn!("service.delete() failed: {} (may already be marked for deletion)", e);
+                warn!(
+                    "service.delete() failed: {} (may already be marked for deletion)",
+                    e
+                );
             }
         }
         Err(e) => {
@@ -836,13 +841,9 @@ fn schedule_reboot_delete_impl(path: &std::path::Path) {
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
-    let ok =
-        unsafe { MoveFileExW(PCWSTR(wide.as_ptr()), None, MOVEFILE_DELAY_UNTIL_REBOOT) };
+    let ok = unsafe { MoveFileExW(PCWSTR(wide.as_ptr()), None, MOVEFILE_DELAY_UNTIL_REBOOT) };
     match ok {
-        Ok(()) => info!(
-            "Scheduled for deletion on reboot: {}",
-            path.display()
-        ),
+        Ok(()) => info!("Scheduled for deletion on reboot: {}", path.display()),
         Err(e) => warn!(
             "Could not schedule {} for reboot deletion: {} (clean up manually)",
             path.display(),
@@ -872,11 +873,7 @@ pub fn print_status() -> Result<(), Box<dyn Error>> {
     {
         Ok(m) => m,
         Err(e) => {
-            return Err(format!(
-                "Cannot connect to Service Control Manager: {}",
-                e
-            )
-            .into());
+            return Err(format!("Cannot connect to Service Control Manager: {}", e).into());
         }
     };
 
@@ -888,10 +885,7 @@ pub fn print_status() -> Result<(), Box<dyn Error>> {
             println!("Config:  {}", config::config_path().display());
             println!("Monitor: {}", cfg.monitor_match);
             println!("Profile: {}", cfg.profile_name);
-            println!(
-                "Toast:   {}",
-                if cfg.toast_enabled { "on" } else { "off" }
-            );
+            println!("Toast:   {}", if cfg.toast_enabled { "on" } else { "off" });
             return Ok(());
         }
     };
@@ -954,10 +948,7 @@ fn register_event_source(exe_path: &std::path::Path) -> Result<(), Box<dyn Error
 
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
     let (key, _) = hklm.create_subkey(EVENTLOG_REG_KEY)?;
-    key.set_value(
-        "EventMessageFile",
-        &exe_path.to_string_lossy().as_ref(),
-    )?;
+    key.set_value("EventMessageFile", &exe_path.to_string_lossy().as_ref())?;
     // EVENTLOG_ERROR_TYPE | EVENTLOG_WARNING_TYPE | EVENTLOG_INFORMATION_TYPE
     key.set_value("TypesSupported", &7u32)?;
     info!("Event log source registered: {}", exe_path.display());

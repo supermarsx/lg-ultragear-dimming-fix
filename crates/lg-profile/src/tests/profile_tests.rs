@@ -258,7 +258,10 @@ fn embedded_icm_has_icc_header_signature() {
     // ICC profiles have "acsp" at offset 36
     if EMBEDDED_ICM_SIZE > 40 {
         let sig = &EMBEDDED_ICM[36..40];
-        assert_eq!(sig, b"acsp", "embedded ICM should have ICC 'acsp' signature");
+        assert_eq!(
+            sig, b"acsp",
+            "embedded ICM should have ICC 'acsp' signature"
+        );
     }
 }
 
@@ -284,7 +287,7 @@ fn embedded_icm_is_not_all_zeros() {
 
 #[test]
 fn embedded_icm_has_nonzero_size() {
-    assert!(EMBEDDED_ICM_SIZE > 100, "ICM file should be > 100 bytes");
+    const { assert!(EMBEDDED_ICM_SIZE > 100, "ICM file should be > 100 bytes") };
 }
 
 // ── ensure_profile_installed edge cases ──────────────────────────
@@ -340,27 +343,22 @@ fn ensure_profile_installed_creates_parent_directories() {
         .join("a")
         .join("b")
         .join("c");
-    let _ = std::fs::remove_dir_all(
-        std::env::temp_dir().join("lg-profile-edge-test-nested"),
-    );
+    let _ = std::fs::remove_dir_all(std::env::temp_dir().join("lg-profile-edge-test-nested"));
     let path = dir.join("nested.icm");
 
     let wrote = ensure_profile_installed(&path).expect("should create nested dirs");
     assert!(wrote, "should write to nested path");
     assert!(path.exists());
 
-    let _ = std::fs::remove_dir_all(
-        std::env::temp_dir().join("lg-profile-edge-test-nested"),
-    );
+    let _ = std::fs::remove_dir_all(std::env::temp_dir().join("lg-profile-edge-test-nested"));
 }
 
 // ── remove_profile edge cases ────────────────────────────────────
 
 #[test]
 fn remove_profile_nonexistent_edge_returns_false() {
-    let path = PathBuf::from(
-        r"C:\Windows\System32\spool\drivers\color\nonexistent-edge-test-99999.icm",
-    );
+    let path =
+        PathBuf::from(r"C:\Windows\System32\spool\drivers\color\nonexistent-edge-test-99999.icm");
     let result = remove_profile(&path).expect("should not error");
     assert!(!result, "removing nonexistent profile should return false");
 }
@@ -422,19 +420,20 @@ fn is_profile_installed_wrong_size_still_returns_true() {
 
 #[test]
 fn is_profile_installed_missing_returns_false() {
-    let path = PathBuf::from(
-        r"C:\Windows\System32\spool\drivers\color\definitely-missing-99999.icm",
+    let path =
+        PathBuf::from(r"C:\Windows\System32\spool\drivers\color\definitely-missing-99999.icm");
+    assert!(
+        !is_profile_installed(&path),
+        "missing file should not be installed"
     );
-    assert!(!is_profile_installed(&path), "missing file should not be installed");
 }
 
 // ── reapply_profile edge cases ───────────────────────────────────
 
 #[test]
 fn reapply_profile_empty_device_key_fails() {
-    let path = PathBuf::from(
-        r"C:\Windows\System32\spool\drivers\color\nonexistent-empty-key-99999.icm",
-    );
+    let path =
+        PathBuf::from(r"C:\Windows\System32\spool\drivers\color\nonexistent-empty-key-99999.icm");
     let result = reapply_profile("", &path, 100, false);
     // Should fail because profile doesn't exist (profile check comes first)
     assert!(result.is_err());
@@ -442,26 +441,30 @@ fn reapply_profile_empty_device_key_fails() {
 
 #[test]
 fn reapply_profile_zero_delay_still_fails_on_missing_profile() {
-    let path = PathBuf::from(
-        r"C:\Windows\System32\spool\drivers\color\nonexistent-zero-delay-99999.icm",
-    );
+    let path =
+        PathBuf::from(r"C:\Windows\System32\spool\drivers\color\nonexistent-zero-delay-99999.icm");
     let result = reapply_profile(r"DISPLAY\TEST\001", &path, 0, false);
     assert!(result.is_err());
     assert!(
-        result.unwrap_err().to_string().contains("Profile not found"),
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Profile not found"),
         "should mention missing profile"
     );
 }
 
 #[test]
 fn reapply_profile_per_user_true_still_fails_on_missing_profile() {
-    let path = PathBuf::from(
-        r"C:\Windows\System32\spool\drivers\color\nonexistent-per-user-99999.icm",
-    );
+    let path =
+        PathBuf::from(r"C:\Windows\System32\spool\drivers\color\nonexistent-per-user-99999.icm");
     let result = reapply_profile(r"DISPLAY\TEST\001", &path, 100, true);
     assert!(result.is_err());
     assert!(
-        result.unwrap_err().to_string().contains("Profile not found"),
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Profile not found"),
         "per_user=true should still check profile existence"
     );
 }
@@ -469,9 +472,8 @@ fn reapply_profile_per_user_true_still_fails_on_missing_profile() {
 #[test]
 fn reapply_profile_very_long_device_key_fails_on_missing_profile() {
     let long_key = format!(r"DISPLAY\{}\001", "X".repeat(500));
-    let path = PathBuf::from(
-        r"C:\Windows\System32\spool\drivers\color\nonexistent-long-key-99999.icm",
-    );
+    let path =
+        PathBuf::from(r"C:\Windows\System32\spool\drivers\color\nonexistent-long-key-99999.icm");
     let result = reapply_profile(&long_key, &path, 100, false);
     assert!(result.is_err());
 }
@@ -510,8 +512,7 @@ fn trigger_calibration_loader_enabled_does_not_panic() {
 #[test]
 fn wcs_scope_constants_are_distinct() {
     assert_ne!(
-        WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE,
-        WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
+        WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE, WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
         "system-wide and current-user scopes must differ"
     );
 }
@@ -519,9 +520,11 @@ fn wcs_scope_constants_are_distinct() {
 #[test]
 fn wcs_scope_values_are_small_integers() {
     // SYSTEM_WIDE = 0 is valid (first enum variant in the Windows SDK)
-    assert!(WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE < 256);
-    assert!(WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER > 0);
-    assert!(WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER < 256);
+    const {
+        assert!(WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE < 256);
+        assert!(WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER > 0);
+        assert!(WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER < 256);
+    };
 }
 
 #[test]
@@ -592,9 +595,8 @@ fn register_color_profile_temp_file_is_noop() {
 
 #[test]
 fn set_display_default_association_nonexistent_device_does_not_panic() {
-    let path = PathBuf::from(
-        r"C:\Windows\System32\spool\drivers\color\nonexistent-sdr-assoc-99999.icm",
-    );
+    let path =
+        PathBuf::from(r"C:\Windows\System32\spool\drivers\color\nonexistent-sdr-assoc-99999.icm");
     // Should not panic — API calls are non-fatal
     let result = set_display_default_association(r"DISPLAY\FAKE\999", &path, false);
     assert!(result.is_ok());
@@ -613,9 +615,8 @@ fn set_display_default_association_per_user_does_not_panic() {
 
 #[test]
 fn add_hdr_display_association_nonexistent_device_does_not_panic() {
-    let path = PathBuf::from(
-        r"C:\Windows\System32\spool\drivers\color\nonexistent-hdr-assoc-99999.icm",
-    );
+    let path =
+        PathBuf::from(r"C:\Windows\System32\spool\drivers\color\nonexistent-hdr-assoc-99999.icm");
     let result = add_hdr_display_association(r"DISPLAY\FAKE\999", &path, false);
     assert!(result.is_ok());
 }
@@ -654,10 +655,12 @@ fn wcs_scope_current_user_is_one() {
 
 #[test]
 fn wcs_scope_system_wide_less_than_current_user() {
-    assert!(
-        WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE < WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
-        "enum order: SYSTEM_WIDE(0) < CURRENT_USER(1)"
-    );
+    const {
+        assert!(
+            WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE < WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
+            // enum order: SYSTEM_WIDE(0) < CURRENT_USER(1)
+        );
+    };
 }
 
 // ── profile_path file_name extraction ────────────────────────────

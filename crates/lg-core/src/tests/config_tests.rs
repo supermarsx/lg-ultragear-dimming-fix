@@ -224,10 +224,7 @@ fn serialize_roundtrip() {
         parsed.ddc_brightness_on_reapply,
         original.ddc_brightness_on_reapply
     );
-    assert_eq!(
-        parsed.ddc_brightness_value,
-        original.ddc_brightness_value
-    );
+    assert_eq!(parsed.ddc_brightness_value, original.ddc_brightness_value);
     assert_eq!(parsed.verbose, original.verbose);
 }
 
@@ -666,7 +663,16 @@ fn parse_toml_ddc_brightness_defaults_when_omitted() {
 fn to_toml_commented_contains_ddc_section() {
     let cfg = Config::default();
     let output = Config::to_toml_commented(&cfg);
-    assert!(output.contains("DDC/CI Brightness"), "should contain DDC section header");
-    assert!(output.contains("ddc_brightness_on_reapply = false"), "should contain ddc toggle");
-    assert!(output.contains("ddc_brightness_value = 50"), "should contain ddc value");
+    assert!(
+        output.contains("DDC/CI Brightness"),
+        "should contain DDC section header"
+    );
+    assert!(
+        output.contains("ddc_brightness_on_reapply = false"),
+        "should contain ddc toggle"
+    );
+    assert!(
+        output.contains("ddc_brightness_value = 50"),
+        "should contain ddc value"
+    );
 }

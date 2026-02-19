@@ -176,7 +176,7 @@ fn render_icon(size: u32) -> Vec<u8> {
             let fy = y as f64 / s;
             let color = pixel_at(fx, fy, s);
             let idx = ((y * size + x) * 4) as usize;
-            pixels[idx] = color.0;     // R
+            pixels[idx] = color.0; // R
             pixels[idx + 1] = color.1; // G
             pixels[idx + 2] = color.2; // B
             pixels[idx + 3] = color.3; // A
@@ -210,7 +210,16 @@ fn pixel_at(fx: f64, fy: f64, size: f64) -> (u8, u8, u8, u8) {
     let screen_b = 0.63;
     let screen_r_rad = 0.03;
 
-    let in_screen = rounded_rect(fx, fy, screen_l, screen_t, screen_r, screen_b, screen_r_rad, aa);
+    let in_screen = rounded_rect(
+        fx,
+        fy,
+        screen_l,
+        screen_t,
+        screen_r,
+        screen_b,
+        screen_r_rad,
+        aa,
+    );
 
     // ── Stand neck ───────────────────────────────────────────
     let neck_l = 0.42;
@@ -302,16 +311,7 @@ fn pixel_at(fx: f64, fy: f64, size: f64) -> (u8, u8, u8, u8) {
 
 /// Signed distance for a rounded rectangle, returns 0.0..1.0 coverage.
 #[allow(clippy::too_many_arguments)]
-fn rounded_rect(
-    fx: f64,
-    fy: f64,
-    l: f64,
-    t: f64,
-    r: f64,
-    b: f64,
-    rad: f64,
-    aa: f64,
-) -> f64 {
+fn rounded_rect(fx: f64, fy: f64, l: f64, t: f64, r: f64, b: f64, rad: f64, aa: f64) -> f64 {
     let cx = (l + r) / 2.0;
     let cy = (t + b) / 2.0;
     let hw = (r - l) / 2.0;

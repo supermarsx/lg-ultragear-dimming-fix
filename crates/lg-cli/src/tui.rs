@@ -77,8 +77,7 @@ fn ensure_console_size() {
     {
         use windows::Win32::System::Console::{
             GetConsoleScreenBufferInfo, GetStdHandle, SetConsoleScreenBufferSize,
-            SetConsoleWindowInfo, CONSOLE_SCREEN_BUFFER_INFO, COORD, SMALL_RECT,
-            STD_OUTPUT_HANDLE,
+            SetConsoleWindowInfo, CONSOLE_SCREEN_BUFFER_INFO, COORD, SMALL_RECT, STD_OUTPUT_HANDLE,
         };
         unsafe {
             let handle = match GetStdHandle(STD_OUTPUT_HANDLE) {
@@ -210,33 +209,49 @@ fn run_inner(mut out: &mut impl Write) -> Result<(), Box<dyn std::error::Error>>
             ('1', "Color profiles", color_dir.clone()),
             ('2', "Program / config", program_dir.clone()),
         ];
-        let profile_folder: Vec<(char, &str, std::path::PathBuf)> = vec![
-            ('1', "Color profiles", color_dir.clone()),
-        ];
-        let service_folder: Vec<(char, &str, std::path::PathBuf)> = vec![
-            ('1', "Program / config", program_dir.clone()),
-        ];
+        let profile_folder: Vec<(char, &str, std::path::PathBuf)> =
+            vec![('1', "Color profiles", color_dir.clone())];
+        let service_folder: Vec<(char, &str, std::path::PathBuf)> =
+            vec![('1', "Program / config", program_dir.clone())];
 
         match (&page, ch) {
             // ── Main menu ──────────────────────────────────
-            (Page::Main, '1') => run_action_offer_folder(&mut out, "Installing profile + service...", || {
-                action_default_install(&opts)
-            }, &both_folders)?,
-            (Page::Main, '2') => run_action_offer_folder(&mut out, "Installing profile only...", || {
-                action_profile_only(&opts)
-            }, &profile_folder)?,
-            (Page::Main, '3') => run_action_offer_folder(&mut out, "Installing service only...", || {
-                action_service_only(&opts)
-            }, &service_folder)?,
-            (Page::Main, '4') => run_action_offer_folder(&mut out, "Removing service...", || {
-                action_remove_service(&opts)
-            }, &service_folder)?,
-            (Page::Main, '5') => run_action_offer_folder(&mut out, "Removing profile...", || {
-                action_remove_profile(&opts)
-            }, &profile_folder)?,
-            (Page::Main, '6') => run_action_offer_folder(&mut out, "Full uninstall...", || {
-                action_full_uninstall(&opts)
-            }, &both_folders)?,
+            (Page::Main, '1') => run_action_offer_folder(
+                &mut out,
+                "Installing profile + service...",
+                || action_default_install(&opts),
+                &both_folders,
+            )?,
+            (Page::Main, '2') => run_action_offer_folder(
+                &mut out,
+                "Installing profile only...",
+                || action_profile_only(&opts),
+                &profile_folder,
+            )?,
+            (Page::Main, '3') => run_action_offer_folder(
+                &mut out,
+                "Installing service only...",
+                || action_service_only(&opts),
+                &service_folder,
+            )?,
+            (Page::Main, '4') => run_action_offer_folder(
+                &mut out,
+                "Removing service...",
+                || action_remove_service(&opts),
+                &service_folder,
+            )?,
+            (Page::Main, '5') => run_action_offer_folder(
+                &mut out,
+                "Removing profile...",
+                || action_remove_profile(&opts),
+                &profile_folder,
+            )?,
+            (Page::Main, '6') => run_action_offer_folder(
+                &mut out,
+                "Full uninstall...",
+                || action_full_uninstall(&opts),
+                &both_folders,
+            )?,
             (Page::Main, 'm') => page = Page::Maintenance,
             (Page::Main, 'a') => page = Page::Advanced,
             (Page::Main, 'q') => break,
@@ -245,63 +260,61 @@ fn run_inner(mut out: &mut impl Write) -> Result<(), Box<dyn std::error::Error>>
             (Page::Maintenance, '1') => {
                 run_action(&mut out, "Refreshing profile...", || action_refresh(&opts))?
             }
-            (Page::Maintenance, '2') => run_action_offer_folder(&mut out, "Reinstalling everything...", || {
-                action_reinstall(&opts)
-            }, &both_folders)?,
+            (Page::Maintenance, '2') => run_action_offer_folder(
+                &mut out,
+                "Reinstalling everything...",
+                || action_reinstall(&opts),
+                &both_folders,
+            )?,
             (Page::Maintenance, '3') => {
                 run_action(&mut out, "Detecting monitors...", action_detect)?
             }
-            (Page::Maintenance, '4') => {
-                run_action(&mut out, "Checking service status...", action_service_status)?
-            }
+            (Page::Maintenance, '4') => run_action(
+                &mut out,
+                "Checking service status...",
+                action_service_status,
+            )?,
             (Page::Maintenance, '5') => run_action(&mut out, "Rechecking service...", || {
                 action_recheck_service(&opts)
             })?,
-            (Page::Maintenance, '6') => {
-                run_action(&mut out, "Checking applicability...", action_check_applicability)?
+            (Page::Maintenance, '6') => run_action(
+                &mut out,
+                "Checking applicability...",
+                action_check_applicability,
+            )?,
+            (Page::Maintenance, '7') => {
+                run_action(&mut out, "Sending test toast notification...", || {
+                    action_test_toast(&opts)
+                })?
             }
-            (Page::Maintenance, '7') => run_action(
-                &mut out,
-                "Sending test toast notification...",
-                || action_test_toast(&opts),
-            )?,
-            (Page::Maintenance, '8') => run_action(
-                &mut out,
-                "Force refreshing color profile...",
-                || action_force_refresh_profile(&opts),
-            )?,
+            (Page::Maintenance, '8') => {
+                run_action(&mut out, "Force refreshing color profile...", || {
+                    action_force_refresh_profile(&opts)
+                })?
+            }
             (Page::Maintenance, '9') => run_action(
                 &mut out,
                 "Force refreshing color management...",
                 action_force_refresh_color_mgmt,
             )?,
-            (Page::Maintenance, '0') => run_action(
-                &mut out,
-                "Setting DDC brightness...",
-                || action_set_ddc_brightness(&opts),
-            )?,
+            (Page::Maintenance, '0') => run_action(&mut out, "Setting DDC brightness...", || {
+                action_set_ddc_brightness(&opts)
+            })?,
             (Page::Maintenance, 'n') => page = Page::Maintenance2,
             (Page::Maintenance, 'b') => page = Page::Main,
             (Page::Maintenance, 'q') => break,
 
             // ── Maintenance Page 2 (DDC Lab) ───────────────
-            (Page::Maintenance2, '1') => run_action(
-                &mut out,
-                "Reading VCP version...",
-                || action_ddc_vcp_version(&ddc_target),
-            )?,
-            (Page::Maintenance2, '2') => run_action(
-                &mut out,
-                "Reading color preset...",
-                || action_ddc_read_color_preset(&ddc_target),
-            )?,
+            (Page::Maintenance2, '1') => run_action(&mut out, "Reading VCP version...", || {
+                action_ddc_vcp_version(&ddc_target)
+            })?,
+            (Page::Maintenance2, '2') => run_action(&mut out, "Reading color preset...", || {
+                action_ddc_read_color_preset(&ddc_target)
+            })?,
             (Page::Maintenance2, '3') => {
-                let cur = ddc_get_vcp(
-                    &ddc_target,
-                    lg_monitor::ddc::VCP_COLOR_PRESET,
-                )
-                .map(|v| v.current)
-                .unwrap_or(0);
+                let cur = ddc_get_vcp(&ddc_target, lg_monitor::ddc::VCP_COLOR_PRESET)
+                    .map(|v| v.current)
+                    .unwrap_or(0);
 
                 const PRESETS: &[(char, &str, u32)] = &[
                     ('1', "sRGB", 1),
@@ -327,11 +340,7 @@ fn run_inner(mut out: &mut impl Write) -> Result<(), Box<dyn std::error::Error>>
                         &mut out,
                         &format!("Setting color preset to {}...", name),
                         || {
-                            ddc_set_vcp(
-                                &ddc_target,
-                                lg_monitor::ddc::VCP_COLOR_PRESET,
-                                value,
-                            )?;
+                            ddc_set_vcp(&ddc_target, lg_monitor::ddc::VCP_COLOR_PRESET, value)?;
                             log_ok(&format!("Color preset set to {} (value {})", name, value));
                             log_done("Color preset updated.");
                             Ok(())
@@ -339,16 +348,11 @@ fn run_inner(mut out: &mut impl Write) -> Result<(), Box<dyn std::error::Error>>
                     )?;
                 }
             }
-            (Page::Maintenance2, '4') => run_action(
-                &mut out,
-                "Reading display mode...",
-                || action_ddc_read_display_mode(&ddc_target),
-            )?,
+            (Page::Maintenance2, '4') => run_action(&mut out, "Reading display mode...", || {
+                action_ddc_read_display_mode(&ddc_target)
+            })?,
             (Page::Maintenance2, '5') => {
-                match ddc_get_vcp(
-                    &ddc_target,
-                    lg_monitor::ddc::VCP_DISPLAY_MODE,
-                ) {
+                match ddc_get_vcp(&ddc_target, lg_monitor::ddc::VCP_DISPLAY_MODE) {
                     Ok(val) => {
                         let max = (val.max as usize).max(1);
                         let current = val.current;
@@ -392,54 +396,50 @@ fn run_inner(mut out: &mut impl Write) -> Result<(), Box<dyn std::error::Error>>
                     }
                 }
             }
-            (Page::Maintenance2, '6') => run_action(
-                &mut out,
-                "Resetting brightness + contrast...",
-                || action_ddc_reset_brightness_contrast(&ddc_target),
-            )?,
-            (Page::Maintenance2, '7') => run_action(
-                &mut out,
-                "Resetting color...",
-                || action_ddc_reset_color(&ddc_target),
-            )?,
+            (Page::Maintenance2, '6') => {
+                run_action(&mut out, "Resetting brightness + contrast...", || {
+                    action_ddc_reset_brightness_contrast(&ddc_target)
+                })?
+            }
+            (Page::Maintenance2, '7') => run_action(&mut out, "Resetting color...", || {
+                action_ddc_reset_color(&ddc_target)
+            })?,
             (Page::Maintenance2, '8') => run_action(
                 &mut out,
                 "Listing physical monitors...",
                 action_ddc_list_monitors,
             )?,
-            (Page::Maintenance2, '9') => {
-                match lg_monitor::ddc::list_physical_monitors() {
-                    Ok(monitors) if !monitors.is_empty() => {
-                        let keys = b"123456789abcdefghijklmnop";
-                        let count = monitors.len().min(keys.len());
+            (Page::Maintenance2, '9') => match lg_monitor::ddc::list_physical_monitors() {
+                Ok(monitors) if !monitors.is_empty() => {
+                    let keys = b"123456789abcdefghijklmnop";
+                    let count = monitors.len().min(keys.len());
 
-                        let labels: Vec<String> = monitors[..count]
-                            .iter()
-                            .map(|(idx, desc)| format!("#{} {}", idx, desc))
-                            .collect();
-                        let items: Vec<(char, &str, bool)> = monitors[..count]
-                            .iter()
-                            .enumerate()
-                            .map(|(i, (idx, _))| {
-                                let is_cur = ddc_target
-                                    .as_ref()
-                                    .map_or(false, |(cur_idx, _)| cur_idx == idx);
-                                (keys[i] as char, labels[i].as_str(), is_cur)
-                            })
-                            .collect();
+                    let labels: Vec<String> = monitors[..count]
+                        .iter()
+                        .map(|(idx, desc)| format!("#{} {}", idx, desc))
+                        .collect();
+                    let items: Vec<(char, &str, bool)> = monitors[..count]
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (idx, _))| {
+                            let is_cur = ddc_target
+                                .as_ref()
+                                .is_some_and(|(cur_idx, _)| cur_idx == idx);
+                            (keys[i] as char, labels[i].as_str(), is_cur)
+                        })
+                        .collect();
 
-                        if let Some(sel) = run_submenu(&mut out, " SELECT MONITOR ", &items)? {
-                            let (idx, name) = &monitors[sel];
-                            ddc_target = Some((*idx, name.clone()));
-                        }
-                    }
-                    _ => {
-                        run_action(&mut out, "Listing monitors...", || {
-                            Err("No physical monitors found via DDC".into())
-                        })?;
+                    if let Some(sel) = run_submenu(&mut out, " SELECT MONITOR ", &items)? {
+                        let (idx, name) = &monitors[sel];
+                        ddc_target = Some((*idx, name.clone()));
                     }
                 }
-            }
+                _ => {
+                    run_action(&mut out, "Listing monitors...", || {
+                        Err("No physical monitors found via DDC".into())
+                    })?;
+                }
+            },
             (Page::Maintenance2, '0') => {
                 ddc_target = None; // reset to config default
             }
@@ -539,7 +539,12 @@ pub(crate) fn gather_status(opts: &Options) -> Status {
 // ============================================================================
 
 pub(crate) fn draw_main(out: &mut impl Write, status: &Status, opts: &Options) -> io::Result<()> {
-    queue!(out, Clear(ClearType::Purge), Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    queue!(
+        out,
+        Clear(ClearType::Purge),
+        Clear(ClearType::All),
+        cursor::MoveTo(0, 0)
+    )?;
     out.flush()?;
 
     draw_header(out, status)?;
@@ -614,7 +619,12 @@ pub(crate) fn draw_maintenance(
     status: &Status,
     _opts: &Options,
 ) -> io::Result<()> {
-    queue!(out, Clear(ClearType::Purge), Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    queue!(
+        out,
+        Clear(ClearType::Purge),
+        Clear(ClearType::All),
+        cursor::MoveTo(0, 0)
+    )?;
     out.flush()?;
 
     draw_header(out, status)?;
@@ -667,7 +677,12 @@ pub(crate) fn draw_maintenance2(
     _opts: &Options,
     ddc_target: Option<&(usize, String)>,
 ) -> io::Result<()> {
-    queue!(out, Clear(ClearType::Purge), Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    queue!(
+        out,
+        Clear(ClearType::Purge),
+        Clear(ClearType::All),
+        cursor::MoveTo(0, 0)
+    )?;
     out.flush()?;
 
     draw_header(out, status)?;
@@ -676,7 +691,10 @@ pub(crate) fn draw_maintenance2(
     draw_empty(out)?;
     let target_label = match ddc_target {
         Some((idx, name)) => format!("  Target: #{} ({})", idx, name),
-        None => format!("  Target: config default ({})", Config::load().monitor_match),
+        None => format!(
+            "  Target: config default ({})",
+            Config::load().monitor_match
+        ),
     };
     draw_line(out, &target_label, Color::Green)?;
     draw_empty(out)?;
@@ -729,7 +747,12 @@ pub(crate) fn draw_advanced(
     status: &Status,
     opts: &Options,
 ) -> io::Result<()> {
-    queue!(out, Clear(ClearType::Purge), Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    queue!(
+        out,
+        Clear(ClearType::Purge),
+        Clear(ClearType::All),
+        cursor::MoveTo(0, 0)
+    )?;
     out.flush()?;
 
     draw_header(out, status)?;
@@ -778,7 +801,10 @@ pub(crate) fn draw_advanced(
         opts.ddc_brightness,
     )?;
     {
-        let label = format!("Brightness Value: {} (press to select)", opts.ddc_brightness_value);
+        let label = format!(
+            "Brightness Value: {} (press to select)",
+            opts.ddc_brightness_value
+        );
         draw_item(out, "9", &label)?;
     }
     draw_empty(out)?;
@@ -886,7 +912,12 @@ pub(crate) fn draw_header(out: &mut impl Write, status: &Status) -> io::Result<(
 // ============================================================================
 
 pub(crate) fn draw_goodbye(out: &mut impl Write) -> io::Result<()> {
-    queue!(out, Clear(ClearType::Purge), Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    queue!(
+        out,
+        Clear(ClearType::Purge),
+        Clear(ClearType::All),
+        cursor::MoveTo(0, 0)
+    )?;
     out.flush()?;
 
     let thank = "Thank you for using LG UltraGear Auto-Dimming Fix!";
@@ -1167,7 +1198,12 @@ fn run_action<F>(out: &mut impl Write, banner: &str, action: F) -> io::Result<()
 where
     F: FnOnce() -> Result<(), Box<dyn std::error::Error>>,
 {
-    queue!(out, Clear(ClearType::Purge), Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    queue!(
+        out,
+        Clear(ClearType::Purge),
+        Clear(ClearType::All),
+        cursor::MoveTo(0, 0)
+    )?;
     out.flush()?;
     draw_top(out, " PROCESSING ")?;
     draw_empty(out)?;
@@ -1208,7 +1244,12 @@ fn run_action_offer_folder<F>(
 where
     F: FnOnce() -> Result<(), Box<dyn std::error::Error>>,
 {
-    queue!(out, Clear(ClearType::Purge), Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    queue!(
+        out,
+        Clear(ClearType::Purge),
+        Clear(ClearType::All),
+        cursor::MoveTo(0, 0)
+    )?;
     out.flush()?;
     draw_top(out, " PROCESSING ")?;
     draw_empty(out)?;
@@ -1223,7 +1264,10 @@ where
         Err(e) => {
             write_err(out, &e.to_string())?;
             queue!(out, SetForegroundColor(Color::DarkYellow))?;
-            writeln!(out, "  Tip: If Event Viewer or another MMC snap-in is open, close it and retry.")?;
+            writeln!(
+                out,
+                "  Tip: If Event Viewer or another MMC snap-in is open, close it and retry."
+            )?;
             queue!(out, ResetColor)?;
             true
         }
@@ -1247,9 +1291,7 @@ where
         let ch = read_key()?;
         for &(key, _, ref path) in folders {
             if ch == key {
-                let _ = std::process::Command::new("explorer.exe")
-                    .arg(path)
-                    .spawn();
+                let _ = std::process::Command::new("explorer.exe").arg(path).spawn();
                 break;
             }
         }
@@ -1277,7 +1319,12 @@ fn run_submenu(
     title: &str,
     items: &[(char, &str, bool)],
 ) -> io::Result<Option<usize>> {
-    queue!(out, Clear(ClearType::Purge), Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+    queue!(
+        out,
+        Clear(ClearType::Purge),
+        Clear(ClearType::All),
+        cursor::MoveTo(0, 0)
+    )?;
     out.flush()?;
 
     draw_top(out, title)?;
@@ -1333,7 +1380,10 @@ fn action_default_install(opts: &Options) -> Result<(), Box<dyn std::error::Erro
     // Extract ICC profile
     let profile_path = cfg.profile_path();
     match lg_profile::ensure_profile_installed(&profile_path)? {
-        true => log_ok(&format!("ICC profile installed to {}", profile_path.display())),
+        true => log_ok(&format!(
+            "ICC profile installed to {}",
+            profile_path.display()
+        )),
         false => log_ok("ICC profile already present"),
     }
 
@@ -1367,7 +1417,10 @@ fn action_profile_only(opts: &Options) -> Result<(), Box<dyn std::error::Error>>
     let cfg = Config::load();
     let profile_path = cfg.profile_path();
     match lg_profile::ensure_profile_installed(&profile_path)? {
-        true => log_ok(&format!("ICC profile installed to {}", profile_path.display())),
+        true => log_ok(&format!(
+            "ICC profile installed to {}",
+            profile_path.display()
+        )),
         false => log_ok("ICC profile already present"),
     }
 
@@ -1428,11 +1481,7 @@ fn action_refresh(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
             )?;
             log_ok(&format!("Profile reapplied for {}", device.name));
             if opts.generic_default {
-                lg_profile::set_generic_default(
-                    &device.device_key,
-                    &profile_path,
-                    opts.per_user,
-                )?;
+                lg_profile::set_generic_default(&device.device_key, &profile_path, opts.per_user)?;
                 log_ok(&format!("Generic default set for {}", device.name));
             }
         }
@@ -1446,7 +1495,10 @@ fn action_refresh(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
         // DDC/CI brightness (if enabled)
         if cfg.ddc_brightness_on_reapply {
             match lg_monitor::ddc::set_brightness_all(cfg.ddc_brightness_value) {
-                Ok(n) => log_ok(&format!("DDC brightness set to {} on {} monitor(s)", cfg.ddc_brightness_value, n)),
+                Ok(n) => log_ok(&format!(
+                    "DDC brightness set to {} on {} monitor(s)",
+                    cfg.ddc_brightness_value, n
+                )),
                 Err(e) => log_note(&format!("DDC brightness failed: {}", e)),
             }
         }
@@ -1455,7 +1507,10 @@ fn action_refresh(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
             lg_notify::show_reapply_toast(true, &cfg.toast_title, &cfg.toast_body, opts.verbose);
         }
 
-        log_done(&format!("Profile refreshed for {} monitor(s).", devices.len()));
+        log_done(&format!(
+            "Profile refreshed for {} monitor(s).",
+            devices.len()
+        ));
     }
 
     Ok(())
@@ -1534,7 +1589,10 @@ fn action_remove_profile(opts: &Options) -> Result<(), Box<dyn std::error::Error
     let cfg = Config::load();
     let profile_path = cfg.profile_path();
     match lg_profile::remove_profile(&profile_path)? {
-        true => log_ok(&format!("ICC profile removed from {}", profile_path.display())),
+        true => log_ok(&format!(
+            "ICC profile removed from {}",
+            profile_path.display()
+        )),
         false => log_note("ICC profile not found (already removed)"),
     }
     Ok(())
@@ -1639,7 +1697,10 @@ fn action_check_applicability() -> Result<(), Box<dyn std::error::Error>> {
     // Check profile
     let profile_path = cfg.profile_path();
     if lg_profile::is_profile_installed(&profile_path) {
-        log_ok(&format!("ICC profile installed at {}", profile_path.display()));
+        log_ok(&format!(
+            "ICC profile installed at {}",
+            profile_path.display()
+        ));
     } else {
         log_warn(&format!(
             "ICC profile NOT found at {}",
@@ -1713,18 +1774,17 @@ fn action_force_refresh_profile(opts: &Options) -> Result<(), Box<dyn std::error
             )?;
             log_ok(&format!("Profile reapplied for {}", device.name));
             if opts.generic_default {
-                lg_profile::set_generic_default(
-                    &device.device_key,
-                    &profile_path,
-                    opts.per_user,
-                )?;
+                lg_profile::set_generic_default(&device.device_key, &profile_path, opts.per_user)?;
                 log_ok(&format!("Generic default set for {}", device.name));
             }
         }
         // DDC/CI brightness (if enabled)
         if cfg.ddc_brightness_on_reapply {
             match lg_monitor::ddc::set_brightness_all(cfg.ddc_brightness_value) {
-                Ok(n) => log_ok(&format!("DDC brightness set to {} on {} monitor(s)", cfg.ddc_brightness_value, n)),
+                Ok(n) => log_ok(&format!(
+                    "DDC brightness set to {} on {} monitor(s)",
+                    cfg.ddc_brightness_value, n
+                )),
                 Err(e) => log_note(&format!("DDC brightness failed: {}", e)),
             }
         }
@@ -1761,7 +1821,7 @@ fn action_set_ddc_brightness(opts: &Options) -> Result<(), Box<dyn std::error::E
         return Ok(());
     }
 
-    log_info(&format!("Reading current brightness levels..."));
+    log_info("Reading current brightness levels...");
     match lg_monitor::ddc::get_brightness_all() {
         Ok(infos) if infos.is_empty() => {
             log_skip("No DDC/CI-capable monitors found.");
@@ -1770,10 +1830,18 @@ fn action_set_ddc_brightness(opts: &Options) -> Result<(), Box<dyn std::error::E
             for info in &infos {
                 log_info(&format!(
                     "  {} — current: {}/{} ({}%)",
-                    if info.description.is_empty() { "Monitor" } else { &info.description },
+                    if info.description.is_empty() {
+                        "Monitor"
+                    } else {
+                        &info.description
+                    },
                     info.current,
                     info.max,
-                    if info.max > 0 { info.current * 100 / info.max } else { 0 },
+                    if info.max > 0 {
+                        info.current * 100 / info.max
+                    } else {
+                        0
+                    },
                 ));
             }
         }
@@ -1783,7 +1851,10 @@ fn action_set_ddc_brightness(opts: &Options) -> Result<(), Box<dyn std::error::E
     log_info(&format!("Setting DDC brightness to {}...", value));
     match lg_monitor::ddc::set_brightness_all(value) {
         Ok(0) => log_skip("No monitors responded to DDC brightness set."),
-        Ok(n) => log_ok(&format!("DDC brightness set to {} on {} monitor(s)", value, n)),
+        Ok(n) => log_ok(&format!(
+            "DDC brightness set to {} on {} monitor(s)",
+            value, n
+        )),
         Err(e) => return Err(format!("DDC brightness set failed: {}", e).into()),
     }
 
@@ -1834,14 +1905,19 @@ fn ddc_target_label(target: &Option<(usize, String)>) -> String {
     }
 }
 
-fn action_ddc_vcp_version(target: &Option<(usize, String)>) -> Result<(), Box<dyn std::error::Error>> {
+fn action_ddc_vcp_version(
+    target: &Option<(usize, String)>,
+) -> Result<(), Box<dyn std::error::Error>> {
     log_info(&format!("Target: {}", ddc_target_label(target)));
 
     match ddc_get_vcp(target, lg_monitor::ddc::VCP_VERSION) {
         Ok(val) => {
             let major = (val.current >> 8) & 0xFF;
             let minor = val.current & 0xFF;
-            log_ok(&format!("VCP Version: {}.{} (raw current={}, max={})", major, minor, val.current, val.max));
+            log_ok(&format!(
+                "VCP Version: {}.{} (raw current={}, max={})",
+                major, minor, val.current, val.max
+            ));
         }
         Err(e) => log_note(&format!("Could not read VCP version: {}", e)),
     }
@@ -1850,7 +1926,9 @@ fn action_ddc_vcp_version(target: &Option<(usize, String)>) -> Result<(), Box<dy
     Ok(())
 }
 
-fn action_ddc_read_color_preset(target: &Option<(usize, String)>) -> Result<(), Box<dyn std::error::Error>> {
+fn action_ddc_read_color_preset(
+    target: &Option<(usize, String)>,
+) -> Result<(), Box<dyn std::error::Error>> {
     log_info(&format!("Target: {}", ddc_target_label(target)));
 
     match ddc_get_vcp(target, lg_monitor::ddc::VCP_COLOR_PRESET) {
@@ -1881,7 +1959,9 @@ fn action_ddc_read_color_preset(target: &Option<(usize, String)>) -> Result<(), 
     Ok(())
 }
 
-fn action_ddc_read_display_mode(target: &Option<(usize, String)>) -> Result<(), Box<dyn std::error::Error>> {
+fn action_ddc_read_display_mode(
+    target: &Option<(usize, String)>,
+) -> Result<(), Box<dyn std::error::Error>> {
     log_info(&format!("Target: {}", ddc_target_label(target)));
 
     match ddc_get_vcp(target, lg_monitor::ddc::VCP_DISPLAY_MODE) {
@@ -1898,7 +1978,9 @@ fn action_ddc_read_display_mode(target: &Option<(usize, String)>) -> Result<(), 
     Ok(())
 }
 
-fn action_ddc_reset_brightness_contrast(target: &Option<(usize, String)>) -> Result<(), Box<dyn std::error::Error>> {
+fn action_ddc_reset_brightness_contrast(
+    target: &Option<(usize, String)>,
+) -> Result<(), Box<dyn std::error::Error>> {
     log_info(&format!("Target: {}", ddc_target_label(target)));
     log_info("Sending VCP 0x06 reset (brightness + contrast)...");
 
@@ -1911,7 +1993,9 @@ fn action_ddc_reset_brightness_contrast(target: &Option<(usize, String)>) -> Res
     Ok(())
 }
 
-fn action_ddc_reset_color(target: &Option<(usize, String)>) -> Result<(), Box<dyn std::error::Error>> {
+fn action_ddc_reset_color(
+    target: &Option<(usize, String)>,
+) -> Result<(), Box<dyn std::error::Error>> {
     log_info(&format!("Target: {}", ddc_target_label(target)));
     log_info("Sending VCP 0x0A reset (color)...");
 
@@ -2289,7 +2373,10 @@ mod tests {
         // ON: dry_run, verbose, hdr, sdr, ddc_brightness = 5 ON; OFF: toast, per_user, generic_default = 3 OFF
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
-        assert_eq!(on_count, 5, "dry_run+verbose+hdr+sdr+ddc_brightness should be ON");
+        assert_eq!(
+            on_count, 5,
+            "dry_run+verbose+hdr+sdr+ddc_brightness should be ON"
+        );
         assert_eq!(off_count, 3, "toast+per_user+generic_default should be OFF");
     }
 
@@ -2440,9 +2527,8 @@ mod tests {
                 for svc_running in [false, true] {
                     for count in [0, 1, 5] {
                         let s = test_status(profile, svc_installed, svc_running, count);
-                        let output = render_to_string(|buf| {
-                            draw_maintenance(buf, &s, &default_opts())
-                        });
+                        let output =
+                            render_to_string(|buf| draw_maintenance(buf, &s, &default_opts()));
                         assert!(!output.is_empty());
                     }
                 }
@@ -2463,15 +2549,19 @@ mod tests {
             render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
         assert!(output.contains("DDC/CI"), "should contain DDC/CI section");
         assert!(output.contains("[0]"), "should contain item 0 for DDC test");
-        assert!(output.contains("Set DDC Brightness"), "should have DDC brightness label");
+        assert!(
+            output.contains("Set DDC Brightness"),
+            "should have DDC brightness label"
+        );
     }
 
     // ── Maintenance Page 2 (DDC Lab) drawing ──────────────────
 
     #[test]
     fn draw_maintenance2_contains_all_items() {
-        let output =
-            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts(), None));
+        let output = render_to_string(|buf| {
+            draw_maintenance2(buf, &default_status(), &default_opts(), None)
+        });
         assert!(output.contains("[1]"), "item 1 — VCP version");
         assert!(output.contains("[2]"), "item 2 — color preset read");
         assert!(output.contains("[3]"), "item 3 — color preset cycle");
@@ -2489,27 +2579,33 @@ mod tests {
 
     #[test]
     fn draw_maintenance2_title() {
-        let output =
-            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts(), None));
+        let output = render_to_string(|buf| {
+            draw_maintenance2(buf, &default_status(), &default_opts(), None)
+        });
         assert!(output.contains("DDC LAB"), "should show DDC LAB title");
     }
 
     #[test]
     fn draw_maintenance2_sections() {
-        let output =
-            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts(), None));
+        let output = render_to_string(|buf| {
+            draw_maintenance2(buf, &default_status(), &default_opts(), None)
+        });
         assert!(output.contains("READ"), "should have READ section");
         assert!(output.contains("WRITE"), "should have WRITE section");
         assert!(output.contains("RESET"), "should have RESET section");
         assert!(output.contains("INFO"), "should have INFO section");
         assert!(output.contains("TARGET"), "should have TARGET section");
-        assert!(output.contains("NAVIGATION"), "should have NAVIGATION section");
+        assert!(
+            output.contains("NAVIGATION"),
+            "should have NAVIGATION section"
+        );
     }
 
     #[test]
     fn draw_maintenance2_default_target() {
-        let output =
-            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts(), None));
+        let output = render_to_string(|buf| {
+            draw_maintenance2(buf, &default_status(), &default_opts(), None)
+        });
         assert!(
             output.contains("config default"),
             "should show config default when no target selected"
@@ -2519,47 +2615,63 @@ mod tests {
     #[test]
     fn draw_maintenance2_specific_target() {
         let target = (0usize, "LG ULTRAGEAR".to_string());
-        let output =
-            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts(), Some(&target)));
+        let output = render_to_string(|buf| {
+            draw_maintenance2(buf, &default_status(), &default_opts(), Some(&target))
+        });
         assert!(
             output.contains("LG ULTRAGEAR"),
             "should show specific target name"
         );
-        assert!(
-            output.contains("#0"),
-            "should show monitor index"
-        );
+        assert!(output.contains("#0"), "should show monitor index");
     }
 
     #[test]
     fn draw_maintenance2_item_labels() {
-        let output =
-            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts(), None));
+        let output = render_to_string(|buf| {
+            draw_maintenance2(buf, &default_status(), &default_opts(), None)
+        });
         assert!(output.contains("VCP Version"), "should have VCP Version");
         assert!(output.contains("Color Preset"), "should have Color Preset");
         assert!(output.contains("Display Mode"), "should have Display Mode");
-        assert!(output.contains("Reset Brightness"), "should have Reset Brightness");
+        assert!(
+            output.contains("Reset Brightness"),
+            "should have Reset Brightness"
+        );
         assert!(output.contains("Reset Color"), "should have Reset Color");
-        assert!(output.contains("List Physical Monitors"), "should have List Monitors");
-        assert!(output.contains("Select Target"), "should have Select Target");
+        assert!(
+            output.contains("List Physical Monitors"),
+            "should have List Monitors"
+        );
+        assert!(
+            output.contains("Select Target"),
+            "should have Select Target"
+        );
         assert!(output.contains("Reset Target"), "should have Reset Target");
     }
 
     #[test]
     fn draw_maintenance2_navigation() {
-        let output =
-            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts(), None));
-        assert!(output.contains("Previous Page"), "should have Previous Page");
+        let output = render_to_string(|buf| {
+            draw_maintenance2(buf, &default_status(), &default_opts(), None)
+        });
+        assert!(
+            output.contains("Previous Page"),
+            "should have Previous Page"
+        );
         assert!(output.contains("Back to Main Menu"), "should have Back");
         assert!(output.contains("Quit"), "should have Quit");
     }
 
     #[test]
     fn draw_maintenance2_produces_nonempty_output() {
-        let output =
-            render_to_string(|buf| draw_maintenance2(buf, &default_status(), &default_opts(), None));
+        let output = render_to_string(|buf| {
+            draw_maintenance2(buf, &default_status(), &default_opts(), None)
+        });
         assert!(!output.is_empty());
-        assert!(output.len() > 200, "DDC Lab page should produce substantial output");
+        assert!(
+            output.len() > 200,
+            "DDC Lab page should produce substantial output"
+        );
     }
 
     #[test]
@@ -2568,9 +2680,8 @@ mod tests {
             for svc_installed in [false, true] {
                 for svc_running in [false, true] {
                     let s = test_status(profile, svc_installed, svc_running, 1);
-                    let output = render_to_string(|buf| {
-                        draw_maintenance2(buf, &s, &default_opts(), None)
-                    });
+                    let output =
+                        render_to_string(|buf| draw_maintenance2(buf, &s, &default_opts(), None));
                     assert!(!output.is_empty());
                 }
             }
@@ -2580,11 +2691,20 @@ mod tests {
     #[test]
     fn draw_advanced_contains_ddc_section() {
         let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
-        assert!(output.contains("DDC/CI BRIGHTNESS"), "should contain DDC section");
+        assert!(
+            output.contains("DDC/CI BRIGHTNESS"),
+            "should contain DDC section"
+        );
         assert!(output.contains("[8]"), "toggle 8 for DDC auto");
         assert!(output.contains("[9]"), "item 9 for brightness value");
-        assert!(output.contains("Auto-Set Brightness"), "should have auto label");
-        assert!(output.contains("Brightness Value"), "should have value label");
+        assert!(
+            output.contains("Auto-Set Brightness"),
+            "should have auto label"
+        );
+        assert!(
+            output.contains("Brightness Value"),
+            "should have value label"
+        );
     }
 
     #[test]
@@ -2815,7 +2935,18 @@ mod tests {
             active.push("GenericDef");
         }
         assert_eq!(active.len(), 7);
-        assert_eq!(active, vec!["NoToast", "DryRun", "Verbose", "NoHDR", "NoSDR", "PerUser", "GenericDef"]);
+        assert_eq!(
+            active,
+            vec![
+                "NoToast",
+                "DryRun",
+                "Verbose",
+                "NoHDR",
+                "NoSDR",
+                "PerUser",
+                "GenericDef"
+            ]
+        );
     }
 
     // ── Rendering consistency ────────────────────────────────────
@@ -2911,10 +3042,7 @@ mod tests {
         // Re-draw should show OFF
         let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
         // Toast is item [1]; find its toggle state
-        assert!(
-            output.contains("[OFF]"),
-            "toast should be OFF after toggle"
-        );
+        assert!(output.contains("[OFF]"), "toast should be OFF after toggle");
         // Toggle back
         opts.toast = !opts.toast;
         assert!(opts.toast);
@@ -2931,7 +3059,10 @@ mod tests {
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
         assert_eq!(on_count, 3, "toast+dry_run+sdr ON");
-        assert_eq!(off_count, 5, "verbose+hdr+per_user+generic_default+ddc_brightness OFF");
+        assert_eq!(
+            off_count, 5,
+            "verbose+hdr+per_user+generic_default+ddc_brightness OFF"
+        );
     }
 
     #[test]
@@ -3090,7 +3221,10 @@ mod tests {
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
         assert_eq!(on_count, 2, "toast+sdr should be ON");
-        assert_eq!(off_count, 6, "dry_run+verbose+hdr+per_user+generic_default+ddc_brightness should be OFF");
+        assert_eq!(
+            off_count, 6,
+            "dry_run+verbose+hdr+per_user+generic_default+ddc_brightness should be OFF"
+        );
     }
 
     // ── Active toggles in main menu with HDR/SDR ─────────────────
@@ -3282,10 +3416,7 @@ mod tests {
         write_err(&mut buf, "oops").unwrap();
         let output = String::from_utf8_lossy(&buf).to_string();
         // ResetColor emits ESC[0m
-        assert!(
-            output.contains("\x1b[0m"),
-            "should reset color after tag"
-        );
+        assert!(output.contains("\x1b[0m"), "should reset color after tag");
     }
 
     #[test]
@@ -3397,7 +3528,10 @@ mod tests {
     #[test]
     fn main_menu_has_all_sections() {
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &default_opts()));
-        assert!(output.contains("INSTALL OPTIONS"), "missing INSTALL OPTIONS");
+        assert!(
+            output.contains("INSTALL OPTIONS"),
+            "missing INSTALL OPTIONS"
+        );
         assert!(output.contains("UNINSTALL"), "missing UNINSTALL");
         assert!(output.contains("MORE"), "missing MORE");
     }
@@ -3552,7 +3686,10 @@ mod tests {
         let output =
             render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
         assert!(output.contains("PROFILE"), "missing PROFILE section");
-        assert!(output.contains("DIAGNOSTICS"), "missing DIAGNOSTICS section");
+        assert!(
+            output.contains("DIAGNOSTICS"),
+            "missing DIAGNOSTICS section"
+        );
         assert!(
             output.contains("FORCE REFRESH"),
             "missing FORCE REFRESH section"
@@ -3586,8 +3723,7 @@ mod tests {
 
     #[test]
     fn advanced_menu_has_item_1_toast() {
-        let output =
-            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(output.contains("[1]"), "advanced missing [1]");
         assert!(
             output.contains("Toast Notifications (Show reapply alerts)"),
@@ -3597,8 +3733,7 @@ mod tests {
 
     #[test]
     fn advanced_menu_has_item_2_dry_run() {
-        let output =
-            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(output.contains("[2]"), "advanced missing [2]");
         assert!(
             output.contains("Dry Run (Simulate without changes)"),
@@ -3608,8 +3743,7 @@ mod tests {
 
     #[test]
     fn advanced_menu_has_item_3_verbose() {
-        let output =
-            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(output.contains("[3]"), "advanced missing [3]");
         assert!(
             output.contains("Verbose Logging (Detailed output)"),
@@ -3619,8 +3753,7 @@ mod tests {
 
     #[test]
     fn advanced_menu_has_item_4_hdr() {
-        let output =
-            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(output.contains("[4]"), "advanced missing [4]");
         assert!(
             output.contains("HDR Mode (Advanced color association)"),
@@ -3630,8 +3763,7 @@ mod tests {
 
     #[test]
     fn advanced_menu_has_item_5_sdr() {
-        let output =
-            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(output.contains("[5]"), "advanced missing [5]");
         assert!(
             output.contains("SDR Mode (Standard color association)"),
@@ -3641,8 +3773,7 @@ mod tests {
 
     #[test]
     fn advanced_menu_has_item_6_per_user() {
-        let output =
-            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(output.contains("[6]"), "advanced missing [6]");
         assert!(
             output.contains("Per-User Install (User scope, not system)"),
@@ -3652,8 +3783,7 @@ mod tests {
 
     #[test]
     fn advanced_menu_has_item_7_generic_default() {
-        let output =
-            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(output.contains("[7]"), "advanced missing [7]");
         assert!(
             output.contains("Generic Default (Legacy default profile API)"),
@@ -3663,8 +3793,7 @@ mod tests {
 
     #[test]
     fn advanced_menu_has_item_b_back() {
-        let output =
-            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(output.contains("[B]"), "advanced missing [B]");
         assert!(
             output.contains("Back to Main Menu"),
@@ -3674,16 +3803,14 @@ mod tests {
 
     #[test]
     fn advanced_menu_has_item_q_quit() {
-        let output =
-            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(output.contains("[Q]"), "advanced missing [Q]");
         assert!(output.contains("Quit"), "advanced missing Quit");
     }
 
     #[test]
     fn advanced_menu_has_all_sections() {
-        let output =
-            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(
             output.contains("NOTIFICATIONS"),
             "missing NOTIFICATIONS section"
@@ -3699,8 +3826,7 @@ mod tests {
 
     #[test]
     fn advanced_menu_total_bracketed_items_count() {
-        let output =
-            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         // [1]-[7], [B], [Q] = 9
         let count = output.matches("[1]").count()
             + output.matches("[2]").count()
@@ -3719,8 +3845,7 @@ mod tests {
 
     #[test]
     fn advanced_menu_info_text_present() {
-        let output =
-            render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
         assert!(
             output.contains("These toggles affect main menu install options"),
             "advanced missing info text"
@@ -3744,8 +3869,7 @@ mod tests {
             ddc_brightness: false,
             ddc_brightness_value: 50,
         };
-        let output =
-            render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
         assert_eq!(
             output.matches("[OFF]").count(),
             8,
@@ -3771,8 +3895,7 @@ mod tests {
             ddc_brightness: false,
             ddc_brightness_value: 50,
         };
-        let output =
-            render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
         assert_eq!(
             output.matches("[ON ]").count(),
             7,
@@ -3789,8 +3912,7 @@ mod tests {
     fn advanced_only_per_user_on() {
         let mut opts = default_opts();
         opts.per_user = true;
-        let output =
-            render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
         // toast=ON, sdr=ON, per_user=ON → 3 ON; dry_run OFF, verbose OFF, hdr OFF, generic_default OFF, ddc_brightness OFF → 5 OFF
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
@@ -3802,8 +3924,7 @@ mod tests {
     fn advanced_only_generic_default_on() {
         let mut opts = default_opts();
         opts.generic_default = true;
-        let output =
-            render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
         // toast=ON, sdr=ON, generic_default=ON → 3 ON; dry_run OFF, verbose OFF, hdr OFF, per_user OFF, ddc_brightness OFF → 5 OFF
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
@@ -3816,8 +3937,7 @@ mod tests {
         let mut opts = default_opts();
         opts.per_user = true;
         opts.generic_default = true;
-        let output =
-            render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
         // toast=ON, sdr=ON, per_user=ON, generic_default=ON → 4 ON; dry_run OFF, verbose OFF, hdr OFF, ddc_brightness OFF → 4 OFF
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
@@ -3868,7 +3988,7 @@ mod tests {
     #[test]
     fn main_active_toggles_all_seven_active() {
         let opts = Options {
-            toast: false,  // NoToast appears when toast=false
+            toast: false, // NoToast appears when toast=false
             dry_run: true,
             verbose: true,
             hdr: false, // NoHDR appears when hdr=false
@@ -3906,10 +4026,7 @@ mod tests {
             ddc_brightness_value: 50,
         };
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
-        assert!(
-            output.contains("None active"),
-            "should show (None active)"
-        );
+        assert!(output.contains("None active"), "should show (None active)");
     }
 
     #[test]
@@ -3927,11 +4044,11 @@ mod tests {
         };
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
         assert!(output.contains("PerUser"), "should show PerUser");
+        assert!(!output.contains("GenericDef"), "should NOT show GenericDef");
         assert!(
-            !output.contains("GenericDef"),
-            "should NOT show GenericDef"
+            !output.contains("None active"),
+            "should NOT show None active"
         );
-        assert!(!output.contains("None active"), "should NOT show None active");
     }
 
     #[test]
@@ -3987,11 +4104,7 @@ mod tests {
             };
             let output = render_to_string(|buf| draw_main(buf, &status, &opts));
             // Should always contain [A] and Advanced Options
-            assert!(
-                output.contains("[A]"),
-                "combo {:07b}: missing [A]",
-                bits
-            );
+            assert!(output.contains("[A]"), "combo {:07b}: missing [A]", bits);
             assert!(
                 output.contains("Advanced Options"),
                 "combo {:07b}: missing Advanced Options label",
@@ -4000,13 +4113,27 @@ mod tests {
 
             // Count active toggles
             let mut expected_active = 0;
-            if bits & 1 == 0 { expected_active += 1; } // NoToast
-            if bits & 2 != 0 { expected_active += 1; } // DryRun
-            if bits & 4 != 0 { expected_active += 1; } // Verbose
-            if bits & 8 == 0 { expected_active += 1; } // NoHDR
-            if bits & 16 == 0 { expected_active += 1; } // NoSDR
-            if bits & 32 != 0 { expected_active += 1; } // PerUser
-            if bits & 64 != 0 { expected_active += 1; } // GenericDef
+            if bits & 1 == 0 {
+                expected_active += 1;
+            } // NoToast
+            if bits & 2 != 0 {
+                expected_active += 1;
+            } // DryRun
+            if bits & 4 != 0 {
+                expected_active += 1;
+            } // Verbose
+            if bits & 8 == 0 {
+                expected_active += 1;
+            } // NoHDR
+            if bits & 16 == 0 {
+                expected_active += 1;
+            } // NoSDR
+            if bits & 32 != 0 {
+                expected_active += 1;
+            } // PerUser
+            if bits & 64 != 0 {
+                expected_active += 1;
+            } // GenericDef
 
             if expected_active == 0 {
                 assert!(
@@ -4032,15 +4159,24 @@ mod tests {
     fn header_all_status_false_shows_not_installed() {
         let status = test_status(false, false, false, 0);
         let output = render_to_string(|buf| draw_header(buf, &status));
-        assert!(output.contains("Not Installed"), "should show Not Installed for profile");
-        assert!(output.contains("None detected"), "should show None detected");
+        assert!(
+            output.contains("Not Installed"),
+            "should show Not Installed for profile"
+        );
+        assert!(
+            output.contains("None detected"),
+            "should show None detected"
+        );
     }
 
     #[test]
     fn header_service_installed_not_running_shows_stopped() {
         let status = test_status(false, true, false, 0);
         let output = render_to_string(|buf| draw_header(buf, &status));
-        assert!(output.contains("Stopped"), "should show Stopped for service");
+        assert!(
+            output.contains("Stopped"),
+            "should show Stopped for service"
+        );
     }
 
     #[test]
@@ -4086,7 +4222,10 @@ mod tests {
         assert!(!opts.hdr, "hdr default should be false");
         assert!(opts.sdr, "sdr default should be true");
         assert!(!opts.per_user, "per_user default should be false");
-        assert!(!opts.generic_default, "generic_default default should be false");
+        assert!(
+            !opts.generic_default,
+            "generic_default default should be false"
+        );
     }
 
     #[test]
@@ -4206,9 +4345,15 @@ mod tests {
         let s = test_status(true, true, true, 0);
         let output = render_to_string(|buf| draw_header(buf, &s));
         // Profile installed, service running, but no monitors
-        assert!(output.contains("Installed"), "profile should show Installed");
+        assert!(
+            output.contains("Installed"),
+            "profile should show Installed"
+        );
         assert!(output.contains("Running"), "service should show Running");
-        assert!(output.contains("None detected"), "monitors should show None");
+        assert!(
+            output.contains("None detected"),
+            "monitors should show None"
+        );
     }
 
     // ================================================================
@@ -4243,7 +4388,7 @@ mod tests {
 
     #[test]
     fn goodbye_contains_thank_you() {
-        let output = render_to_string(|buf| draw_goodbye(buf));
+        let output = render_to_string(draw_goodbye);
         assert!(
             output.contains("Thank you"),
             "goodbye should contain Thank you"
@@ -4252,7 +4397,7 @@ mod tests {
 
     #[test]
     fn goodbye_contains_repo_link() {
-        let output = render_to_string(|buf| draw_goodbye(buf));
+        let output = render_to_string(draw_goodbye);
         assert!(
             output.contains("github.com"),
             "goodbye should contain repo link"
@@ -4261,7 +4406,7 @@ mod tests {
 
     #[test]
     fn goodbye_has_box_drawing_characters() {
-        let output = render_to_string(|buf| draw_goodbye(buf));
+        let output = render_to_string(draw_goodbye);
         assert!(
             output.contains('\u{2554}') && output.contains('\u{255D}'),
             "goodbye should have box corners"
@@ -4309,8 +4454,8 @@ mod tests {
 
     #[test]
     fn goodbye_render_is_deterministic() {
-        let a = render_to_string(|buf| draw_goodbye(buf));
-        let b = render_to_string(|buf| draw_goodbye(buf));
+        let a = render_to_string(draw_goodbye);
+        let b = render_to_string(draw_goodbye);
         assert_eq!(a, b, "goodbye rendering should be deterministic");
     }
 
@@ -4351,10 +4496,7 @@ mod tests {
         let mut buf = Vec::new();
         write_err(&mut buf, msg).unwrap();
         let output = String::from_utf8_lossy(&buf).to_string();
-        assert!(
-            output.contains("操作失败"),
-            "should handle CJK characters"
-        );
+        assert!(output.contains("操作失败"), "should handle CJK characters");
     }
 
     // ================================================================
@@ -4655,7 +4797,10 @@ mod tests {
             ..default_opts()
         };
         let result = action_refresh(&opts);
-        assert!(result.is_ok(), "dry-run refresh with per_user should succeed");
+        assert!(
+            result.is_ok(),
+            "dry-run refresh with per_user should succeed"
+        );
     }
 
     #[test]
@@ -4810,7 +4955,13 @@ mod tests {
             // We avoid read_key by directly testing the wrapper output
             // before it hits the "Press any key" logic. We test the
             // write path only.
-            queue!(buf, Clear(ClearType::Purge), Clear(ClearType::All), cursor::MoveTo(0, 0)).unwrap();
+            queue!(
+                buf,
+                Clear(ClearType::Purge),
+                Clear(ClearType::All),
+                cursor::MoveTo(0, 0)
+            )
+            .unwrap();
             draw_top(buf, " PROCESSING ").unwrap();
             draw_empty(buf).unwrap();
             draw_line(buf, "Test banner text", Color::Yellow).unwrap();

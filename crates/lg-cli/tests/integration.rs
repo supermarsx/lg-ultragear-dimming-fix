@@ -1660,8 +1660,11 @@ fn detect_output_mentions_scanning_or_monitors() {
     assert!(success);
     let lower = stdout.to_lowercase();
     assert!(
-        lower.contains("scan") || lower.contains("monitor") || lower.contains("found")
-            || lower.contains("matching") || lower.contains("profile"),
+        lower.contains("scan")
+            || lower.contains("monitor")
+            || lower.contains("found")
+            || lower.contains("matching")
+            || lower.contains("profile"),
         "detect should mention scanning/monitors: {}",
         lower
     );
@@ -1758,14 +1761,13 @@ fn calibration_loader_enabled_from_integration() {
 #[test]
 fn embedded_icm_size_is_reasonable() {
     // ICC profiles are typically between 1KB and 10MB
-    assert!(
-        lg_profile::EMBEDDED_ICM_SIZE > 1000,
-        "ICM should be > 1KB"
-    );
-    assert!(
-        lg_profile::EMBEDDED_ICM_SIZE < 10_000_000,
-        "ICM should be < 10MB"
-    );
+    const {
+        assert!(lg_profile::EMBEDDED_ICM_SIZE > 1000, "ICM should be > 1KB");
+        assert!(
+            lg_profile::EMBEDDED_ICM_SIZE < 10_000_000,
+            "ICM should be < 10MB"
+        );
+    };
 }
 
 #[test]

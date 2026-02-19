@@ -12,15 +12,14 @@ use std::io;
 use std::ptr;
 
 use windows::Win32::Foundation::{BOOL, LPARAM, RECT};
-use windows::Win32::Graphics::Gdi::{
-    EnumDisplayMonitors, HDC, HMONITOR,
-};
+use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, HDC, HMONITOR};
 
 // ============================================================================
 // DDC/CI FFI — dxva2.dll
 // ============================================================================
 
 /// Opaque handle to a physical monitor.
+#[allow(clippy::upper_case_acronyms)]
 type HANDLE = *mut std::ffi::c_void;
 
 /// Physical monitor as returned by `GetPhysicalMonitorsFromHMONITOR`.
@@ -32,10 +31,7 @@ struct PhysicalMonitor {
 
 #[link(name = "dxva2")]
 extern "system" {
-    fn GetNumberOfPhysicalMonitorsFromHMONITOR(
-        h_monitor: isize,
-        num_monitors: *mut u32,
-    ) -> BOOL;
+    fn GetNumberOfPhysicalMonitorsFromHMONITOR(h_monitor: isize, num_monitors: *mut u32) -> BOOL;
 
     fn GetPhysicalMonitorsFromHMONITOR(
         h_monitor: isize,
@@ -45,11 +41,7 @@ extern "system" {
 
     fn DestroyPhysicalMonitor(h_monitor: HANDLE) -> BOOL;
 
-    fn SetVCPFeature(
-        h_monitor: HANDLE,
-        vcp_code: u8,
-        new_value: u32,
-    ) -> BOOL;
+    fn SetVCPFeature(h_monitor: HANDLE, vcp_code: u8, new_value: u32) -> BOOL;
 
     fn GetVCPFeatureAndVCPFeatureReply(
         h_monitor: HANDLE,
@@ -187,16 +179,23 @@ pub fn set_brightness_by_index(index: usize, value: u32) -> Result<(), Box<dyn E
         let err = io::Error::last_os_error();
         // Clean up all handles
         for p in &physicals {
-            unsafe { let _ = DestroyPhysicalMonitor(p.handle); };
+            unsafe {
+                let _ = DestroyPhysicalMonitor(p.handle);
+            };
         }
         return Err(format!("SetVCPFeature(0x10, {}) failed: {}", value, err).into());
     }
 
-    info!("DDC brightness set to {} for monitor index {}", value, index);
+    info!(
+        "DDC brightness set to {} for monitor index {}",
+        value, index
+    );
 
     // Clean up all handles
     for p in &physicals {
-        unsafe { let _ = DestroyPhysicalMonitor(p.handle); };
+        unsafe {
+            let _ = DestroyPhysicalMonitor(p.handle);
+        };
     }
     Ok(())
 }
@@ -233,7 +232,9 @@ struct MonitorHandle {
 pub fn get_vcp_by_pattern(pattern: &str, vcp_code: u8) -> Result<VcpValue, Box<dyn Error>> {
     let handle = find_monitor_by_pattern(pattern)?;
     let result = get_vcp_raw(handle.handle, vcp_code);
-    unsafe { let _ = DestroyPhysicalMonitor(handle.handle); };
+    unsafe {
+        let _ = DestroyPhysicalMonitor(handle.handle);
+    };
     result
 }
 
@@ -241,14 +242,12 @@ pub fn get_vcp_by_pattern(pattern: &str, vcp_code: u8) -> Result<VcpValue, Box<d
 /// matching its description against `pattern` (case-insensitive contains).
 ///
 /// If `pattern` is empty, uses the first physical monitor found.
-pub fn set_vcp_by_pattern(
-    pattern: &str,
-    vcp_code: u8,
-    value: u32,
-) -> Result<(), Box<dyn Error>> {
+pub fn set_vcp_by_pattern(pattern: &str, vcp_code: u8, value: u32) -> Result<(), Box<dyn Error>> {
     let handle = find_monitor_by_pattern(pattern)?;
     let result = set_vcp_raw(handle.handle, vcp_code, value);
-    unsafe { let _ = DestroyPhysicalMonitor(handle.handle); };
+    unsafe {
+        let _ = DestroyPhysicalMonitor(handle.handle);
+    };
     result
 }
 
@@ -259,7 +258,9 @@ pub fn get_vcp_by_index(index: usize, vcp_code: u8) -> Result<VcpValue, Box<dyn 
     let handles = get_all_monitor_handles()?;
     if index >= handles.len() {
         for mh in &handles {
-            unsafe { let _ = DestroyPhysicalMonitor(mh.handle); };
+            unsafe {
+                let _ = DestroyPhysicalMonitor(mh.handle);
+            };
         }
         return Err(format!(
             "Monitor index {} out of range (found {} monitors)",
@@ -270,7 +271,9 @@ pub fn get_vcp_by_index(index: usize, vcp_code: u8) -> Result<VcpValue, Box<dyn 
     }
     let result = get_vcp_raw(handles[index].handle, vcp_code);
     for mh in &handles {
-        unsafe { let _ = DestroyPhysicalMonitor(mh.handle); };
+        unsafe {
+            let _ = DestroyPhysicalMonitor(mh.handle);
+        };
     }
     result
 }
@@ -278,15 +281,13 @@ pub fn get_vcp_by_index(index: usize, vcp_code: u8) -> Result<VcpValue, Box<dyn 
 /// Write a VCP feature to a specific physical monitor by 0-based index.
 ///
 /// The index corresponds to the order returned by `list_physical_monitors()`.
-pub fn set_vcp_by_index(
-    index: usize,
-    vcp_code: u8,
-    value: u32,
-) -> Result<(), Box<dyn Error>> {
+pub fn set_vcp_by_index(index: usize, vcp_code: u8, value: u32) -> Result<(), Box<dyn Error>> {
     let handles = get_all_monitor_handles()?;
     if index >= handles.len() {
         for mh in &handles {
-            unsafe { let _ = DestroyPhysicalMonitor(mh.handle); };
+            unsafe {
+                let _ = DestroyPhysicalMonitor(mh.handle);
+            };
         }
         return Err(format!(
             "Monitor index {} out of range (found {} monitors)",
@@ -297,7 +298,9 @@ pub fn set_vcp_by_index(
     }
     let result = set_vcp_raw(handles[index].handle, vcp_code, value);
     for mh in &handles {
-        unsafe { let _ = DestroyPhysicalMonitor(mh.handle); };
+        unsafe {
+            let _ = DestroyPhysicalMonitor(mh.handle);
+        };
     }
     result
 }
@@ -323,7 +326,9 @@ pub fn get_vcp_all(vcp_code: u8) -> Result<Vec<(String, VcpValue)>, Box<dyn Erro
 
     // Cleanup
     for mh in &handles {
-        unsafe { let _ = DestroyPhysicalMonitor(mh.handle); };
+        unsafe {
+            let _ = DestroyPhysicalMonitor(mh.handle);
+        };
     }
 
     Ok(results)
@@ -344,7 +349,9 @@ pub fn list_physical_monitors() -> Result<Vec<(usize, String)>, Box<dyn Error>> 
 
     // Cleanup
     for mh in &handles {
-        unsafe { let _ = DestroyPhysicalMonitor(mh.handle); };
+        unsafe {
+            let _ = DestroyPhysicalMonitor(mh.handle);
+        };
     }
 
     Ok(result)
@@ -361,17 +368,15 @@ fn get_vcp_raw(handle: HANDLE, vcp_code: u8) -> Result<VcpValue, Box<dyn Error>>
     let mut maximum: u32 = 0;
 
     let ok = unsafe {
-        GetVCPFeatureAndVCPFeatureReply(
-            handle,
-            vcp_code,
-            &mut vcp_type,
-            &mut current,
-            &mut maximum,
-        )
+        GetVCPFeatureAndVCPFeatureReply(handle, vcp_code, &mut vcp_type, &mut current, &mut maximum)
     };
     if !ok.as_bool() {
         let err = io::Error::last_os_error();
-        return Err(format!("GetVCPFeatureAndVCPFeatureReply(0x{:02X}) failed: {}", vcp_code, err).into());
+        return Err(format!(
+            "GetVCPFeatureAndVCPFeatureReply(0x{:02X}) failed: {}",
+            vcp_code, err
+        )
+        .into());
     }
 
     Ok(VcpValue {
@@ -387,7 +392,11 @@ fn set_vcp_raw(handle: HANDLE, vcp_code: u8, value: u32) -> Result<(), Box<dyn E
     let ok = unsafe { SetVCPFeature(handle, vcp_code, value) };
     if !ok.as_bool() {
         let err = io::Error::last_os_error();
-        return Err(format!("SetVCPFeature(0x{:02X}, {}) failed: {}", vcp_code, value, err).into());
+        return Err(format!(
+            "SetVCPFeature(0x{:02X}, {}) failed: {}",
+            vcp_code, value, err
+        )
+        .into());
     }
     Ok(())
 }
@@ -411,7 +420,9 @@ fn find_monitor_by_pattern(pattern: &str) -> Result<MonitorHandle, Box<dyn Error
     if pattern.is_empty() {
         // Destroy all except first
         for mh in handles.iter().skip(1) {
-            unsafe { let _ = DestroyPhysicalMonitor(mh.handle); };
+            unsafe {
+                let _ = DestroyPhysicalMonitor(mh.handle);
+            };
         }
         let first = handles.into_iter().next().unwrap();
         return Ok(first);
@@ -428,7 +439,9 @@ fn find_monitor_by_pattern(pattern: &str) -> Result<MonitorHandle, Box<dyn Error
             // Destroy all OTHER handles
             for other in &handles {
                 if !std::ptr::eq(other.handle, matched_handle) {
-                    unsafe { let _ = DestroyPhysicalMonitor(other.handle); };
+                    unsafe {
+                        let _ = DestroyPhysicalMonitor(other.handle);
+                    };
                 }
             }
             info!("DDC: matched monitor by description: {}", matched_desc);
@@ -453,7 +466,9 @@ fn find_monitor_by_pattern(pattern: &str) -> Result<MonitorHandle, Box<dyn Error
                 let resolved = name.clone();
                 for other in &handles {
                     if !std::ptr::eq(other.handle, matched_handle) {
-                        unsafe { let _ = DestroyPhysicalMonitor(other.handle); };
+                        unsafe {
+                            let _ = DestroyPhysicalMonitor(other.handle);
+                        };
                     }
                 }
                 info!(
@@ -471,7 +486,9 @@ fn find_monitor_by_pattern(pattern: &str) -> Result<MonitorHandle, Box<dyn Error
 
     // No match — clean up all handles
     for mh in &handles {
-        unsafe { let _ = DestroyPhysicalMonitor(mh.handle); };
+        unsafe {
+            let _ = DestroyPhysicalMonitor(mh.handle);
+        };
     }
 
     let names: Vec<String> = handles
@@ -494,9 +511,7 @@ fn get_all_monitor_handles() -> Result<Vec<MonitorHandle>, Box<dyn Error>> {
 
     for hmon in hmonitors {
         let mut count: u32 = 0;
-        let ok = unsafe {
-            GetNumberOfPhysicalMonitorsFromHMONITOR(hmon, &mut count)
-        };
+        let ok = unsafe { GetNumberOfPhysicalMonitorsFromHMONITOR(hmon, &mut count) };
         if !ok.as_bool() || count == 0 {
             continue;
         }
@@ -509,9 +524,7 @@ fn get_all_monitor_handles() -> Result<Vec<MonitorHandle>, Box<dyn Error>> {
             });
         }
 
-        let ok = unsafe {
-            GetPhysicalMonitorsFromHMONITOR(hmon, count, monitors.as_mut_ptr())
-        };
+        let ok = unsafe { GetPhysicalMonitorsFromHMONITOR(hmon, count, monitors.as_mut_ptr()) };
         if ok.as_bool() {
             for pm in monitors {
                 all.push(MonitorHandle {
@@ -533,9 +546,7 @@ fn get_all_monitor_handles() -> Result<Vec<MonitorHandle>, Box<dyn Error>> {
 /// real product name (e.g. "LG ULTRAGEAR") even when dxva2 only reports
 /// "Generic PnP Monitor".
 fn get_gdi_device_name(hmon: isize) -> Option<String> {
-    use windows::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, MONITORINFOEXA,
-    };
+    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITORINFOEXA};
 
     let mut mi = MONITORINFOEXA::default();
     mi.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXA>() as u32;
@@ -561,15 +572,15 @@ fn get_gdi_device_name(hmon: isize) -> Option<String> {
     use windows::Win32::Graphics::Gdi::EnumDisplayDevicesA;
     use windows::Win32::Graphics::Gdi::DISPLAY_DEVICEA;
 
-    let mut dd = DISPLAY_DEVICEA::default();
-    dd.cb = std::mem::size_of::<DISPLAY_DEVICEA>() as u32;
+    let mut dd = DISPLAY_DEVICEA {
+        cb: std::mem::size_of::<DISPLAY_DEVICEA>() as u32,
+        ..Default::default()
+    };
 
     let device_cstr: Vec<u8> = device.bytes().chain(std::iter::once(0)).collect();
     let device_pcstr = windows::core::PCSTR::from_raw(device_cstr.as_ptr());
 
-    let ok = unsafe {
-        EnumDisplayDevicesA(device_pcstr, 0, &mut dd, 0)
-    };
+    let ok = unsafe { EnumDisplayDevicesA(device_pcstr, 0, &mut dd, 0) };
     if !ok.as_bool() {
         return None;
     }
@@ -626,9 +637,7 @@ fn get_all_physical_monitors() -> Result<Vec<PhysicalMonitor>, Box<dyn Error>> {
 
     for hmon in hmonitors {
         let mut count: u32 = 0;
-        let ok = unsafe {
-            GetNumberOfPhysicalMonitorsFromHMONITOR(hmon, &mut count)
-        };
+        let ok = unsafe { GetNumberOfPhysicalMonitorsFromHMONITOR(hmon, &mut count) };
         if !ok.as_bool() || count == 0 {
             continue;
         }
@@ -641,9 +650,7 @@ fn get_all_physical_monitors() -> Result<Vec<PhysicalMonitor>, Box<dyn Error>> {
             });
         }
 
-        let ok = unsafe {
-            GetPhysicalMonitorsFromHMONITOR(hmon, count, monitors.as_mut_ptr())
-        };
+        let ok = unsafe { GetPhysicalMonitorsFromHMONITOR(hmon, count, monitors.as_mut_ptr()) };
         if ok.as_bool() {
             all.append(&mut monitors);
         }
@@ -668,8 +675,7 @@ fn set_brightness_for_hmonitor(hmon: isize, value: u32) -> Result<usize, Box<dyn
         });
     }
 
-    let ok =
-        unsafe { GetPhysicalMonitorsFromHMONITOR(hmon, count, monitors.as_mut_ptr()) };
+    let ok = unsafe { GetPhysicalMonitorsFromHMONITOR(hmon, count, monitors.as_mut_ptr()) };
     if !ok.as_bool() {
         return Err("GetPhysicalMonitorsFromHMONITOR failed".into());
     }
@@ -687,7 +693,9 @@ fn set_brightness_for_hmonitor(hmon: isize, value: u32) -> Result<usize, Box<dyn
 
     // Cleanup
     for pm in &monitors {
-        unsafe { let _ = DestroyPhysicalMonitor(pm.handle); };
+        unsafe {
+            let _ = DestroyPhysicalMonitor(pm.handle);
+        };
     }
 
     Ok(success_count)
@@ -709,8 +717,7 @@ fn get_brightness_for_hmonitor(hmon: isize) -> Result<Vec<BrightnessInfo>, Box<d
         });
     }
 
-    let ok =
-        unsafe { GetPhysicalMonitorsFromHMONITOR(hmon, count, monitors.as_mut_ptr()) };
+    let ok = unsafe { GetPhysicalMonitorsFromHMONITOR(hmon, count, monitors.as_mut_ptr()) };
     if !ok.as_bool() {
         return Err("GetPhysicalMonitorsFromHMONITOR failed".into());
     }
@@ -746,7 +753,9 @@ fn get_brightness_for_hmonitor(hmon: isize) -> Result<Vec<BrightnessInfo>, Box<d
 
     // Cleanup
     for pm in &monitors {
-        unsafe { let _ = DestroyPhysicalMonitor(pm.handle); };
+        unsafe {
+            let _ = DestroyPhysicalMonitor(pm.handle);
+        };
     }
 
     Ok(results)

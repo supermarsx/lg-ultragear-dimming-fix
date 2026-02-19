@@ -27,14 +27,23 @@ fn main() {
 
     // Version metadata shown in file properties
     res.set("ProductName", "LG UltraGear Dimming Fix");
-    res.set("FileDescription", "LG UltraGear display color profile manager");
+    res.set(
+        "FileDescription",
+        "LG UltraGear display color profile manager",
+    );
     res.set("CompanyName", "supermarsx");
     res.set("LegalCopyright", "Copyright (c) supermarsx. See license.md");
     res.set("OriginalFilename", "lg-ultragear-dimming-fix.exe");
     res.set("ProductVersion", &version_str);
     res.set("FileVersion", &version_str);
-    res.set_version_info(winres::VersionInfo::PRODUCTVERSION, parse_version_quad(&win_version));
-    res.set_version_info(winres::VersionInfo::FILEVERSION, parse_version_quad(&win_version));
+    res.set_version_info(
+        winres::VersionInfo::PRODUCTVERSION,
+        parse_version_quad(&win_version),
+    );
+    res.set_version_info(
+        winres::VersionInfo::FILEVERSION,
+        parse_version_quad(&win_version),
+    );
 
     // Rebuild when VERSION file changes
     println!("cargo:rerun-if-changed=../../VERSION");
