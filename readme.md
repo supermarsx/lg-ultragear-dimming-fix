@@ -522,7 +522,13 @@ docs/            Additional guides
 
 ## Downloads & Releases
 
-Automated CI produces versioned releases. Each release includes:
+Pushes to `main`/`master` run the main CI workflow, which automatically:
+
+- bumps `VERSION` (increments the last numeric segment),
+- commits and tags the new version, and
+- publishes a GitHub Release with packaged artifacts.
+
+Each release includes:
 
 - **`lg-ultragear-dimming-fix.exe`** — standalone native binary (everything included)
 - **`lg-ultragear-dimming-fix.zip`** — binary + ICM profile + readme + license

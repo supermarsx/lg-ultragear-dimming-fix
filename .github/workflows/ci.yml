@@ -12,7 +12,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  BINARY_NAME: lg-ultragear-dimming-fix
 
 jobs:
   # =========================================================================
@@ -30,7 +29,8 @@ jobs:
           components: rustfmt
 
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        shell: pwsh
+        run: ./scripts/format.ps1
 
   # =========================================================================
   # LINT - cargo clippy
@@ -50,7 +50,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        shell: pwsh
+        run: ./scripts/lint.ps1
 
   # =========================================================================
   # TEST - cargo test
@@ -68,7 +69,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run tests
-        run: cargo test --all-targets
+        shell: pwsh
+        run: ./scripts/test.ps1
 
   # =========================================================================
   # CHECK - cargo check (type check without linking)
@@ -86,7 +88,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Type check
-        run: cargo check --all-targets --all-features
+        shell: pwsh
+        run: ./scripts/check.ps1
 
   # =========================================================================
   # BUILD - Release binary and package
@@ -104,47 +107,9 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Read version
-        id: version
+      - name: Build and package
         shell: pwsh
-        run: |
-          $version = (Get-Content -Path 'VERSION' -Raw).Trim()
-          Write-Host "Version: $version"
-          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-
-      - name: Build release binary
-        run: cargo build --release
-
-      - name: Prepare dist
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path dist -Force | Out-Null
-
-          # Copy the release binary
-          Copy-Item "target\release\$env:BINARY_NAME.exe" "dist\$env:BINARY_NAME.exe" -Force
-
-          # Copy supporting files
-          Copy-Item VERSION dist\VERSION -Force
-          Copy-Item readme.md dist\readme.md -Force
-          Copy-Item license.md dist\license.md -Force
-          Copy-Item lg-ultragear-full-cal.icm dist\lg-ultragear-full-cal.icm -Force
-
-          # Create zip package
-          $items = @(
-            "dist\$env:BINARY_NAME.exe",
-            'dist\lg-ultragear-full-cal.icm',
-            'dist\readme.md',
-            'dist\license.md',
-            'dist\VERSION'
-          )
-          $zip = "dist\lg-ultragear-dimming-fix.zip"
-          if (Test-Path $zip) { Remove-Item $zip -Force }
-          Compress-Archive -Path $items -DestinationPath $zip -CompressionLevel Optimal
-          Write-Host "Created package: $zip"
-
-          # Show binary size
-          $size = (Get-Item "dist\$env:BINARY_NAME.exe").Length
-          Write-Host ("Binary size: {0:N0} bytes ({1:N2} MB)" -f $size, ($size / 1MB))
+        run: ./scripts/package.ps1
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -156,51 +121,90 @@ jobs:
             dist/VERSION
 
   # =========================================================================
-  # RELEASE - Create GitHub release (main/master only)
+  # RELEASE - Auto bump VERSION + tag + GitHub release (main/master only)
   # =========================================================================
   release:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     needs: [build]
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && !contains(github.event.head_commit.message, '[skip ci]')
     permissions:
       contents: write
     steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          name: lg-ultragear-dimming-fix
-          path: dist
+          fetch-depth: 0
 
-      - name: Read version
-        id: ver
-        shell: bash
+      - name: Sync with branch head
+        shell: pwsh
         run: |
-          version=$(cat dist/VERSION | tr -d '\r\n')
-          echo "version=$version" >> $GITHUB_OUTPUT
-          echo "Release version: $version"
+          git fetch origin "$env:GITHUB_REF_NAME" --tags --force
+          git checkout -B "$env:GITHUB_REF_NAME" "origin/$env:GITHUB_REF_NAME"
 
-      - name: Check if release exists
-        id: check
-        shell: bash
+      - name: Skip stale runs
+        id: stale
+        shell: pwsh
+        run: |
+          $headSha = (git rev-parse HEAD).Trim()
+          Write-Host "head_sha=$headSha"
+          Write-Host "event_sha=$env:GITHUB_SHA"
+          if ($headSha -ne $env:GITHUB_SHA) {
+            "is_stale=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Host "A newer commit exists on this branch. Skipping this stale run."
+          } else {
+            "is_stale=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+
+      - name: Bump VERSION
+        if: steps.stale.outputs.is_stale != 'true'
+        id: bump
+        shell: pwsh
+        run: |
+          $version = & ./scripts/bump-version.ps1
+          $version = $version.Trim()
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw "No version output from bump script."
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Release version: $version"
+
+      - name: Commit, tag, and push
+        if: steps.stale.outputs.is_stale != 'true'
+        id: tag
+        shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.bump.outputs.version }}
         run: |
-          if gh release view "${{ steps.ver.outputs.version }}" --repo ${{ github.repository }} &>/dev/null; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "Release ${{ steps.ver.outputs.version }} already exists, skipping."
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "Release ${{ steps.ver.outputs.version }} does not exist, creating."
-          fi
+          git show-ref --verify --quiet "refs/tags/$env:VERSION"
+          if ($LASTEXITCODE -eq 0) {
+            throw "Tag $env:VERSION already exists."
+          }
 
-      - name: Create GitHub release
-        if: steps.check.outputs.exists == 'false'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION
+          git commit -m "chore(release): v$env:VERSION [skip ci]"
+          git tag "$env:VERSION"
+          git push origin "HEAD:$env:GITHUB_REF_NAME"
+          git push origin "$env:VERSION"
+
+          $releaseSha = (git rev-parse HEAD).Trim()
+          "release_sha=$releaseSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Build and package release artifacts
+        if: steps.stale.outputs.is_stale != 'true'
+        shell: pwsh
+        run: ./scripts/package.ps1
+
+      - name: Publish GitHub release
+        if: steps.stale.outputs.is_stale != 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.ver.outputs.version }}
-          name: v${{ steps.ver.outputs.version }}
-          draft: false
-          prerelease: false
+          tag_name: ${{ steps.bump.outputs.version }}
+          target_commitish: ${{ steps.tag.outputs.release_sha }}
+          name: v${{ steps.bump.outputs.version }}
+          generate_release_notes: true
           files: |
             dist/lg-ultragear-dimming-fix.zip
             dist/lg-ultragear-dimming-fix.exe
+            dist/VERSION
