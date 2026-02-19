@@ -131,6 +131,8 @@ pub(crate) struct Options {
     pub(crate) sdr: bool,
     pub(crate) per_user: bool,
     pub(crate) generic_default: bool,
+    pub(crate) ddc_brightness: bool,
+    pub(crate) ddc_brightness_value: u32,
 }
 
 impl Default for Options {
@@ -144,6 +146,8 @@ impl Default for Options {
             sdr: true,
             per_user: false,
             generic_default: false,
+            ddc_brightness: cfg.ddc_brightness_on_reapply,
+            ddc_brightness_value: cfg.ddc_brightness_value,
         }
     }
 }
@@ -241,6 +245,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 "Force refreshing color management...",
                 action_force_refresh_color_mgmt,
             )?,
+            (Page::Maintenance, '0') => run_action(
+                &mut out,
+                "Setting DDC brightness...",
+                || action_set_ddc_brightness(&opts),
+            )?,
             (Page::Maintenance, 'b') => page = Page::Main,
             (Page::Maintenance, 'q') => break,
 
@@ -252,6 +261,15 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             (Page::Advanced, '5') => opts.sdr = !opts.sdr,
             (Page::Advanced, '6') => opts.per_user = !opts.per_user,
             (Page::Advanced, '7') => opts.generic_default = !opts.generic_default,
+            (Page::Advanced, '8') => opts.ddc_brightness = !opts.ddc_brightness,
+            (Page::Advanced, '9') => {
+                // Cycle brightness: 10 → 20 → … → 100 → 10
+                opts.ddc_brightness_value = if opts.ddc_brightness_value >= 100 {
+                    10
+                } else {
+                    opts.ddc_brightness_value + 10
+                };
+            }
             (Page::Advanced, 'b') => page = Page::Main,
             (Page::Advanced, 'q') => break,
 
@@ -416,6 +434,10 @@ pub(crate) fn draw_maintenance(
     draw_item(out, "9", "Force Refresh Color Management")?;
     draw_empty(out)?;
 
+    draw_section(out, "DDC/CI")?;
+    draw_item(out, "0", "Set DDC Brightness (Test)")?;
+    draw_empty(out)?;
+
     draw_section(out, "NAVIGATION")?;
     draw_item(out, "B", "Back to Main Menu")?;
     draw_item_quit(out)?;
@@ -476,6 +498,19 @@ pub(crate) fn draw_advanced(
         "Generic Default (Legacy default profile API)",
         opts.generic_default,
     )?;
+    draw_empty(out)?;
+
+    draw_section(out, "DDC/CI BRIGHTNESS")?;
+    draw_toggle(
+        out,
+        "8",
+        "Auto-Set Brightness on Reapply",
+        opts.ddc_brightness,
+    )?;
+    {
+        let label = format!("Brightness Value: {} (press to cycle +10)", opts.ddc_brightness_value);
+        draw_item(out, "9", &label)?;
+    }
     draw_empty(out)?;
     draw_line(
         out,
@@ -1014,6 +1049,14 @@ fn action_refresh(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
         );
         lg_profile::trigger_calibration_loader(cfg.refresh_calibration_loader);
 
+        // DDC/CI brightness (if enabled)
+        if cfg.ddc_brightness_on_reapply {
+            match lg_monitor::ddc::set_brightness_all(cfg.ddc_brightness_value) {
+                Ok(n) => log_ok(&format!("DDC brightness set to {} on {} monitor(s)", cfg.ddc_brightness_value, n)),
+                Err(e) => log_note(&format!("DDC brightness failed: {}", e)),
+            }
+        }
+
         if opts.toast && cfg.toast_enabled {
             lg_notify::show_reapply_toast(true, &cfg.toast_title, &cfg.toast_body, opts.verbose);
         }
@@ -1284,6 +1327,13 @@ fn action_force_refresh_profile(opts: &Options) -> Result<(), Box<dyn std::error
                 log_ok(&format!("Generic default set for {}", device.name));
             }
         }
+        // DDC/CI brightness (if enabled)
+        if cfg.ddc_brightness_on_reapply {
+            match lg_monitor::ddc::set_brightness_all(cfg.ddc_brightness_value) {
+                Ok(n) => log_ok(&format!("DDC brightness set to {} on {} monitor(s)", cfg.ddc_brightness_value, n)),
+                Err(e) => log_note(&format!("DDC brightness failed: {}", e)),
+            }
+        }
         log_done(&format!(
             "Color profile force-refreshed for {} monitor(s).",
             devices.len()
@@ -1306,6 +1356,44 @@ fn action_force_refresh_color_mgmt() -> Result<(), Box<dyn std::error::Error>> {
     log_ok("Calibration Loader task triggered");
 
     log_done("Color management force-refreshed.");
+    Ok(())
+}
+
+fn action_set_ddc_brightness(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
+    let value = opts.ddc_brightness_value;
+
+    if opts.dry_run {
+        log_dry(&format!("Would set DDC brightness to {}", value));
+        return Ok(());
+    }
+
+    log_info(&format!("Reading current brightness levels..."));
+    match lg_monitor::ddc::get_brightness_all() {
+        Ok(infos) if infos.is_empty() => {
+            log_skip("No DDC/CI-capable monitors found.");
+        }
+        Ok(infos) => {
+            for info in &infos {
+                log_info(&format!(
+                    "  {} — current: {}/{} ({}%)",
+                    if info.description.is_empty() { "Monitor" } else { &info.description },
+                    info.current,
+                    info.max,
+                    if info.max > 0 { info.current * 100 / info.max } else { 0 },
+                ));
+            }
+        }
+        Err(e) => log_note(&format!("Could not read brightness: {}", e)),
+    }
+
+    log_info(&format!("Setting DDC brightness to {}...", value));
+    match lg_monitor::ddc::set_brightness_all(value) {
+        Ok(0) => log_skip("No monitors responded to DDC brightness set."),
+        Ok(n) => log_ok(&format!("DDC brightness set to {} on {} monitor(s)", value, n)),
+        Err(e) => return Err(format!("DDC brightness set failed: {}", e).into()),
+    }
+
+    log_done("DDC brightness test complete.");
     Ok(())
 }
 
@@ -1352,6 +1440,8 @@ mod tests {
             sdr: true,
             per_user: false,
             generic_default: false,
+            ddc_brightness: false,
+            ddc_brightness_value: 50,
         }
     }
 
@@ -1553,6 +1643,8 @@ mod tests {
             sdr: true,
             per_user: false,
             generic_default: false,
+            ddc_brightness: false,
+            ddc_brightness_value: 50,
         };
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
         assert!(output.contains("NoToast"), "should show NoToast");
@@ -1637,13 +1729,14 @@ mod tests {
             sdr: true,
             per_user: false,
             generic_default: false,
+            ddc_brightness: true,
+            ddc_brightness_value: 50,
         };
         let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
-        // With toast=false, dry_run=true, verbose=true, hdr=true, sdr=true, per_user=false, generic_default=false
-        // ON: dry_run, verbose, hdr, sdr = 4 ON; OFF: toast, per_user, generic_default = 3 OFF
+        // ON: dry_run, verbose, hdr, sdr, ddc_brightness = 5 ON; OFF: toast, per_user, generic_default = 3 OFF
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
-        assert_eq!(on_count, 4, "dry_run+verbose+hdr+sdr should be ON");
+        assert_eq!(on_count, 5, "dry_run+verbose+hdr+sdr+ddc_brightness should be ON");
         assert_eq!(off_count, 3, "toast+per_user+generic_default should be OFF");
     }
 
@@ -1807,6 +1900,37 @@ mod tests {
         let output =
             render_to_string(|buf| draw_maintenance(buf, &all_good_status(), &default_opts()));
         assert!(output.contains("Running"));
+    }
+
+    #[test]
+    fn draw_maintenance_contains_ddc_section() {
+        let output =
+            render_to_string(|buf| draw_maintenance(buf, &default_status(), &default_opts()));
+        assert!(output.contains("DDC/CI"), "should contain DDC/CI section");
+        assert!(output.contains("[0]"), "should contain item 0 for DDC test");
+        assert!(output.contains("Set DDC Brightness"), "should have DDC brightness label");
+    }
+
+    #[test]
+    fn draw_advanced_contains_ddc_section() {
+        let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
+        assert!(output.contains("DDC/CI BRIGHTNESS"), "should contain DDC section");
+        assert!(output.contains("[8]"), "toggle 8 for DDC auto");
+        assert!(output.contains("[9]"), "item 9 for brightness value");
+        assert!(output.contains("Auto-Set Brightness"), "should have auto label");
+        assert!(output.contains("Brightness Value"), "should have value label");
+    }
+
+    #[test]
+    fn options_default_ddc_brightness_is_false() {
+        let opts = Options::default();
+        assert!(!opts.ddc_brightness);
+    }
+
+    #[test]
+    fn options_default_ddc_brightness_value_is_50() {
+        let opts = Options::default();
+        assert_eq!(opts.ddc_brightness_value, 50);
     }
 
     // ── Header drawing ───────────────────────────────────────────
@@ -1999,6 +2123,8 @@ mod tests {
             sdr: false,
             per_user: true,
             generic_default: true,
+            ddc_brightness: false,
+            ddc_brightness_value: 50,
         };
         let mut active: Vec<&str> = Vec::new();
         if !opts.toast {
@@ -2093,6 +2219,8 @@ mod tests {
                                 sdr,
                                 per_user: false,
                                 generic_default: false,
+                                ddc_brightness: false,
+                                ddc_brightness_value: 50,
                             };
                             let output = render_to_string(|buf| {
                                 draw_advanced(buf, &default_status(), &opts)
@@ -2133,11 +2261,11 @@ mod tests {
         opts.dry_run = !opts.dry_run;
         assert!(opts.dry_run);
         let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
-        // dry_run ON, toast ON, sdr ON = 3 ON; verbose OFF, hdr OFF, per_user OFF, generic_default OFF = 4 OFF
+        // dry_run ON, toast ON, sdr ON = 3 ON; verbose OFF, hdr OFF, per_user OFF, generic_default OFF, ddc_brightness OFF = 5 OFF
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
         assert_eq!(on_count, 3, "toast+dry_run+sdr ON");
-        assert_eq!(off_count, 4, "verbose+hdr+per_user+generic_default OFF");
+        assert_eq!(off_count, 5, "verbose+hdr+per_user+generic_default+ddc_brightness OFF");
     }
 
     #[test]
@@ -2157,11 +2285,11 @@ mod tests {
         opts.hdr = !opts.hdr;
         assert!(opts.hdr);
         let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
-        // With hdr=true: toast ON, dry_run OFF, verbose OFF, hdr ON, sdr ON, per_user OFF, generic_default OFF → 3 ON, 4 OFF
+        // With hdr=true: toast ON, dry_run OFF, verbose OFF, hdr ON, sdr ON, per_user OFF, generic_default OFF, ddc_brightness OFF → 3 ON, 5 OFF
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
         assert_eq!(on_count, 3);
-        assert_eq!(off_count, 4);
+        assert_eq!(off_count, 5);
     }
 
     #[test]
@@ -2171,11 +2299,11 @@ mod tests {
         opts.sdr = !opts.sdr;
         assert!(!opts.sdr);
         let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
-        // With sdr=false: toast ON, dry_run OFF, verbose OFF, hdr OFF, sdr OFF, per_user OFF, generic_default OFF → 1 ON, 6 OFF
+        // With sdr=false: toast ON, dry_run OFF, verbose OFF, hdr OFF, sdr OFF, per_user OFF, generic_default OFF, ddc_brightness OFF → 1 ON, 7 OFF
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
         assert_eq!(on_count, 1);
-        assert_eq!(off_count, 6);
+        assert_eq!(off_count, 7);
     }
 
     #[test]
@@ -2292,11 +2420,11 @@ mod tests {
     #[test]
     fn draw_advanced_hdr_sdr_on_by_default() {
         let output = render_to_string(|buf| draw_advanced(buf, &default_status(), &default_opts()));
-        // Default: toast=ON, dry_run=OFF, verbose=OFF, hdr=OFF, sdr=ON, per_user=OFF, generic_default=OFF → 2 ON, 5 OFF
+        // Default: toast=ON, dry_run=OFF, verbose=OFF, hdr=OFF, sdr=ON, per_user=OFF, generic_default=OFF, ddc_brightness=OFF → 2 ON, 6 OFF
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
         assert_eq!(on_count, 2, "toast+sdr should be ON");
-        assert_eq!(off_count, 5, "dry_run+verbose+hdr+per_user+generic_default should be OFF");
+        assert_eq!(off_count, 6, "dry_run+verbose+hdr+per_user+generic_default+ddc_brightness should be OFF");
     }
 
     // ── Active toggles in main menu with HDR/SDR ─────────────────
@@ -2311,6 +2439,8 @@ mod tests {
             sdr: true,
             per_user: false,
             generic_default: false,
+            ddc_brightness: false,
+            ddc_brightness_value: 50,
         };
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
         assert!(output.contains("NoHDR"), "should show NoHDR");
@@ -2327,6 +2457,8 @@ mod tests {
             sdr: false,
             per_user: false,
             generic_default: false,
+            ddc_brightness: false,
+            ddc_brightness_value: 50,
         };
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
         assert!(!output.contains("NoHDR"), "should not show NoHDR");
@@ -2345,6 +2477,8 @@ mod tests {
             sdr: true,
             per_user: false,
             generic_default: false,
+            ddc_brightness: false,
+            ddc_brightness_value: 50,
         };
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
         assert!(
@@ -2941,13 +3075,15 @@ mod tests {
             sdr: false,
             per_user: false,
             generic_default: false,
+            ddc_brightness: false,
+            ddc_brightness_value: 50,
         };
         let output =
             render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
         assert_eq!(
             output.matches("[OFF]").count(),
-            7,
-            "all toggles OFF should show 7 [OFF] markers"
+            8,
+            "all toggles OFF should show 8 [OFF] markers"
         );
         assert_eq!(
             output.matches("[ON ]").count(),
@@ -2966,18 +3102,20 @@ mod tests {
             sdr: true,
             per_user: true,
             generic_default: true,
+            ddc_brightness: false,
+            ddc_brightness_value: 50,
         };
         let output =
             render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
         assert_eq!(
             output.matches("[ON ]").count(),
             7,
-            "all toggles ON should show 7 [ON ] markers"
+            "all toggles ON should show 7 [ON ] markers (ddc_brightness is false)"
         );
         assert_eq!(
             output.matches("[OFF]").count(),
-            0,
-            "all toggles ON should show 0 [OFF] markers"
+            1,
+            "all toggles ON should show 1 [OFF] marker (ddc_brightness)"
         );
     }
 
@@ -2987,11 +3125,11 @@ mod tests {
         opts.per_user = true;
         let output =
             render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
-        // toast=ON, sdr=ON, per_user=ON → 3 ON, 4 OFF
+        // toast=ON, sdr=ON, per_user=ON → 3 ON; dry_run OFF, verbose OFF, hdr OFF, generic_default OFF, ddc_brightness OFF → 5 OFF
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
         assert_eq!(on_count, 3, "per_user ON only: expected 3 ON markers");
-        assert_eq!(off_count, 4, "per_user ON only: expected 4 OFF markers");
+        assert_eq!(off_count, 5, "per_user ON only: expected 5 OFF markers");
     }
 
     #[test]
@@ -3000,11 +3138,11 @@ mod tests {
         opts.generic_default = true;
         let output =
             render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
-        // toast=ON, sdr=ON, generic_default=ON → 3 ON, 4 OFF
+        // toast=ON, sdr=ON, generic_default=ON → 3 ON; dry_run OFF, verbose OFF, hdr OFF, per_user OFF, ddc_brightness OFF → 5 OFF
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
         assert_eq!(on_count, 3, "generic_default ON: expected 3 ON markers");
-        assert_eq!(off_count, 4, "generic_default ON: expected 4 OFF markers");
+        assert_eq!(off_count, 5, "generic_default ON: expected 5 OFF markers");
     }
 
     #[test]
@@ -3014,11 +3152,11 @@ mod tests {
         opts.generic_default = true;
         let output =
             render_to_string(|buf| draw_advanced(buf, &default_status(), &opts));
-        // toast=ON, sdr=ON, per_user=ON, generic_default=ON → 4 ON, 3 OFF
+        // toast=ON, sdr=ON, per_user=ON, generic_default=ON → 4 ON; dry_run OFF, verbose OFF, hdr OFF, ddc_brightness OFF → 4 OFF
         let on_count = output.matches("[ON ]").count();
         let off_count = output.matches("[OFF]").count();
         assert_eq!(on_count, 4, "both install mode: expected 4 ON markers");
-        assert_eq!(off_count, 3, "both install mode: expected 3 OFF markers");
+        assert_eq!(off_count, 4, "both install mode: expected 4 OFF markers");
     }
 
     #[test]
@@ -3034,14 +3172,16 @@ mod tests {
                 sdr: bits & 16 != 0,
                 per_user: bits & 32 != 0,
                 generic_default: bits & 64 != 0,
+                ddc_brightness: false,
+                ddc_brightness_value: 50,
             };
             let output = render_to_string(|buf| draw_advanced(buf, &status, &opts));
             let on_count = output.matches("[ON ]").count();
             let off_count = output.matches("[OFF]").count();
             assert_eq!(
                 on_count + off_count,
-                7,
-                "combo {:07b}: expected 7 total toggles, got {} ON + {} OFF",
+                8,
+                "combo {:07b}: expected 8 total toggles, got {} ON + {} OFF",
                 bits,
                 on_count,
                 off_count
@@ -3069,6 +3209,8 @@ mod tests {
             sdr: false, // NoSDR appears when sdr=false
             per_user: true,
             generic_default: true,
+            ddc_brightness: false,
+            ddc_brightness_value: 50,
         };
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
         assert!(output.contains("NoToast"), "missing NoToast");
@@ -3094,6 +3236,8 @@ mod tests {
             sdr: true,
             per_user: false,
             generic_default: false,
+            ddc_brightness: false,
+            ddc_brightness_value: 50,
         };
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
         assert!(
@@ -3112,6 +3256,8 @@ mod tests {
             sdr: true,
             per_user: true,
             generic_default: false,
+            ddc_brightness: false,
+            ddc_brightness_value: 50,
         };
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
         assert!(output.contains("PerUser"), "should show PerUser");
@@ -3132,6 +3278,8 @@ mod tests {
             sdr: true,
             per_user: false,
             generic_default: true,
+            ddc_brightness: false,
+            ddc_brightness_value: 50,
         };
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
         assert!(output.contains("GenericDef"), "should show GenericDef");
@@ -3148,6 +3296,8 @@ mod tests {
             sdr: true,
             per_user: true,
             generic_default: true,
+            ddc_brightness: false,
+            ddc_brightness_value: 50,
         };
         let output = render_to_string(|buf| draw_main(buf, &default_status(), &opts));
         assert!(output.contains("PerUser"), "should show PerUser");
@@ -3166,6 +3316,8 @@ mod tests {
                 sdr: bits & 16 != 0,
                 per_user: bits & 32 != 0,
                 generic_default: bits & 64 != 0,
+                ddc_brightness: false,
+                ddc_brightness_value: 50,
             };
             let output = render_to_string(|buf| draw_main(buf, &status, &opts));
             // Should always contain [A] and Advanced Options
@@ -3281,6 +3433,8 @@ mod tests {
             sdr: false,
             per_user: false,
             generic_default: false,
+            ddc_brightness: false,
+            ddc_brightness_value: 50,
         };
         // Toggle each field independently and verify no side effects
         opts.toast = true;
@@ -3311,6 +3465,8 @@ mod tests {
             sdr: opts.sdr,
             per_user: opts.per_user,
             generic_default: opts.generic_default,
+            ddc_brightness: opts.ddc_brightness,
+            ddc_brightness_value: opts.ddc_brightness_value,
         };
 
         // Toggle all fields
@@ -3875,6 +4031,8 @@ mod tests {
             sdr: false,
             per_user: true,
             generic_default: true,
+            ddc_brightness: false,
+            ddc_brightness_value: 50,
         };
         let result = action_default_install(&opts);
         assert!(
@@ -3893,6 +4051,8 @@ mod tests {
             sdr: false,
             per_user: true,
             generic_default: true,
+            ddc_brightness: false,
+            ddc_brightness_value: 50,
         };
         let result = action_full_uninstall(&opts);
         assert!(

@@ -66,6 +66,18 @@ fn default_config_verbose_is_false() {
     assert!(!cfg.verbose);
 }
 
+#[test]
+fn default_config_ddc_brightness_off() {
+    let cfg = Config::default();
+    assert!(!cfg.ddc_brightness_on_reapply);
+}
+
+#[test]
+fn default_config_ddc_brightness_value_is_50() {
+    let cfg = Config::default();
+    assert_eq!(cfg.ddc_brightness_value, 50);
+}
+
 // ── TOML parsing ─────────────────────────────────────────────────
 
 #[test]
@@ -180,6 +192,8 @@ fn serialize_roundtrip() {
         refresh_broadcast_color: true,
         refresh_invalidate: false,
         refresh_calibration_loader: true,
+        ddc_brightness_on_reapply: true,
+        ddc_brightness_value: 75,
         verbose: true,
     };
 
@@ -205,6 +219,14 @@ fn serialize_roundtrip() {
     assert_eq!(
         parsed.refresh_calibration_loader,
         original.refresh_calibration_loader
+    );
+    assert_eq!(
+        parsed.ddc_brightness_on_reapply,
+        original.ddc_brightness_on_reapply
+    );
+    assert_eq!(
+        parsed.ddc_brightness_value,
+        original.ddc_brightness_value
     );
     assert_eq!(parsed.verbose, original.verbose);
 }
@@ -247,6 +269,7 @@ fn to_toml_commented_contains_section_headers() {
     assert!(output.contains("Toast Notifications"));
     assert!(output.contains("Timing"));
     assert!(output.contains("Refresh Methods"));
+    assert!(output.contains("DDC/CI Brightness"));
     assert!(output.contains("Debug"));
 }
 
@@ -277,6 +300,8 @@ fn to_toml_commented_roundtrip_preserves_values() {
         refresh_broadcast_color: false,
         refresh_invalidate: true,
         refresh_calibration_loader: false,
+        ddc_brightness_on_reapply: true,
+        ddc_brightness_value: 80,
         verbose: true,
     };
 
@@ -612,4 +637,36 @@ fn parse_full_toml_including_reapply_delay() {
     assert_eq!(cfg.reapply_delay_ms, 18000);
     assert_eq!(cfg.stabilize_delay_ms, 2000);
     assert_eq!(cfg.toggle_delay_ms, 200);
+}
+
+// ── DDC brightness TOML parsing ──────────────────────────────────
+
+#[test]
+fn parse_toml_with_ddc_brightness() {
+    let toml_str = r#"
+        ddc_brightness_on_reapply = true
+        ddc_brightness_value = 80
+    "#;
+    let cfg: Config = toml::from_str(toml_str).unwrap();
+    assert!(cfg.ddc_brightness_on_reapply);
+    assert_eq!(cfg.ddc_brightness_value, 80);
+}
+
+#[test]
+fn parse_toml_ddc_brightness_defaults_when_omitted() {
+    let toml_str = r#"
+        monitor_match = "TEST"
+    "#;
+    let cfg: Config = toml::from_str(toml_str).unwrap();
+    assert!(!cfg.ddc_brightness_on_reapply);
+    assert_eq!(cfg.ddc_brightness_value, 50);
+}
+
+#[test]
+fn to_toml_commented_contains_ddc_section() {
+    let cfg = Config::default();
+    let output = Config::to_toml_commented(&cfg);
+    assert!(output.contains("DDC/CI Brightness"), "should contain DDC section header");
+    assert!(output.contains("ddc_brightness_on_reapply = false"), "should contain ddc toggle");
+    assert!(output.contains("ddc_brightness_value = 50"), "should contain ddc value");
 }

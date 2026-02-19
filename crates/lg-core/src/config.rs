@@ -68,6 +68,13 @@ pub struct Config {
     /// Whether to trigger the Windows Calibration Loader scheduled task.
     pub refresh_calibration_loader: bool,
 
+    /// Automatically set DDC/CI brightness after each profile reapply.
+    pub ddc_brightness_on_reapply: bool,
+
+    /// DDC/CI brightness value (0–100) to set when `ddc_brightness_on_reapply`
+    /// is enabled.  Also used by the TUI "Set DDC Brightness" maintenance action.
+    pub ddc_brightness_value: u32,
+
     /// Enable logging of every event (useful for debugging).
     pub verbose: bool,
 }
@@ -87,6 +94,8 @@ impl Default for Config {
             refresh_broadcast_color: true,
             refresh_invalidate: true,
             refresh_calibration_loader: true,
+            ddc_brightness_on_reapply: false,
+            ddc_brightness_value: 50,
             verbose: false,
         }
     }
@@ -190,6 +199,15 @@ refresh_broadcast_color = {refresh_broadcast_color}     # WM_SETTINGCHANGE "Colo
 refresh_invalidate = {refresh_invalidate}          # InvalidateRect (force repaint)
 refresh_calibration_loader = {refresh_calibration_loader} # Trigger Calibration Loader task (ICC reload)
 
+# ─── DDC/CI Brightness ───────────────────────────────────────────────
+# Automatically set monitor brightness via DDC/CI after each profile reapply.
+# Requires DDC/CI support on your monitor (most LG UltraGears support it).
+ddc_brightness_on_reapply = {ddc_brightness_on_reapply}
+
+# Brightness level (0–100) to set via DDC/CI.
+# Only used when ddc_brightness_on_reapply is enabled.
+ddc_brightness_value = {ddc_brightness_value}
+
 # ─── Debug ───────────────────────────────────────────────────────────
 # Log every event and action (useful for troubleshooting).
 verbose = {verbose}
@@ -206,6 +224,8 @@ verbose = {verbose}
             refresh_broadcast_color = cfg.refresh_broadcast_color,
             refresh_invalidate = cfg.refresh_invalidate,
             refresh_calibration_loader = cfg.refresh_calibration_loader,
+            ddc_brightness_on_reapply = cfg.ddc_brightness_on_reapply,
+            ddc_brightness_value = cfg.ddc_brightness_value,
             verbose = cfg.verbose,
         )
     }

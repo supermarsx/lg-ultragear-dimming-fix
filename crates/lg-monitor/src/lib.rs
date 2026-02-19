@@ -1,7 +1,12 @@
-//! Monitor detection via WMI.
+//! Monitor detection via WMI + DDC/CI brightness control.
 //!
 //! Enumerates connected monitors using `WmiMonitorID` and matches against
 //! a user-configured friendly name pattern (e.g. "LG ULTRAGEAR").
+//!
+//! The [`ddc`] module provides DDC/CI brightness reading and control via
+//! the Windows Monitor Configuration API (`dxva2.dll`).
+
+pub mod ddc;
 
 use serde::Deserialize;
 use std::error::Error;

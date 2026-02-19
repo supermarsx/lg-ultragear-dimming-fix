@@ -9,4 +9,5 @@ authors.workspace = true
 [dependencies]
 log.workspace = true
 serde.workspace = true
+windows.workspace = true
 wmi.workspace = true

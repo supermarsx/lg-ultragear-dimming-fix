@@ -587,6 +587,15 @@ fn handle_profile_reapply(config: &Config) {
                 config.refresh_invalidate,
             );
             lg_profile::trigger_calibration_loader(config.refresh_calibration_loader);
+
+            // DDC/CI brightness (if enabled)
+            if config.ddc_brightness_on_reapply {
+                match lg_monitor::ddc::set_brightness_all(config.ddc_brightness_value) {
+                    Ok(n) => info!("DDC brightness set to {} on {} monitor(s)", config.ddc_brightness_value, n),
+                    Err(e) => warn!("DDC brightness set failed: {} (non-fatal)", e),
+                }
+            }
+
             lg_notify::show_reapply_toast(
                 config.toast_enabled,
                 &config.toast_title,
