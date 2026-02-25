@@ -1,0 +1,16 @@
+[package]
+name = "lg-core"
+description = "Shared configuration and types for the LG UltraGear color profile tool."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+chrono.workspace = true
+log.workspace = true
+serde.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

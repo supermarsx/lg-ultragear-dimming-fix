@@ -1,0 +1,5 @@
+testResults.xml
+test-encoding.txt
+dist/
+/service/target/
+/target

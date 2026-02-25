@@ -1,0 +1,657 @@
+<img width="350" height="350" alt="lg-ultragear-dimming-fix" src="https://github.com/user-attachments/assets/4530aed6-d98c-423a-932b-defb3655cffe" />
+
+# LG UltraGear Auto-Dimming Fix | Stop Screen Dimming on Gaming Monitors
+
+<img width="613" height="618" alt="image" src="https://github.com/user-attachments/assets/f7b28ed5-3f57-43b6-926d-8a5202c3ab7c" />
+
+[![stars](https://img.shields.io/github/stars/supermarsx/lg-ultragear-dimming-fix?style=flat-square&color=ffd700)](https://github.com/supermarsx/lg-ultragear-dimming-fix/stargazers)
+[![watchers](https://img.shields.io/github/watchers/supermarsx/lg-ultragear-dimming-fix?style=flat-square)](https://github.com/supermarsx/lg-ultragear-dimming-fix/watchers)
+[![forks](https://img.shields.io/github/forks/supermarsx/lg-ultragear-dimming-fix?style=flat-square)](https://github.com/supermarsx/lg-ultragear-dimming-fix/forks)
+[![issues](https://img.shields.io/github/issues/supermarsx/lg-ultragear-dimming-fix?style=flat-square)](https://github.com/supermarsx/lg-ultragear-dimming-fix/issues)
+[![downloads](https://img.shields.io/github/downloads/supermarsx/lg-ultragear-dimming-fix/total?style=flat-square)](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases)
+[![built with](https://img.shields.io/badge/built%20with-rust-DEA584?style=flat-square&logo=rust)](#)
+[![made for](https://img.shields.io/badge/made%20for-windows-0078D6?style=flat-square)](#)
+[![license](https://img.shields.io/github/license/supermarsx/lg-ultragear-dimming-fix?style=flat-square)](license.md)
+
+[![download-latest](https://img.shields.io/badge/Download-Latest%20Release-2ea44f?style=for-the-badge&logo=github)](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases/latest)
+
+> 💡 **Quick Start:** Download `lg-ultragear-dimming-fix.exe`, run it, and the interactive menu takes care of the rest.
+
+## Fix LG UltraGear Monitor Auto-Dimming Problems
+
+**lg-ultragear-dimming-fix** is a single native Windows binary that stops auto-dimming on LG UltraGear LCD monitors. It installs a calibrated ICC color profile, detects your monitors via WMI, and can run as a Windows service to automatically reapply the fix whenever displays reconnect, the session unlocks, or the system wakes from sleep.
+
+No PowerShell. No scripts. No dependencies. Just one `.exe`.
+
+### What This Tool Does
+
+- **Purpose**: Stop LG UltraGear gaming monitors from dimming under static or semi-static content by constraining the panel's effective luminance range.
+- **Method**: Apply and set a custom ICC/ICM color profile that limits the tone response so the monitor's firmware auto-dimming heuristic doesn't trigger.
+- **Persistence**: A Windows service monitors display-connect, session-unlock, and logon events and reapplies the profile automatically — surviving reconnects, sleep/wake, and reboots.
+- **Platform**: Windows 10/11 — native Win32/WinRT APIs, no runtime dependencies.
+- **Compatible Models**: Works with most LG UltraGear series monitors including 27GL850, 27GN950, 38GN950, 34GN850, and many others experiencing unexpected dimming.
+
+### Common Problems This Fixes
+
+- ✅ Screen dims when displaying bright or white content
+- ✅ Monitor brightness fluctuates during gaming sessions
+- ✅ Unexpected darkening with static images or productivity apps
+- ✅ ABL (Automatic Brightness Limiting) cannot be disabled in OSD
+- ✅ Brightness inconsistency affecting competitive gaming
+- ✅ Eye strain from constant brightness changes
+- ✅ Profile resets after monitor reconnection, sleep, or reboot
+
+
+## Why This Works
+
+Many LG UltraGear models use firmware-level auto-dimming (ABL — Automatic Brightness Limiting) that activates when:
+- Average Picture Level (APL) stays high
+- Content appears static or semi-static
+- Bright colors dominate the screen
+
+This dimming behavior is frustrating for gamers and professionals because:
+- It reduces visibility in competitive gaming
+- Creates inconsistent viewing experience
+- Cannot be disabled through monitor OSD settings
+- Persists even with power-saving options disabled
+
+**The solution** uses a custom ICC color profile that constrains the effective luminance range Windows sends to the display. By limiting the tone response curve, the monitor's firmware never reaches the threshold that triggers auto-dimming, maintaining consistent brightness.
+
+### Software-Only Fix — No Hardware Modifications
+
+- Nothing on the monitor is flashed or permanently changed
+- You can revert at any time by removing the color profile
+- Works immediately without firmware updates
+- Safe for your monitor warranty
+
+### Why Other Solutions Don't Work
+
+- **❌ Disabling OSD power-saving options** — Often does not fully disable firmware-level dimming on UltraGear models
+- **❌ Windows/GPU settings changes** — Disabling adaptive brightness, CABC, or toggling HDR commonly fails to stop firmware behavior
+- **❌ Waiting for firmware updates** — Many screens either have no user-accessible updates, or LG hasn't released fixes
+- **✅ Color profile approach** — Works immediately with current firmware, no waiting required
+
+### LG Service Menu — Disable CPC / LEA Refresh (OLED Models)
+
+Some LG UltraGear OLED monitors (confirmed on **27GR95QE**, **32GS95UE**, **32GS95UX**) have a hidden service menu that lets you disable **CPC** (Content-based Power Control) and **LEA Refresh** for higher sustained brightness. This is a complementary approach that can be combined with the color profile fix above.
+
+> **Note:** Service menu settings reset every time the monitor is fully powered off. See the deep sleep workaround below to preserve them across sleep cycles.
+
+**How to enter the service menu (no remote required):**
+
+1. **Power off** the monitor
+2. Push the joystick/thumbstick: **Left → Left → Left → Right**
+3. **Power on** the monitor
+4. Open the OSD settings — you will see the service menu instead of the normal menu
+
+**Recommended settings:**
+
+1. Turn **Aging → On** (this unlocks the OLED debug/tuning options)
+2. Disable **CPC** (Content-based Power Control) — prevents automatic brightness reduction based on screen content
+3. Disable **LEA Refresh** — prevents periodic brightness dips from the panel refresh cycle
+4. Turn **Aging → Off** when done, so the automatic image cleaning (pixel refresh) process remains enabled
+
+> **Tip:** If the CPC / LEA Refresh options are not visible, try enabling **Aging** first — that may be all that's needed on your model.
+
+**How to exit the service menu:**
+
+Repeat the same joystick sequence: power off → Left → Left → Left → Right → power on → open OSD. The normal settings menu will return.
+
+**Preserving settings across sleep cycles:**
+
+Disable **Deep Sleep** in the normal OSD *before* entering the service menu. The changed values will persist as long as the monitor is not fully powered off (standby/sleep is fine). Note: you must stay in "service menu mode" — switching back to the normal OSD requires the power-off sequence, which resets the service menu values.
+
+*Thanks to the [r/OLED_Gaming community](https://www.reddit.com/r/OLED_Gaming/comments/12ndpc8/27gr95qe_service_menu/) and user La773 for documenting these steps.*
+
+
+## Quick Start
+
+### Download and Run
+
+1. Download **`lg-ultragear-dimming-fix.exe`** from the [latest release](https://github.com/supermarsx/lg-ultragear-dimming-fix/releases/latest)
+2. Run it (a UAC prompt will appear — admin is required for color profile and service installation)
+3. The interactive TUI opens automatically — press **1** for a full install (profile + service)
+
+That's it. The service handles persistence from here.
+
+### Interactive TUI
+
+When run without arguments, the tool opens an interactive terminal menu:
+
+```
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    LG UltraGear Auto-Dimming Fix                           ║
+╟────────────────────────────────────────────────────────────────────────────╢
+║  Status: Profile ✓  Service ✓  Running ✓  Monitors: 1                     ║
+╟────────────────────────────────────────────────────────────────────────────╢
+║  1. Install (profile + service)     6. Detect monitors                     ║
+║  2. Install profile only            7. Remove service                      ║
+║  3. Install service only            8. Remove profile                      ║
+║  4. Refresh / reapply profile       9. Full uninstall                      ║
+║  5. Reinstall everything            A. Advanced options                    ║
+║                                     Q. Quit                                ║
+╚════════════════════════════════════════════════════════════════════════════╝
+```
+
+Advanced options let you toggle toast notifications, dry-run mode, and verbose output.
+
+You can open **DDC/CI Studio** directly from the main menu with `[D]` (or from Maintenance via `[N]`). It lets you read/write DDC/CI VCP codes targeting your LG UltraGear monitor — including brightness, color presets, display modes, resets, and custom VCP codes.
+
+### CLI Mode
+
+For scripting, automation, or headless environments, use subcommands directly:
+
+```powershell
+# Install profile + service (detects LG UltraGear monitors automatically)
+lg-ultragear-dimming-fix.exe install
+
+# Install profile only, no service
+lg-ultragear-dimming-fix.exe install --profile-only
+
+# Install service only
+lg-ultragear-dimming-fix.exe install --service-only
+
+# Force overwrite with custom profile path
+lg-ultragear-dimming-fix.exe install --force --profile-path "C:\my-profile.icm"
+
+# Dry-run install (simulate without changes)
+lg-ultragear-dimming-fix.exe --dry-run install
+
+# Detect monitors matching a pattern
+lg-ultragear-dimming-fix.exe detect
+lg-ultragear-dimming-fix.exe detect --pattern "LG"
+lg-ultragear-dimming-fix.exe detect --pattern "27G.*850" --regex
+
+# One-shot profile reapply
+lg-ultragear-dimming-fix.exe apply
+
+# Run event watcher in foreground (Ctrl+C to stop)
+lg-ultragear-dimming-fix.exe watch
+
+# Probe status (monitors, profile, service, config)
+lg-ultragear-dimming-fix.exe probe
+
+# Uninstall service
+lg-ultragear-dimming-fix.exe uninstall
+
+# Full uninstall (service + profile + config)
+lg-ultragear-dimming-fix.exe uninstall --full
+
+# Reinstall everything
+lg-ultragear-dimming-fix.exe reinstall
+
+# View / manage configuration
+lg-ultragear-dimming-fix.exe config show
+lg-ultragear-dimming-fix.exe config path
+lg-ultragear-dimming-fix.exe config reset
+
+# Diagnostics
+lg-ultragear-dimming-fix.exe test toast
+lg-ultragear-dimming-fix.exe test toast --title "Hello" --body "Custom message"
+lg-ultragear-dimming-fix.exe test profile
+lg-ultragear-dimming-fix.exe test monitors
+
+# Windows service control (advanced)
+lg-ultragear-dimming-fix.exe service install
+lg-ultragear-dimming-fix.exe service install --service-name my-custom-svc
+lg-ultragear-dimming-fix.exe service start
+lg-ultragear-dimming-fix.exe service stop
+lg-ultragear-dimming-fix.exe service status
+lg-ultragear-dimming-fix.exe service uninstall
+
+# DDC/CI monitor control
+lg-ultragear-dimming-fix.exe ddc list
+lg-ultragear-dimming-fix.exe ddc brightness 50
+lg-ultragear-dimming-fix.exe ddc brightness 75 --pattern "LG"
+lg-ultragear-dimming-fix.exe ddc color-preset
+lg-ultragear-dimming-fix.exe ddc set-color-preset 6
+lg-ultragear-dimming-fix.exe ddc display-mode
+lg-ultragear-dimming-fix.exe ddc set-display-mode 3
+lg-ultragear-dimming-fix.exe ddc reset-brightness-contrast
+lg-ultragear-dimming-fix.exe ddc reset-color
+lg-ultragear-dimming-fix.exe ddc version
+lg-ultragear-dimming-fix.exe ddc get-vcp 10
+lg-ultragear-dimming-fix.exe ddc set-vcp 10 50
+```
+
+### CLI Reference
+
+#### Global Flags
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--verbose` | `-v` | Enable verbose output |
+| `--dry-run` | | Simulate operations without making changes |
+| `--non-interactive` | | Force CLI mode (skip TUI even if a terminal is attached) |
+| `--skip-elevation` | | Do not auto-elevate to administrator |
+| `--help` | `-h` | Show help |
+| `--version` | `-V` | Show version |
+
+#### Commands
+
+**Install / Uninstall / Reinstall**
+
+| Command | Flags | Description |
+|---------|-------|-------------|
+| `install` | | Install color profile and/or service |
+| | `--pattern <TEXT>` `-p` | Monitor name pattern (case-insensitive substring match) |
+| | `--regex` | Use regex pattern matching instead of substring |
+| | `--profile-only` | Install ICC profile only (no service) |
+| | `--service-only` | Install service only (skip profile extraction) |
+| | `--profile-path <PATH>` | Path to a custom ICC/ICM profile (dynamic CMX profile by default) |
+| | `--per-user` | Also associate profile in per-user scope (default: system-wide) |
+| | `--skip-hdr` | Skip HDR/advanced-color association |
+| | `--skip-hash-check` | Skip hash check — always overwrite profile in color store |
+| | `--force` | Force overwrite even if profile and service already exist |
+| | `--skip-detect` | Skip monitor detection during install |
+| `uninstall` | | Uninstall service |
+| | `--full` | Remove everything (service + profile + config) |
+| | `--profile` | Also remove the ICC profile from the color store |
+| `reinstall` | | Clean reinstall (uninstall then install) |
+| | `--pattern <TEXT>` `-p` | Monitor name pattern override |
+| | `--regex` | Use regex pattern matching instead of substring |
+
+**Monitor & Profile**
+
+| Command | Flags | Description |
+|---------|-------|-------------|
+| `detect` | | Detect connected monitors matching a pattern |
+| | `--pattern <TEXT>` `-p` | Monitor name pattern (case-insensitive substring match) |
+| | `--regex` | Use regex pattern matching instead of substring |
+| `apply` | | One-shot profile reapply for matching monitors |
+| | `--pattern <TEXT>` `-p` | Monitor name pattern override |
+| | `--regex` | Use regex pattern matching instead of substring |
+| | `--profile-path <PATH>` | Path to a custom ICC/ICM profile |
+| | `--per-user` | Also associate profile in per-user scope |
+| | `--skip-hdr` | Skip HDR/advanced-color association |
+| | `--toast` | Enable toast notification for this run |
+| | `--no-toast` | Disable toast notification for this run |
+| `watch` | | Run event watcher in foreground (Ctrl+C to stop) |
+| | `--pattern <TEXT>` `-p` | Monitor name pattern override |
+| | `--regex` | Use regex pattern matching instead of substring |
+| `probe` | | Probe monitors, profile, service, and config status |
+| | `--pattern <TEXT>` `-p` | Monitor name pattern |
+| | `--regex` | Use regex pattern matching instead of substring |
+
+**Diagnostics**
+
+| Command | Flags | Description |
+|---------|-------|-------------|
+| `test toast` | | Send a test toast notification |
+| | `--title <TEXT>` | Custom title (default: "LG UltraGear Test") |
+| | `--body <TEXT>` | Custom body (default: "Toast notification is working ✓") |
+| `test profile` | | Verify ICC profile integrity (hash check) |
+| `test monitors` | | Test monitor detection |
+| | `--pattern <TEXT>` `-p` | Monitor name pattern |
+| | `--regex` | Use regex pattern matching instead of substring |
+
+**Configuration**
+
+| Command | Flags | Description |
+|---------|-------|-------------|
+| `config show` | | Show current configuration |
+| `config path` | | Print config file path |
+| `config reset` | | Reset config to defaults |
+
+**Service Management**
+
+| Command | Flags | Description |
+|---------|-------|-------------|
+| `service install` | | Install the Windows service |
+| | `--pattern <TEXT>` `-p` | Monitor name pattern |
+| | `--service-name <NAME>` | Custom service name (default: lg-ultragear-color-svc) |
+| `service uninstall` | | Uninstall the Windows service |
+| `service start` | | Start the service |
+| `service stop` | | Stop the service |
+| `service status` | | Show service status |
+
+**DDC/CI Monitor Control**
+
+All `ddc` commands default to the configured `monitor_match` pattern (e.g. `"LG ULTRAGEAR"`). Use `--pattern` to override.
+
+| Command | Flags | Description |
+|---------|-------|-------------|
+| `ddc list` | | List all physical monitors visible via DDC/CI |
+| `ddc brightness <VALUE>` | | Set brightness (0–100) on all monitors |
+| | `--pattern <TEXT>` `-p` | Target a specific monitor |
+| `ddc color-preset` | | Read current color preset (VCP 0x14) |
+| | `--pattern <TEXT>` `-p` | Monitor pattern |
+| `ddc set-color-preset <VALUE>` | | Set color preset (1=sRGB, 6=6500K, 10=9300K, 11=User1…) |
+| | `--pattern <TEXT>` `-p` | Monitor pattern |
+| `ddc display-mode` | | Read current display/picture mode (VCP 0xDC) |
+| | `--pattern <TEXT>` `-p` | Monitor pattern |
+| `ddc set-display-mode <VALUE>` | | Set display mode |
+| | `--pattern <TEXT>` `-p` | Monitor pattern |
+| `ddc reset-brightness-contrast` | | Reset brightness + contrast to factory (VCP 0x06) |
+| | `--pattern <TEXT>` `-p` | Monitor pattern |
+| `ddc reset-color` | | Reset color to factory defaults (VCP 0x0A) |
+| | `--pattern <TEXT>` `-p` | Monitor pattern |
+| `ddc version` | | Read VCP/MCCS version (VCP 0xDF) |
+| | `--pattern <TEXT>` `-p` | Monitor pattern |
+| `ddc get-vcp <CODE>` | | Read any VCP code (hex, e.g. `10`, `14`, `DC`) |
+| | `--pattern <TEXT>` `-p` | Monitor pattern |
+| `ddc set-vcp <CODE> <VALUE>` | | Write any VCP code (hex) — **use with caution** |
+| | `--pattern <TEXT>` `-p` | Monitor pattern |
+
+
+## Manual Install (No Tool)
+
+If you prefer not to run any executables, you can apply the profile manually:
+
+1. Generate/export your preferred `.icm` profile or use the built-in dynamic generator
+2. Copy it to `%WINDIR%\System32\spool\drivers\color` (requires admin)
+3. Press `Win+R`, type `colorcpl`, press Enter
+4. Go to the **Devices** tab, select your LG UltraGear monitor
+5. Check **"Use my settings for this device"**
+6. Click **Add…**, browse to the `.icm` file, select it
+7. Click **Set as Default Profile**
+
+> ⚠️ This manual method does **not** persist across reconnections. Use the tool with the service for automatic reapplication.
+
+
+## How It Works (Technical)
+
+### Architecture
+
+The tool is built as a Rust workspace with six crates:
+
+| Crate | Purpose |
+|-------|---------|
+| **lg-cli** | CLI entry point (clap) + interactive TUI (crossterm) |
+| **lg-core** | Shared configuration (TOML-based, stored in `%ProgramData%`) |
+| **lg-monitor** | WMI monitor discovery + DDC/CI control (`dxva2.dll`) |
+| **lg-profile** | ICC profile management via Windows Color System (`mscms.dll`) |
+| **lg-notify** | Toast notifications via WinRT (`ToastNotificationManager`) |
+| **lg-service** | Windows service runtime (SCM, device notifications, session events) |
+
+### Profile Installation
+
+- The ICC profile is **generated dynamically** in Rust via `cmx` at runtime (no embedded `.icm` blob)
+- On install, the profile is extracted to `%WINDIR%\System32\spool\drivers\color`
+- Profile is associated with matching display device keys via `WcsAssociateColorProfileWithDevice` / `WcsDisassociateColorProfileFromDevice`
+- Display settings are refreshed and the Calibration Loader task is triggered via COM Task Scheduler
+
+### Monitor Detection
+
+- Uses WMI `WmiMonitorId` to enumerate connected displays
+- Matches by user-friendly name (case-insensitive substring, default: `"LG ULTRAGEAR"`)
+- Override with `--pattern` flag or `monitor_name_match` in config
+
+### DDC/CI Monitor Control
+
+- Uses the Windows Monitor Configuration API (`dxva2.dll`) for low-level DDC/CI communication
+- Reads and writes MCCS VCP codes (brightness, contrast, color preset, display mode, etc.)
+- Monitor targeting works by matching the DDC physical monitor description or the GDI device string against the configured `monitor_match` pattern — this correctly identifies LG monitors even when they appear as "Generic PnP Monitor" in dxva2
+- Supports factory reset commands (brightness/contrast reset, color reset) via VCP codes 0x06 and 0x0A
+- Auto-set brightness on profile reapply can be enabled via `ddc_brightness_on_reapply` in config
+
+### Service Mode
+
+The Windows service (`lg-ultragear-color-svc`) listens for:
+- **Device interface notifications** (`DBT_DEVICEARRIVAL` / `DBT_DEVICEREMOVECOMPLETE`) — monitor connect/disconnect
+- **Session change events** (`WTS_SESSION_UNLOCK`, `WTS_SESSION_LOGON`) — session unlock, logon
+- **Display change messages** (`WM_DISPLAYCHANGE`) — resolution/display topology changes
+
+Events are debounced and trigger a profile reapply cycle: disassociate → reassociate → refresh → trigger Calibration Loader.
+
+### Configuration
+
+Configuration is stored at `%ProgramData%\LG-UltraGear-Monitor\config.toml`:
+
+```toml
+monitor_match = "LG ULTRAGEAR"
+monitor_match_regex = false
+profile_name = "lg-ultragear-dynamic-cmx.icm" # used when icc_active_preset = "custom"
+icc_gamma = 2.05
+icc_active_preset = "gamma22" # gamma22 | gamma24 | reader | custom
+icc_generate_specialized_profiles = true
+icc_luminance_cd_m2 = 120.0
+icc_tuning_preset = "anti_dim_balanced" # manual | anti_dim_soft | anti_dim_balanced | anti_dim_aggressive | anti_dim_night | reader_balanced
+icc_tuning_overlay_manual = true
+icc_black_lift = 0.0
+icc_midtone_boost = 0.0
+icc_white_compression = 0.0
+icc_gamma_r = 1.0
+icc_gamma_g = 1.0
+icc_gamma_b = 1.0
+icc_vcgt_enabled = false
+icc_vcgt_strength = 0.0
+icc_target_black_cd_m2 = 0.2
+icc_include_media_black_point = true
+icc_include_device_descriptions = true
+icc_include_characterization_target = true
+icc_include_viewing_cond_desc = true
+icc_technology_signature = "vidm"
+icc_ciis_signature = ""
+icc_cicp_enabled = false
+icc_cicp_primaries = 1
+icc_cicp_transfer = 13
+icc_cicp_matrix = 0
+icc_cicp_full_range = true
+icc_metadata_enabled = false
+icc_include_calibration_datetime = true
+icc_include_chromatic_adaptation = true
+icc_include_chromaticity = true
+icc_include_measurement = true
+icc_include_viewing_conditions = true
+icc_include_spectral_scaffold = false
+icc_per_monitor_profiles = true
+icc_hdr_preset = "gamma22"
+icc_sdr_preset = "gamma22"
+icc_schedule_day_preset = ""
+icc_schedule_night_preset = ""
+verbose = false
+toast_enabled = true
+toast_title = "LG UltraGear"
+toast_body = "Color profile reapplied"
+refresh_display_settings = true
+refresh_broadcast_color = true
+refresh_invalidate = true
+refresh_calibration_loader = true
+stabilize_delay_ms = 1500
+toggle_delay_ms = 100
+reapply_delay_ms = 12000
+ddc_brightness_on_reapply = false
+ddc_brightness_value = 50
+```
+
+In TUI mode, open `ICC Studio` from the main menu with `I` to edit/save all ICC tuning/tag settings and generate/apply an optimized ICC on the fly.
+
+### ICC Utilities
+
+The CLI includes ICC conversion/inspection/manipulation tools:
+
+```powershell
+# Generate ICC from TOML config
+lg-ultragear-dimming-fix.exe icc from-toml --input config.toml --output out.icm
+
+# Generate optimized ICC from preset tuning and apply immediately
+lg-ultragear-dimming-fix.exe icc optimize --tuning-preset anti_dim_balanced --apply --save-config
+
+# Reader-focused preset (unyellow white balance + brighter text/background perception)
+lg-ultragear-dimming-fix.exe icc optimize --tuning-preset reader_balanced --luminance 160 --apply --save-config
+
+# Validate an ICC
+lg-ultragear-dimming-fix.exe icc validate --input out.icm
+lg-ultragear-dimming-fix.exe icc validate --input out.icm --detailed
+
+# Inspect tags
+lg-ultragear-dimming-fix.exe icc inspect --input out.icm
+lg-ultragear-dimming-fix.exe icc inspect --input out.icm --detailed
+
+# Normalize/rewrite profile
+lg-ultragear-dimming-fix.exe icc normalize --input in.icm --output normalized.icm
+
+# Set/remove raw tags
+lg-ultragear-dimming-fix.exe icc set-tag --input in.icm --output out.icm --signature tech --type-signature sig --payload-text "vidm"
+lg-ultragear-dimming-fix.exe icc remove-tag --input out.icm --output out2.icm --signature meta
+
+# Import i1Profiler-exported profile (validate + normalize)
+lg-ultragear-dimming-fix.exe icc import-i1 --input xrite.icc
+```
+
+### File Locations
+
+| Item | Path |
+|------|------|
+| Binary | `%ProgramData%\LG-UltraGear-Monitor\lg-ultragear-dimming-fix.exe` |
+| Config | `%ProgramData%\LG-UltraGear-Monitor\config.toml` |
+| Profile (active, default) | `%WINDIR%\System32\spool\drivers\color\lg-ultragear-gamma22-cmx.icm` |
+| Profile (specialized) | `%WINDIR%\System32\spool\drivers\color\lg-ultragear-gamma24-cmx.icm` |
+| Profile (reader preset) | `%WINDIR%\System32\spool\drivers\color\lg-ultragear-reader-cmx.icm` |
+
+
+## Security / Permissions
+
+- Installing into the system color store and registering a Windows service requires **administrator** privileges
+- A UAC prompt will appear when the tool needs elevation
+- The service runs as `LocalSystem` for access to the color store and device notifications
+- No network access, no telemetry, no external dependencies
+
+
+## Verification
+
+- **Color Management UI**: Press `Win+R`, run `colorcpl` → Devices tab → select your LG UltraGear → confirm `lg-ultragear-gamma22-cmx.icm` (or selected preset) is present and set as default
+- **Service status**: Run `lg-ultragear-dimming-fix.exe service status` or check in `services.msc`
+- **Visual check**: Leave a bright, mostly static window open — dimming should be gone or greatly reduced
+- **Monitor detection**: Run `lg-ultragear-dimming-fix.exe detect` to see matched displays
+
+
+## Troubleshooting
+
+### The profile resets after reconnection or sleep
+- Install the service: run the tool and press **1** (Install profile + service), or use `lg-ultragear-dimming-fix.exe install`
+- Verify the service is running: `lg-ultragear-dimming-fix.exe service status`
+
+### The profile is applied but dimming still occurs
+- Some LG UltraGear models have multiple dimming mechanisms
+- Disable "Energy Saving" or "Smart Energy Saving" in the monitor's OSD menu
+- Ensure HDR is disabled in Windows settings if you're using SDR content
+- Some models have more aggressive ABL that requires additional OSD tuning
+
+### Screen dims only on certain colors or scenes
+- The profile prevents aggressive dimming but may not eliminate all firmware-level ABL
+- Try adjusting monitor brightness and contrast in OSD
+- Some models have more aggressive ABL than others
+
+### Gaming performance concerns
+- This fix does **not** impact gaming performance or FPS
+- Works alongside G-SYNC, FreeSync, and other monitor features
+- No input lag or response time changes
+
+### Install / Uninstall / Reinstall fails with "access denied" or file-lock errors
+- **Close Event Viewer** (and any other MMC snap-in) before running install, uninstall, or reinstall. Event Viewer holds open handles to the service's event log, which can prevent Windows from removing or replacing the service binary.
+- Run the tool from an **elevated** (Administrator) terminal.
+
+### Completely uninstall everything
+
+```powershell
+lg-ultragear-dimming-fix.exe uninstall --full
+```
+
+This removes the service, the ICC profile from the color store, and the config file.
+
+### Rollback / revert (manual)
+- `colorcpl` → Devices → select display → choose another default or uncheck "Use my settings for this device"
+- Delete the profile from `%WINDIR%\System32\spool\drivers\color` (admin required)
+
+
+## Building from Source
+
+### Prerequisites
+
+- [Rust toolchain](https://rustup.rs/) (stable)
+- Windows 10/11 SDK (for Win32/WinRT bindings)
+
+### Build
+
+```powershell
+# Debug build
+cargo build
+
+# Release build (optimized, LTO, stripped)
+cargo build --release
+
+# Run tests (580+ tests across all crates)
+cargo test --all-targets
+
+# Format check
+cargo fmt --all -- --check
+
+# Lint
+cargo clippy --all-targets --all-features -- -D warnings
+```
+
+The release binary is at `target\release\lg-ultragear-dimming-fix.exe`.
+
+### Project Structure
+
+```
+crates/
+  lg-cli/        CLI entry point + interactive TUI
+  lg-core/       Configuration management (TOML)
+  lg-monitor/    WMI monitor detection + DDC/CI control
+  lg-profile/    ICC profile + WCS APIs
+  lg-notify/     WinRT toast notifications
+  lg-service/    Windows service runtime
+legacy/          Original PowerShell/batch installer (archived)
+docs/            Additional guides
+```
+
+
+## Downloads & Releases
+
+Pushes to `main`/`master` run the main CI workflow, which automatically:
+
+- bumps `VERSION` (increments the last numeric segment),
+- commits and tags the new version, and
+- publishes a GitHub Release with packaged artifacts.
+
+Each release includes:
+
+- **`lg-ultragear-dimming-fix.exe`** — standalone native binary (everything included)
+- **`lg-ultragear-dimming-fix.zip`** — binary + ICM profile + readme + license
+
+
+## License
+
+See [license.md](license.md) for licensing details.
+
+
+## FAQ
+
+### Does this work with all LG UltraGear monitors?
+Tested and confirmed on many models including 27GL850, 27GL83A, 27GN950, 27GN850, 27GN800, 34GN850, 38GN950, 32GN650, 32GP850, and others. If your model isn't listed, try it — the fix is safe and reversible.
+
+### Will this affect color accuracy?
+The profile constrains the luminance range slightly to prevent dimming triggers. Most users report no noticeable color difference in normal use. For professional color-critical work, you may want to revert the profile.
+
+### Does this work with HDR content?
+This fix primarily targets SDR content. HDR behavior varies by model.
+
+### Can I use this with NVIDIA or AMD graphics cards?
+Yes. The fix operates at the Windows Color System level, independent of GPU vendor or driver.
+
+### Will this void my monitor warranty?
+No. This is a software-only fix that does not modify firmware or hardware.
+
+### What's the difference between "watch" and the service?
+`watch` runs the event watcher in the foreground (Ctrl+C to stop). The service runs in the background permanently, starting automatically with Windows.
+
+### Can I uninstall this easily?
+Yes. Run `lg-ultragear-dimming-fix.exe uninstall --full` to remove everything (service, profile, config).
+
+## Credits
+
+LG 27GS60QC-B Color Profile created by StuffAround
+
+Reference: https://www.reddit.com/r/LGUltraGearOfficial/comments/1jbjn96/lg_ultragear_27gs60qc_auto_dimming_fix/
+
+Their original repo: https://github.com/StuffAround/LG_27GS60QC-B_AutodimmingFix
+
+They've worked very hard for months and deserve a lot of credit for that :)
+
+
+## Keywords
+
+LG UltraGear dimming fix, LG monitor auto dimming, LG UltraGear brightness problem, stop LG monitor from dimming, LG ABL disable, LG automatic brightness limiting, gaming monitor dimming issue, LG 27GL850 dimming, LG 27GN950 dimming, LG UltraGear screen darkening, fix monitor brightness fluctuation, LG gaming monitor dimming Windows 10, LG gaming monitor dimming Windows 11, disable ABL LG UltraGear, ICC profile fix dimming, color profile dimming solution

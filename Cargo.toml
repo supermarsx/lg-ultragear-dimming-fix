@@ -1,0 +1,78 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/lg-core",
+    "crates/lg-monitor",
+    "crates/lg-profile",
+    "crates/lg-notify",
+    "crates/lg-service",
+    "crates/lg-cli",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+authors = ["supermarsx"]
+
+[workspace.dependencies]
+# Internal crates
+lg-core = { path = "crates/lg-core" }
+lg-monitor = { path = "crates/lg-monitor" }
+lg-profile = { path = "crates/lg-profile" }
+lg-notify = { path = "crates/lg-notify" }
+lg-service = { path = "crates/lg-service" }
+
+# Color management
+cmx = { version = "0.0.5", features = ["v5"] }
+chrono = "0.4"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+crossterm = "0.28"
+ctrlc = "3"
+env_logger = "0.11"
+
+# Logging
+log = "0.4"
+winlog = "0.2"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+regex = "1"
+
+# Windows APIs
+windows = { version = "0.58", features = [
+    "Win32_Devices_Display",
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_Threading",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_ColorSystem",
+    "Win32_UI_Shell",
+    "Win32_Graphics_Gdi",
+    "Win32_System_RemoteDesktop",
+    "Win32_Security",
+    "Win32_System_Com",
+    "Win32_System_TaskScheduler",
+    "Data_Xml_Dom",
+    "UI_Notifications",
+] }
+windows-service = "0.7"
+winreg = "0.55"
+
+# WMI
+wmi = "0.14"
+
+# Testing
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"
