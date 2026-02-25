@@ -196,6 +196,37 @@ jobs:
         shell: pwsh
         run: ./scripts/package.ps1
 
+      - name: Generate release notes
+        if: steps.stale.outputs.is_stale != 'true'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          $currentTag = $env:VERSION
+          $previousTag = git tag --sort=-v:refname | Where-Object { $_ -ne $currentTag } | Select-Object -First 1
+          $endSha = $env:GITHUB_SHA
+          if ([string]::IsNullOrWhiteSpace($endSha)) {
+            $endSha = (git rev-parse HEAD).Trim()
+          }
+
+          if (-not [string]::IsNullOrWhiteSpace($previousTag)) {
+            $changes = git log "$previousTag..$endSha" --no-merges --pretty=format:"- %s (%h)"
+          } else {
+            $changes = git log "$endSha" -n 25 --no-merges --pretty=format:"- %s (%h)"
+          }
+
+          if ([string]::IsNullOrWhiteSpace($changes)) {
+            $changes = "- Maintenance release."
+          }
+
+          $notesPath = "dist\release-notes.md"
+          @(
+            "## Release v$currentTag"
+            ""
+            "## Latest Changes"
+            $changes
+          ) | Set-Content -Path $notesPath -Encoding UTF8
+
       - name: Publish GitHub release
         if: steps.stale.outputs.is_stale != 'true'
         uses: softprops/action-gh-release@v2
@@ -203,7 +234,7 @@ jobs:
           tag_name: ${{ steps.bump.outputs.version }}
           target_commitish: ${{ steps.tag.outputs.release_sha }}
           name: v${{ steps.bump.outputs.version }}
-          generate_release_notes: true
+          body_path: dist/release-notes.md
           files: |
             dist/lg-ultragear-dimming-fix.zip
             dist/lg-ultragear-dimming-fix.exe
