@@ -643,13 +643,11 @@ Yes. Run `lg-ultragear-dimming-fix.exe uninstall --full` to remove everything (s
 
 ## Credits
 
-LG 27GS60QC-B Color Profile created by StuffAround
+We used to use StuffAround color profile, but not any more. 
 
-Reference: https://www.reddit.com/r/LGUltraGearOfficial/comments/1jbjn96/lg_ultragear_27gs60qc_auto_dimming_fix/
+The old LG 27GS60QC-B Color Profile was created by StuffAround.
 
 Their original repo: https://github.com/StuffAround/LG_27GS60QC-B_AutodimmingFix
-
-They've worked very hard for months and deserve a lot of credit for that :)
 
 
 ## Keywords
