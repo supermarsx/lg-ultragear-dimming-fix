@@ -3026,12 +3026,10 @@ fn cmd_icc(action: IccAction, dry_run: bool) -> Result<(), Box<dyn Error>> {
                             )?;
                             println!("[OK] Applied optimized ICC to {}", device.name);
                         }
-                        lg_profile::refresh_display(
-                            cfg.refresh_display_settings,
-                            cfg.refresh_broadcast_color,
-                            cfg.refresh_invalidate,
-                        );
-                        lg_profile::trigger_calibration_loader(cfg.refresh_calibration_loader);
+                        // Use a non-disruptive refresh first to avoid monitor
+                        // mode flashes/flicker during successful apply.
+                        lg_profile::refresh_display(false, true, false);
+                        lg_profile::trigger_calibration_loader(true);
                         println!(
                             "[DONE] Optimized ICC applied to {} monitor(s).",
                             devices.len()

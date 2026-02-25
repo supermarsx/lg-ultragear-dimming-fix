@@ -29,12 +29,34 @@ use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::{ptr, thread, time::Duration};
 use windows::core::{BSTR, HSTRING, PCWSTR, PWSTR};
-use windows::Win32::Foundation::{BOOL, HWND, LPARAM, WPARAM};
-use windows::Win32::Graphics::Gdi::{ChangeDisplaySettingsExW, InvalidateRect};
+use windows::Win32::Devices::Display::{
+    DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes, QueryDisplayConfig, SetDisplayConfig,
+    DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
+    DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_PATH_INFO, DISPLAYCONFIG_SOURCE_DEVICE_NAME,
+    DISPLAYCONFIG_TARGET_DEVICE_NAME, QDC_ONLY_ACTIVE_PATHS, SDC_ALLOW_CHANGES, SDC_APPLY,
+    SDC_NO_OPTIMIZATION, SDC_USE_DATABASE_CURRENT, SDC_USE_SUPPLIED_DISPLAY_CONFIG,
+    SET_DISPLAY_CONFIG_FLAGS,
+};
+use windows::Win32::Foundation::{
+    LocalFree, BOOL, ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS, HWND, LPARAM, WPARAM,
+};
+use windows::Win32::Graphics::Gdi::{
+    ChangeDisplaySettingsExW, CreateDCW, DeleteDC, InvalidateRect,
+};
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
 };
 use windows::Win32::System::TaskScheduler::{ITaskService, TaskScheduler};
+use windows::Win32::UI::ColorSystem::{
+    AssociateColorProfileWithDeviceW, ColorProfileAddDisplayAssociation,
+    ColorProfileGetDisplayDefault, ColorProfileSetDisplayDefaultAssociation, GetICMProfileW,
+    InstallColorProfileW, SetDeviceGammaRamp, SetICMProfileW, WcsAssociateColorProfileWithDevice,
+    WcsDisassociateColorProfileFromDevice, WcsGetDefaultColorProfile,
+    WcsGetDefaultColorProfileSize, WcsGetUsePerUserProfiles, WcsSetCalibrationManagementState,
+    WcsSetDefaultColorProfile, WcsSetUsePerUserProfiles, CPST_EXTENDED_DISPLAY_COLOR_MODE,
+    CPST_NONE, CPST_STANDARD_DISPLAY_COLOR_MODE, CPT_ICC, WCS_PROFILE_MANAGEMENT_SCOPE,
+    WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER, WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE,
 };
@@ -90,6 +112,7 @@ const NIGHT_PRESET_START_HOUR: u32 = 19;
 
 /// Legacy profile names that should be removed when the dynamic profile is active.
 const LEGACY_PROFILE_NAMES: &[&str] = &["lg-ultragear-full-cal.icm"];
+const CLASS_MONITOR_SIGNATURE: u32 = 0x6D6E_7472; // 'mntr'
 
 /// Dynamic ICC presets used by auto-generation and apply flows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2337,7 +2360,7 @@ pub fn reapply_profile_with_mode_associations(
     sdr_profile_path: &Path,
     hdr_profile_path: &Path,
     toggle_delay_ms: u64,
-    per_user: bool,
+    _per_user: bool,
 ) -> Result<(), Box<dyn Error>> {
     if !active_profile_path.exists() {
         return Err(format!("Profile not found: {}", active_profile_path.display()).into());
@@ -2355,23 +2378,156 @@ pub fn reapply_profile_with_mode_associations(
         register_color_profile(hdr_profile_path)?;
     }
 
-    reapply_profile(device_key, active_profile_path, toggle_delay_ms, per_user)?;
-    set_display_default_association(device_key, sdr_profile_path, per_user)?;
-    add_hdr_display_association(device_key, hdr_profile_path, per_user)?;
-    set_generic_default(device_key, sdr_profile_path, per_user)?;
+    const MAX_APPLY_ATTEMPTS: usize = 3;
+    let mut last_verification_error: Option<String> = None;
 
-    verify_wcs_default_profile_name(
-        device_key,
-        sdr_profile_path,
-        WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE,
-    )?;
-    if per_user {
-        verify_wcs_default_profile_name(
+    for attempt in 1..=MAX_APPLY_ATTEMPTS {
+        enable_per_user_monitor_profiles(device_key);
+
+        // Always attempt both scopes; some systems only honor current-user scope
+        // even when system-wide APIs report success.
+        reapply_profile(device_key, active_profile_path, toggle_delay_ms, true)?;
+        set_display_default_association(device_key, sdr_profile_path, true)?;
+        add_hdr_display_association(device_key, hdr_profile_path, true)?;
+        set_generic_default(device_key, sdr_profile_path, true)?;
+        let icm_ok = match set_icm_profile_for_display_device(device_key, active_profile_path) {
+            Ok(()) => true,
+            Err(e) => {
+                let msg = format!("SetICMProfileW apply failed for {}: {}", device_key, e);
+                warn!("{}", msg);
+                false
+            }
+        };
+        let vcgt_ok = match apply_vcgt_gamma_ramp_from_profile(device_key, active_profile_path) {
+            Ok(Some(())) => true,
+            Ok(None) => {
+                info!(
+                    "No vcgt tag present in {}; skipping SetDeviceGammaRamp",
+                    active_profile_path.display()
+                );
+                true
+            }
+            Err(e) => {
+                let msg = format!("SetDeviceGammaRamp apply failed for {}: {}", device_key, e);
+                warn!("{}", msg);
+                false
+            }
+        };
+
+        let verified_system = verify_wcs_default_profile_name(
+            device_key,
+            sdr_profile_path,
+            WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE,
+        )?;
+        let verified_user = verify_wcs_default_profile_name(
             device_key,
             sdr_profile_path,
             WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
         )?;
+        let verified = verified_system || verified_user;
+
+        if verified && icm_ok && vcgt_ok {
+            info!(
+                "Profile verification passed for {} on attempt {}/{} (system_scope={} user_scope={} icm_ok={} vcgt_ok={})",
+                device_key, attempt, MAX_APPLY_ATTEMPTS, verified_system, verified_user, icm_ok, vcgt_ok
+            );
+            return Ok(());
+        }
+
+        let note = format!(
+            "{} '{}' for {} on attempt {}/{}",
+            if !icm_ok {
+                "SetICMProfileW did not confirm active profile"
+            } else if !vcgt_ok {
+                "SetDeviceGammaRamp did not apply vcgt"
+            } else {
+                "WCS did not confirm"
+            },
+            sdr_profile_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| sdr_profile_path.display().to_string()),
+            device_key,
+            attempt,
+            MAX_APPLY_ATTEMPTS
+        );
+        warn!("{}", note);
+        last_verification_error = Some(note);
+
+        // Legacy fallback: explicitly associate the SDR/HDR profiles via the
+        // older mscms API on stacks where modern default-association calls
+        // are not enough.
+        if let Err(e) = associate_profile_with_device_legacy(device_key, sdr_profile_path) {
+            warn!("Legacy SDR association fallback failed: {}", e);
+        }
+        if !hdr_profile_path.eq(sdr_profile_path) {
+            if let Err(e) = associate_profile_with_device_legacy(device_key, hdr_profile_path) {
+                warn!("Legacy HDR association fallback failed: {}", e);
+            }
+        }
+
+        // Fallback path: force the display pipeline refresh and trigger
+        // Calibration Loader so Windows re-reads color associations.
+        refresh_display(true, true, true);
+        match run_calibration_loader_task() {
+            Ok(()) => info!("Calibration Loader fallback triggered"),
+            Err(e) => warn!("Calibration Loader fallback failed: {}", e),
+        }
+
+        // Give WCS a short window to settle before retrying.
+        thread::sleep(Duration::from_millis(250 * attempt as u64));
     }
+
+    Err(last_verification_error
+        .unwrap_or_else(|| {
+            format!(
+                "Profile apply could not be verified for {} after {} attempts",
+                device_key, MAX_APPLY_ATTEMPTS
+            )
+        })
+        .into())
+}
+
+/// Legacy fallback association method via `AssociateColorProfileWithDeviceW`.
+///
+/// Some display stacks respond better to this older API than modern WCS
+/// default-association APIs. It is used only when verification fails.
+fn associate_profile_with_device_legacy(
+    device_key: &str,
+    profile_path: &Path,
+) -> Result<(), Box<dyn Error>> {
+    if !profile_path.exists() {
+        return Err(format!("Profile not found: {}", profile_path.display()).into());
+    }
+
+    let profile_wide: Vec<u16> = profile_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let device_wide = to_wide(device_key);
+
+    unsafe {
+        let result = AssociateColorProfileWithDeviceW(
+            PCWSTR(ptr::null()),
+            PCWSTR(profile_wide.as_ptr()),
+            PCWSTR(device_wide.as_ptr()),
+        );
+        if !result.as_bool() {
+            let err = io::Error::last_os_error();
+            return Err(format!(
+                "AssociateColorProfileWithDeviceW failed for {} (Win32={})",
+                device_key, err
+            )
+            .into());
+        }
+    }
+
+    info!(
+        "Legacy profile association set for {} using {}",
+        device_key,
+        profile_path.display()
+    );
     Ok(())
 }
 
@@ -2592,94 +2748,6 @@ pub fn cleanup_stale_profiles(expected_name: &str) -> Vec<PathBuf> {
 // mscms.dll FFI — WCS color profile APIs
 // ============================================================================
 
-/// WCS_PROFILE_MANAGEMENT_SCOPE enum values from the Windows SDK (`icm.h`).
-///   SYSTEM_WIDE  = 0   (applies to all users)
-///   CURRENT_USER = 1   (applies to current user only)
-const WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE: u32 = 0;
-
-/// Scope constant for per-user (current user) color profile operations.
-const WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER: u32 = 1;
-
-/// Color Profile Type: ICC profile.
-const CPT_ICC: i32 = 1; // COLORPROFILETYPE::CPT_ICC
-
-/// Color Profile Subtype: device default.
-const CPST_NONE: i32 = 1; // COLORPROFILESUBTYPE::CPST_NONE
-
-/// SDR profile type for `ColorProfileSetDisplayDefaultAssociation`.
-const COLOR_PROFILE_TYPE_SDR: u32 = 0;
-
-/// SDR profile subtype for `ColorProfileSetDisplayDefaultAssociation`.
-const COLOR_PROFILE_SUBTYPE_SDR: u32 = 0;
-
-// These are not in the `windows` crate metadata, so we link manually.
-#[link(name = "mscms")]
-extern "system" {
-    fn InstallColorProfileW(machine_name: PCWSTR, profile_name: PCWSTR) -> BOOL;
-
-    fn WcsAssociateColorProfileWithDevice(
-        scope: u32,
-        profile_name: PCWSTR,
-        device_name: PCWSTR,
-    ) -> BOOL;
-
-    fn WcsDisassociateColorProfileFromDevice(
-        scope: u32,
-        profile_name: PCWSTR,
-        device_name: PCWSTR,
-    ) -> BOOL;
-
-    fn WcsSetDefaultColorProfile(
-        scope: u32,
-        device_name: PCWSTR,
-        cpt: i32,
-        cpst: i32,
-        profile_id: u32,
-        profile_name: PCWSTR,
-    ) -> BOOL;
-
-    fn WcsGetDefaultColorProfileSize(
-        scope: u32,
-        device_name: PCWSTR,
-        cpt: i32,
-        cpst: i32,
-        profile_id: u32,
-        profile_name_len: *mut u32,
-    ) -> BOOL;
-
-    fn WcsGetDefaultColorProfile(
-        scope: u32,
-        device_name: PCWSTR,
-        cpt: i32,
-        cpst: i32,
-        profile_id: u32,
-        profile_name_len: u32,
-        profile_name: PWSTR,
-    ) -> BOOL;
-
-    /// Modern Win10+ API: sets the SDR default profile for a display.
-    /// This is what the Color Management control panel calls when you
-    /// select a profile — it triggers the WCS engine to actually apply
-    /// the profile to the display pipeline.
-    fn ColorProfileSetDisplayDefaultAssociation(
-        profile_name: PCWSTR,
-        device_name: PCWSTR,
-        scope: u32,
-        profile_type: u32,
-        profile_sub_type: u32,
-        profile_id: u32,
-    ) -> BOOL;
-
-    /// Modern Win10+ API: adds a profile to the HDR/advanced-color association
-    /// for a display.
-    fn ColorProfileAddDisplayAssociation(
-        profile_name: PCWSTR,
-        device_name: PCWSTR,
-        scope: u32,
-        profile_type: u32,
-    ) -> BOOL;
-}
-
 /// Check if the ICC profile is installed at the given path.
 pub fn is_profile_installed(profile_path: &Path) -> bool {
     profile_path.exists()
@@ -2754,9 +2822,50 @@ pub fn remove_profile(profile_path: &Path) -> Result<bool, Box<dyn Error>> {
     }
 }
 
+fn enable_per_user_monitor_profiles(device_key: &str) {
+    let device_wide = to_wide(device_key);
+    let mut enabled = BOOL::from(false);
+    let get_ok = unsafe {
+        WcsGetUsePerUserProfiles(
+            PCWSTR(device_wide.as_ptr()),
+            CLASS_MONITOR_SIGNATURE,
+            &mut enabled,
+        )
+    };
+    if !get_ok.as_bool() {
+        let err = io::Error::last_os_error();
+        warn!(
+            "WcsGetUsePerUserProfiles failed for {} (class='mntr', err={})",
+            device_key, err
+        );
+        return;
+    }
+
+    if enabled.as_bool() {
+        return;
+    }
+
+    let set_ok = unsafe {
+        WcsSetUsePerUserProfiles(
+            PCWSTR(device_wide.as_ptr()),
+            CLASS_MONITOR_SIGNATURE,
+            BOOL::from(true),
+        )
+    };
+    if !set_ok.as_bool() {
+        let err = io::Error::last_os_error();
+        warn!(
+            "WcsSetUsePerUserProfiles failed for {} (class='mntr', err={})",
+            device_key, err
+        );
+    } else {
+        info!("Enabled per-user monitor profile mode for {}", device_key);
+    }
+}
+
 fn query_wcs_default_profile_name(
     device_key: &str,
-    scope: u32,
+    scope: WCS_PROFILE_MANAGEMENT_SCOPE,
 ) -> Result<Option<String>, Box<dyn Error>> {
     let device_wide = to_wide(device_key);
     let mut size_bytes = 0u32;
@@ -2777,7 +2886,7 @@ fn query_wcs_default_profile_name(
             _ => {
                 return Err(format!(
                     "WcsGetDefaultColorProfileSize failed for {} (scope={}, err={})",
-                    device_key, scope, err
+                    device_key, scope.0, err
                 )
                 .into());
             }
@@ -2803,7 +2912,7 @@ fn query_wcs_default_profile_name(
         let err = io::Error::last_os_error();
         return Err(format!(
             "WcsGetDefaultColorProfile failed for {} (scope={}, err={})",
-            device_key, scope, err
+            device_key, scope.0, err
         )
         .into());
     }
@@ -2814,11 +2923,437 @@ fn query_wcs_default_profile_name(
     Ok(Some(String::from_utf16_lossy(&buf[..len])))
 }
 
+#[derive(Clone, Debug)]
+struct DisplayColorTarget {
+    adapter_id: windows::Win32::Foundation::LUID,
+    source_id: u32,
+    gdi_device_name: Option<String>,
+}
+
+fn query_active_display_paths_for_color() -> Result<Vec<DISPLAYCONFIG_PATH_INFO>, Box<dyn Error>> {
+    let (paths, _) = query_active_display_config()?;
+    Ok(paths)
+}
+
+fn query_active_display_config(
+) -> Result<(Vec<DISPLAYCONFIG_PATH_INFO>, Vec<DISPLAYCONFIG_MODE_INFO>), Box<dyn Error>> {
+    const RETRIES: usize = 3;
+
+    for _ in 0..RETRIES {
+        let mut path_count = 0u32;
+        let mut mode_count = 0u32;
+        let size_status = unsafe {
+            GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &mut path_count, &mut mode_count)
+        };
+        if size_status != ERROR_SUCCESS {
+            return Err(format!("GetDisplayConfigBufferSizes failed: {}", size_status.0).into());
+        }
+        if path_count == 0 {
+            return Ok((Vec::new(), Vec::new()));
+        }
+
+        let mut paths = vec![DISPLAYCONFIG_PATH_INFO::default(); path_count as usize];
+        let mut modes = vec![DISPLAYCONFIG_MODE_INFO::default(); mode_count as usize];
+        let mut queried_paths = path_count;
+        let mut queried_modes = mode_count;
+        let query_status = unsafe {
+            QueryDisplayConfig(
+                QDC_ONLY_ACTIVE_PATHS,
+                &mut queried_paths,
+                paths.as_mut_ptr(),
+                &mut queried_modes,
+                modes.as_mut_ptr(),
+                None,
+            )
+        };
+        if query_status == ERROR_SUCCESS {
+            paths.truncate(queried_paths as usize);
+            modes.truncate(queried_modes as usize);
+            return Ok((paths, modes));
+        }
+        if query_status != ERROR_INSUFFICIENT_BUFFER {
+            return Err(format!("QueryDisplayConfig failed: {}", query_status.0).into());
+        }
+    }
+
+    Err("QueryDisplayConfig repeatedly returned insufficient buffer".into())
+}
+
+fn utf16_nul_to_string(raw: &[u16]) -> String {
+    let len = raw.iter().position(|&c| c == 0).unwrap_or(raw.len());
+    if len == 0 {
+        return String::new();
+    }
+    String::from_utf16_lossy(&raw[..len]).trim().to_string()
+}
+
+fn normalize_monitor_device_key(value: &str) -> String {
+    let mut out = value.trim().to_ascii_uppercase();
+    if let Some(stripped) = out.strip_prefix(r"\\?\") {
+        out = stripped.to_string();
+    }
+    if let Some(idx) = out.find("#{") {
+        out = out[..idx].to_string();
+    }
+    out = out.replace('#', "\\");
+    out = out.trim_end_matches('\\').to_string();
+    out = out.trim_end_matches("_0").to_string();
+    out
+}
+
+fn resolve_display_color_target(
+    device_key: &str,
+) -> Result<Option<DisplayColorTarget>, Box<dyn Error>> {
+    let wanted = normalize_monitor_device_key(device_key);
+    if wanted.is_empty() {
+        return Ok(None);
+    }
+    let mut candidates: Vec<String> = Vec::new();
+
+    for path in query_active_display_paths_for_color()? {
+        let mut source = DISPLAYCONFIG_SOURCE_DEVICE_NAME::default();
+        source.header.r#type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+        source.header.size = std::mem::size_of::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>() as u32;
+        source.header.adapterId = path.sourceInfo.adapterId;
+        source.header.id = path.sourceInfo.id;
+        let source_status = unsafe { DisplayConfigGetDeviceInfo(&mut source.header) };
+        let gdi_name = if source_status == ERROR_SUCCESS.0 as i32 {
+            let name = utf16_nul_to_string(&source.viewGdiDeviceName);
+            if name.is_empty() {
+                None
+            } else {
+                Some(name)
+            }
+        } else {
+            None
+        };
+
+        let mut target = DISPLAYCONFIG_TARGET_DEVICE_NAME::default();
+        target.header.r#type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
+        target.header.size = std::mem::size_of::<DISPLAYCONFIG_TARGET_DEVICE_NAME>() as u32;
+        target.header.adapterId = path.targetInfo.adapterId;
+        target.header.id = path.targetInfo.id;
+
+        let status = unsafe { DisplayConfigGetDeviceInfo(&mut target.header) };
+        if status != ERROR_SUCCESS.0 as i32 {
+            continue;
+        }
+
+        let target_path = utf16_nul_to_string(&target.monitorDevicePath);
+        if target_path.is_empty() {
+            continue;
+        }
+        let friendly = utf16_nul_to_string(&target.monitorFriendlyDeviceName);
+        let normalized = normalize_monitor_device_key(&target_path);
+        candidates.push(if friendly.is_empty() {
+            normalized.clone()
+        } else {
+            format!("{} ({})", normalized, friendly)
+        });
+        if normalized.eq_ignore_ascii_case(&wanted)
+            || normalized.contains(&wanted)
+            || wanted.contains(&normalized)
+        {
+            return Ok(Some(DisplayColorTarget {
+                adapter_id: path.targetInfo.adapterId,
+                source_id: path.sourceInfo.id,
+                gdi_device_name: gdi_name,
+            }));
+        }
+    }
+
+    if !candidates.is_empty() {
+        warn!(
+            "Could not map monitor device key '{}' to an active display path. Candidates: {}",
+            wanted,
+            candidates.join("; ")
+        );
+    } else {
+        warn!(
+            "Could not map monitor device key '{}' to an active display path (no active display targets reported)",
+            wanted
+        );
+    }
+
+    Ok(None)
+}
+
+fn canonical_profile_file_name(value: &str) -> String {
+    let trimmed = value.trim().trim_matches('"');
+    Path::new(trimmed)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| trimmed.to_string())
+}
+
+fn query_display_default_profile_name(
+    device_key: &str,
+    scope: WCS_PROFILE_MANAGEMENT_SCOPE,
+) -> Result<Option<String>, Box<dyn Error>> {
+    let Some(target) = resolve_display_color_target(device_key)? else {
+        return Err(format!(
+            "Could not resolve active display path for device key '{}'",
+            device_key
+        )
+        .into());
+    };
+
+    let profile = unsafe {
+        ColorProfileGetDisplayDefault(
+            scope,
+            target.adapter_id,
+            target.source_id,
+            CPT_ICC,
+            CPST_STANDARD_DISPLAY_COLOR_MODE,
+        )
+    };
+    let Ok(profile_ptr) = profile else {
+        return Ok(None);
+    };
+    if profile_ptr.is_null() {
+        return Ok(None);
+    }
+
+    let value = unsafe { PCWSTR(profile_ptr.0).to_string().unwrap_or_default() };
+    unsafe {
+        let _ = LocalFree(windows::Win32::Foundation::HLOCAL(profile_ptr.0 as *mut _));
+    }
+    let canonical = canonical_profile_file_name(&value);
+    if canonical.trim().is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(canonical))
+}
+
+fn set_icm_profile_for_display_device(
+    device_key: &str,
+    profile_path: &Path,
+) -> Result<(), Box<dyn Error>> {
+    let Some(target) = resolve_display_color_target(device_key)? else {
+        return Err(format!(
+            "Could not resolve active display path for device key '{}'",
+            device_key
+        )
+        .into());
+    };
+    let Some(gdi_name) = target.gdi_device_name.as_ref() else {
+        return Err(format!(
+            "Could not resolve GDI display name for device key '{}'",
+            device_key
+        )
+        .into());
+    };
+
+    let driver_wide = to_wide("DISPLAY");
+    let gdi_wide = to_wide(gdi_name);
+    let profile_wide: Vec<u16> = profile_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    unsafe {
+        let hdc = CreateDCW(
+            PCWSTR(driver_wide.as_ptr()),
+            PCWSTR(gdi_wide.as_ptr()),
+            PCWSTR(ptr::null()),
+            None,
+        );
+        if hdc.0.is_null() {
+            let err = io::Error::last_os_error();
+            return Err(format!("CreateDCW failed for {} ({})", gdi_name, err).into());
+        }
+
+        let set_ok = SetICMProfileW(hdc, PCWSTR(profile_wide.as_ptr()));
+
+        // Best-effort readback verification from GDI.
+        let mut size = 1024u32;
+        let mut buf = vec![0u16; size as usize];
+        let mut readback = String::new();
+        if GetICMProfileW(hdc, &mut size, PWSTR(buf.as_mut_ptr())).as_bool() {
+            let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+            if len > 0 {
+                readback = canonical_profile_file_name(&String::from_utf16_lossy(&buf[..len]));
+            }
+        }
+
+        let _ = DeleteDC(hdc);
+
+        if !set_ok.as_bool() {
+            let err = io::Error::last_os_error();
+            return Err(format!("SetICMProfileW failed for {} ({})", gdi_name, err).into());
+        }
+
+        if !readback.is_empty() {
+            let expected_name = profile_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| profile_path.display().to_string());
+            if !readback.eq_ignore_ascii_case(&expected_name) {
+                warn!(
+                    "SetICMProfileW readback mismatch for {}: expected '{}' got '{}'",
+                    gdi_name, expected_name, readback
+                );
+            }
+        }
+    }
+
+    info!(
+        "SetICMProfileW applied for device {} via {}",
+        device_key, gdi_name
+    );
+    Ok(())
+}
+
+fn parse_vcgt_gamma_ramp(
+    tag_payload: &[u8],
+) -> Result<[u16; CURVE_TABLE_SIZE * 3], Box<dyn Error>> {
+    let table_offset = if tag_payload.len() >= 8 && &tag_payload[0..4] == b"vcgt" {
+        8usize // type signature + reserved
+    } else {
+        0usize
+    };
+
+    let read_u16 = |offset: usize| -> Result<u16, Box<dyn Error>> {
+        let Some(slice) = tag_payload.get(offset..offset + 2) else {
+            return Err(format!("vcgt payload too small at u16 offset {}", offset).into());
+        };
+        Ok(u16::from_be_bytes([slice[0], slice[1]]))
+    };
+    let read_u32 = |offset: usize| -> Result<u32, Box<dyn Error>> {
+        let Some(slice) = tag_payload.get(offset..offset + 4) else {
+            return Err(format!("vcgt payload too small at u32 offset {}", offset).into());
+        };
+        Ok(u32::from_be_bytes([slice[0], slice[1], slice[2], slice[3]]))
+    };
+
+    let table_mode = read_u32(table_offset)?;
+    if table_mode != 0 {
+        return Err(format!(
+            "unsupported vcgt mode {} (only table mode 0 is supported)",
+            table_mode
+        )
+        .into());
+    }
+    let channels = read_u16(table_offset + 4)? as usize;
+    let entries = read_u16(table_offset + 6)? as usize;
+    let bytes_per_entry = read_u16(table_offset + 8)? as usize;
+
+    if channels != 3 {
+        return Err(format!("unsupported vcgt channel count {} (expected 3)", channels).into());
+    }
+    if entries == 0 {
+        return Err("vcgt has zero entries".into());
+    }
+    if bytes_per_entry != 2 {
+        return Err(format!(
+            "unsupported vcgt entry size {} (expected 2)",
+            bytes_per_entry
+        )
+        .into());
+    }
+
+    let mut channel_data: [Vec<u16>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut cursor = table_offset + 10;
+    for chan in 0..3 {
+        let mut values = Vec::with_capacity(entries);
+        for _ in 0..entries {
+            let Some(slice) = tag_payload.get(cursor..cursor + 2) else {
+                return Err("vcgt payload truncated".into());
+            };
+            values.push(u16::from_be_bytes([slice[0], slice[1]]));
+            cursor += 2;
+        }
+        channel_data[chan] = values;
+    }
+
+    let sample = |values: &[u16], idx256: usize| -> u16 {
+        if values.len() == 1 {
+            return values[0];
+        }
+        let pos = (idx256 as f64) * ((values.len() - 1) as f64) / ((CURVE_TABLE_SIZE - 1) as f64);
+        let lo = pos.floor() as usize;
+        let hi = pos.ceil() as usize;
+        if lo == hi {
+            values[lo]
+        } else {
+            let t = pos - lo as f64;
+            let a = values[lo] as f64;
+            let b = values[hi] as f64;
+            ((a + (b - a) * t).round() as i64).clamp(0, 65535) as u16
+        }
+    };
+
+    let mut ramp = [0u16; CURVE_TABLE_SIZE * 3];
+    for i in 0..CURVE_TABLE_SIZE {
+        ramp[i] = sample(&channel_data[0], i);
+        ramp[CURVE_TABLE_SIZE + i] = sample(&channel_data[1], i);
+        ramp[(CURVE_TABLE_SIZE * 2) + i] = sample(&channel_data[2], i);
+    }
+    Ok(ramp)
+}
+
+fn apply_vcgt_gamma_ramp_from_profile(
+    device_key: &str,
+    profile_path: &Path,
+) -> Result<Option<()>, Box<dyn Error>> {
+    let bytes = std::fs::read(profile_path)?;
+    let raw = RawProfile::from_bytes(&bytes)?;
+    let Some(record) = raw.tags.get(&TagSignature::Vcgt) else {
+        return Ok(None);
+    };
+
+    let ramp = parse_vcgt_gamma_ramp(record.tag.as_slice())?;
+
+    let Some(target) = resolve_display_color_target(device_key)? else {
+        return Err(format!(
+            "Could not resolve active display path for device key '{}'",
+            device_key
+        )
+        .into());
+    };
+    let Some(gdi_name) = target.gdi_device_name.as_ref() else {
+        return Err(format!(
+            "Could not resolve GDI display name for device key '{}'",
+            device_key
+        )
+        .into());
+    };
+
+    let driver_wide = to_wide("DISPLAY");
+    let gdi_wide = to_wide(gdi_name);
+    unsafe {
+        let hdc = CreateDCW(
+            PCWSTR(driver_wide.as_ptr()),
+            PCWSTR(gdi_wide.as_ptr()),
+            PCWSTR(ptr::null()),
+            None,
+        );
+        if hdc.0.is_null() {
+            let err = io::Error::last_os_error();
+            return Err(format!("CreateDCW failed for {} ({})", gdi_name, err).into());
+        }
+
+        let ok = SetDeviceGammaRamp(hdc, ramp.as_ptr() as *const core::ffi::c_void);
+        let _ = DeleteDC(hdc);
+        if !ok.as_bool() {
+            let err = io::Error::last_os_error();
+            return Err(format!("SetDeviceGammaRamp failed for {} ({})", gdi_name, err).into());
+        }
+    }
+
+    info!(
+        "SetDeviceGammaRamp applied vcgt for device {} via {}",
+        device_key, gdi_name
+    );
+    Ok(Some(()))
+}
+
 fn verify_wcs_default_profile_name(
     device_key: &str,
     expected_profile_path: &Path,
-    scope: u32,
-) -> Result<(), Box<dyn Error>> {
+    scope: WCS_PROFILE_MANAGEMENT_SCOPE,
+) -> Result<bool, Box<dyn Error>> {
     let expected_name = expected_profile_path
         .file_name()
         .ok_or_else(|| {
@@ -2829,23 +3364,34 @@ fn verify_wcs_default_profile_name(
         })?
         .to_string_lossy()
         .to_string();
+
+    if let Some(name) = query_display_default_profile_name(device_key, scope)? {
+        if name.eq_ignore_ascii_case(&expected_name) {
+            return Ok(true);
+        }
+        warn!(
+            "Display default profile mismatch for {} (scope={}): expected '{}' got '{}'",
+            device_key, scope.0, expected_name, name
+        );
+        return Ok(false);
+    }
+
     let actual = query_wcs_default_profile_name(device_key, scope)?;
     match actual {
-        Some(name) if name.eq_ignore_ascii_case(&expected_name) => Ok(()),
-        Some(name) => Err(format!(
-            "WCS default profile verification failed for {} (scope={}): expected '{}' got '{}'",
-            device_key, scope, expected_name, name
-        )
-        .into()),
-        None => {
-            // Some Windows display stacks apply associations correctly but do
-            // not report a default through WcsGetDefaultColorProfile for this
-            // DISPLAY\\... device key. Treat this as indeterminate, not fatal.
+        Some(name) if name.eq_ignore_ascii_case(&expected_name) => Ok(true),
+        Some(name) => {
             warn!(
-                "WCS default profile check reported no default for {} (scope={}); expected '{}'. Keeping apply result as best-effort.",
-                device_key, scope, expected_name
+                "WCS default profile mismatch for {} (scope={}): expected '{}' got '{}'",
+                device_key, scope.0, expected_name, name
             );
-            Ok(())
+            Ok(false)
+        }
+        None => {
+            warn!(
+                "WCS default profile check reported no default for {} (scope={}); expected '{}'",
+                device_key, scope.0, expected_name
+            );
+            Ok(false)
         }
     }
 }
@@ -2943,53 +3489,6 @@ pub fn reapply_profile(
                 warn!(
                     "WcsAssociateColorProfileWithDevice (per-user) failed for {} (Win32={}) (non-fatal)",
                     device_key, err
-                );
-            }
-        }
-
-        // Step 4: Tell the WCS display pipeline to use this profile (SDR default).
-        // This is the modern Win10+ equivalent of what the Color Management
-        // control panel does when you select a profile for a display.
-        let result = ColorProfileSetDisplayDefaultAssociation(
-            PCWSTR(profile_wide.as_ptr()),
-            PCWSTR(device_wide.as_ptr()),
-            WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE,
-            COLOR_PROFILE_TYPE_SDR,
-            COLOR_PROFILE_SUBTYPE_SDR,
-            0,
-        );
-        if !result.as_bool() {
-            let err = io::Error::last_os_error();
-            warn!(
-                "ColorProfileSetDisplayDefaultAssociation (system) failed for {} (Win32={}) (non-fatal)",
-                device_key, err
-            );
-        } else {
-            info!(
-                "SDR display default association set (system) for {}",
-                device_key
-            );
-        }
-
-        if per_user {
-            let result = ColorProfileSetDisplayDefaultAssociation(
-                PCWSTR(profile_wide.as_ptr()),
-                PCWSTR(device_wide.as_ptr()),
-                WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
-                COLOR_PROFILE_TYPE_SDR,
-                COLOR_PROFILE_SUBTYPE_SDR,
-                0,
-            );
-            if !result.as_bool() {
-                let err = io::Error::last_os_error();
-                warn!(
-                    "ColorProfileSetDisplayDefaultAssociation (per-user) failed for {} (Win32={}) (non-fatal)",
-                    device_key, err
-                );
-            } else {
-                info!(
-                    "SDR display default association set (per-user) for {}",
-                    device_key
                 );
             }
         }
@@ -3092,21 +3591,26 @@ pub fn set_display_default_association(
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
-    let device_wide = to_wide(device_key);
+    let Some(target) = resolve_display_color_target(device_key)? else {
+        warn!(
+            "Could not map {} to an active display path for ColorProfileSetDisplayDefaultAssociation",
+            device_key
+        );
+        return Ok(());
+    };
 
     unsafe {
         let result = ColorProfileSetDisplayDefaultAssociation(
-            PCWSTR(profile_wide.as_ptr()),
-            PCWSTR(device_wide.as_ptr()),
             WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE,
-            COLOR_PROFILE_TYPE_SDR,
-            COLOR_PROFILE_SUBTYPE_SDR,
-            0,
+            PCWSTR(profile_wide.as_ptr()),
+            CPT_ICC,
+            CPST_STANDARD_DISPLAY_COLOR_MODE,
+            target.adapter_id,
+            target.source_id,
         );
-        if !result.as_bool() {
-            let err = io::Error::last_os_error();
+        if let Err(err) = result {
             warn!(
-                "ColorProfileSetDisplayDefaultAssociation (system) failed for {} (Win32={}) (non-fatal)",
+                "ColorProfileSetDisplayDefaultAssociation (system) failed for {} ({}) (non-fatal)",
                 device_key, err
             );
         } else {
@@ -3118,17 +3622,16 @@ pub fn set_display_default_association(
 
         if per_user {
             let result = ColorProfileSetDisplayDefaultAssociation(
-                PCWSTR(profile_wide.as_ptr()),
-                PCWSTR(device_wide.as_ptr()),
                 WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
-                COLOR_PROFILE_TYPE_SDR,
-                COLOR_PROFILE_SUBTYPE_SDR,
-                0,
+                PCWSTR(profile_wide.as_ptr()),
+                CPT_ICC,
+                CPST_STANDARD_DISPLAY_COLOR_MODE,
+                target.adapter_id,
+                target.source_id,
             );
-            if !result.as_bool() {
-                let err = io::Error::last_os_error();
+            if let Err(err) = result {
                 warn!(
-                    "ColorProfileSetDisplayDefaultAssociation (per-user) failed for {} (Win32={}) (non-fatal)",
+                    "ColorProfileSetDisplayDefaultAssociation (per-user) failed for {} ({}) (non-fatal)",
                     device_key, err
                 );
             } else {
@@ -3165,36 +3668,57 @@ pub fn add_hdr_display_association(
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
-    let device_wide = to_wide(device_key);
+    let Some(target) = resolve_display_color_target(device_key)? else {
+        warn!(
+            "Could not map {} to an active display path for ColorProfileAddDisplayAssociation",
+            device_key
+        );
+        return Ok(());
+    };
 
     unsafe {
         let result = ColorProfileAddDisplayAssociation(
-            PCWSTR(profile_wide.as_ptr()),
-            PCWSTR(device_wide.as_ptr()),
             WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE,
-            0, // advanced-color / HDR profile type
+            PCWSTR(profile_wide.as_ptr()),
+            target.adapter_id,
+            target.source_id,
+            BOOL::from(true),
+            BOOL::from(true),
         );
-        if !result.as_bool() {
-            let err = io::Error::last_os_error();
+        if let Err(err) = result {
             warn!(
-                "ColorProfileAddDisplayAssociation (system) failed for {} (Win32={}) (non-fatal)",
+                "ColorProfileAddDisplayAssociation (system) failed for {} ({}) (non-fatal)",
                 device_key, err
             );
         } else {
             info!("HDR display association added (system) for {}", device_key);
+            if let Err(err) = ColorProfileSetDisplayDefaultAssociation(
+                WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE,
+                PCWSTR(profile_wide.as_ptr()),
+                CPT_ICC,
+                CPST_EXTENDED_DISPLAY_COLOR_MODE,
+                target.adapter_id,
+                target.source_id,
+            ) {
+                warn!(
+                    "ColorProfileSetDisplayDefaultAssociation (HDR/system) failed for {} ({}) (non-fatal)",
+                    device_key, err
+                );
+            }
         }
 
         if per_user {
             let result = ColorProfileAddDisplayAssociation(
-                PCWSTR(profile_wide.as_ptr()),
-                PCWSTR(device_wide.as_ptr()),
                 WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
-                0,
+                PCWSTR(profile_wide.as_ptr()),
+                target.adapter_id,
+                target.source_id,
+                BOOL::from(true),
+                BOOL::from(true),
             );
-            if !result.as_bool() {
-                let err = io::Error::last_os_error();
+            if let Err(err) = result {
                 warn!(
-                    "ColorProfileAddDisplayAssociation (per-user) failed for {} (Win32={}) (non-fatal)",
+                    "ColorProfileAddDisplayAssociation (per-user) failed for {} ({}) (non-fatal)",
                     device_key, err
                 );
             } else {
@@ -3202,11 +3726,97 @@ pub fn add_hdr_display_association(
                     "HDR display association added (per-user) for {}",
                     device_key
                 );
+                if let Err(err) = ColorProfileSetDisplayDefaultAssociation(
+                    WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
+                    PCWSTR(profile_wide.as_ptr()),
+                    CPT_ICC,
+                    CPST_EXTENDED_DISPLAY_COLOR_MODE,
+                    target.adapter_id,
+                    target.source_id,
+                ) {
+                    warn!(
+                        "ColorProfileSetDisplayDefaultAssociation (HDR/per-user) failed for {} ({}) (non-fatal)",
+                        device_key, err
+                    );
+                }
             }
         }
     }
 
     Ok(())
+}
+
+fn reapply_display_topology_via_ccd() -> Result<&'static str, Box<dyn Error>> {
+    let mut attempts: Vec<String> = Vec::new();
+
+    let db_flags =
+        SET_DISPLAY_CONFIG_FLAGS(SDC_APPLY.0 | SDC_USE_DATABASE_CURRENT.0 | SDC_NO_OPTIMIZATION.0);
+    let db_status = unsafe { SetDisplayConfig(None, None, db_flags) };
+    if db_status == ERROR_SUCCESS.0 as i32 {
+        return Ok("database-current/no-optimization");
+    }
+    attempts.push(format!(
+        "SetDisplayConfig(database-current/no-optimization)={}",
+        db_status
+    ));
+
+    let db_allow_flags =
+        SET_DISPLAY_CONFIG_FLAGS(SDC_APPLY.0 | SDC_USE_DATABASE_CURRENT.0 | SDC_ALLOW_CHANGES.0);
+    let db_allow_status = unsafe { SetDisplayConfig(None, None, db_allow_flags) };
+    if db_allow_status == ERROR_SUCCESS.0 as i32 {
+        return Ok("database-current/allow-changes");
+    }
+    attempts.push(format!(
+        "SetDisplayConfig(database-current/allow-changes)={}",
+        db_allow_status
+    ));
+
+    let (paths, modes) = query_active_display_config()?;
+    if paths.is_empty() {
+        attempts.push("QueryDisplayConfig(active) returned zero paths".to_string());
+        return Err(attempts.join("; ").into());
+    }
+
+    let supplied_flags = SET_DISPLAY_CONFIG_FLAGS(
+        SDC_APPLY.0
+            | SDC_USE_SUPPLIED_DISPLAY_CONFIG.0
+            | SDC_ALLOW_CHANGES.0
+            | SDC_NO_OPTIMIZATION.0,
+    );
+    let supplied_status = unsafe {
+        SetDisplayConfig(
+            Some(paths.as_slice()),
+            Some(modes.as_slice()),
+            supplied_flags,
+        )
+    };
+    if supplied_status == ERROR_SUCCESS.0 as i32 {
+        return Ok("supplied-config/no-optimization");
+    }
+    attempts.push(format!(
+        "SetDisplayConfig(supplied-config/no-optimization)={}",
+        supplied_status
+    ));
+
+    let supplied_allow_flags = SET_DISPLAY_CONFIG_FLAGS(
+        SDC_APPLY.0 | SDC_USE_SUPPLIED_DISPLAY_CONFIG.0 | SDC_ALLOW_CHANGES.0,
+    );
+    let supplied_allow_status = unsafe {
+        SetDisplayConfig(
+            Some(paths.as_slice()),
+            Some(modes.as_slice()),
+            supplied_allow_flags,
+        )
+    };
+    if supplied_allow_status == ERROR_SUCCESS.0 as i32 {
+        return Ok("supplied-config/allow-changes");
+    }
+    attempts.push(format!(
+        "SetDisplayConfig(supplied-config/allow-changes)={}",
+        supplied_allow_status
+    ));
+
+    Err(attempts.join("; ").into())
 }
 
 /// Force display refresh using the specified Windows APIs.
@@ -3216,6 +3826,13 @@ pub fn add_hdr_display_association(
 /// * `broadcast_color` — Broadcast `WM_SETTINGCHANGE` with "Color" parameter
 /// * `invalidate` — Call `InvalidateRect` to force window repaint
 pub fn refresh_display(display_settings: bool, broadcast_color: bool, invalidate: bool) {
+    if display_settings {
+        match reapply_display_topology_via_ccd() {
+            Ok(method) => info!("CCD display reapply succeeded via {}", method),
+            Err(e) => warn!("CCD display reapply failed: {}", e),
+        }
+    }
+
     unsafe {
         // Method 1: ChangeDisplaySettingsEx with null — triggers full display mode refresh
         if display_settings {
@@ -3259,6 +3876,15 @@ pub fn refresh_display(display_settings: bool, broadcast_color: bool, invalidate
 pub fn trigger_calibration_loader(enabled: bool) {
     if !enabled {
         return;
+    }
+
+    unsafe {
+        if !WcsSetCalibrationManagementState(BOOL::from(true)).as_bool() {
+            let err = io::Error::last_os_error();
+            warn!("Could not enable calibration management state: {}", err);
+        } else {
+            info!("Calibration management state enabled");
+        }
     }
 
     match run_calibration_loader_task() {

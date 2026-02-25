@@ -3469,12 +3469,9 @@ fn action_toggle_ab_compare(
             opts.per_user,
         )?;
     }
-    lg_profile::refresh_display(
-        cfg.refresh_display_settings,
-        cfg.refresh_broadcast_color,
-        cfg.refresh_invalidate,
-    );
-    lg_profile::trigger_calibration_loader(cfg.refresh_calibration_loader);
+    // Use a non-disruptive refresh first to avoid monitor-wide flicker.
+    lg_profile::refresh_display(false, true, false);
+    lg_profile::trigger_calibration_loader(true);
 
     state.current_side = next_side.to_string();
     let now = std::time::SystemTime::now()
@@ -3861,12 +3858,9 @@ fn action_icc_generate_and_apply(
         }
     }
 
-    lg_profile::refresh_display(
-        cfg.refresh_display_settings,
-        cfg.refresh_broadcast_color,
-        cfg.refresh_invalidate,
-    );
-    lg_profile::trigger_calibration_loader(cfg.refresh_calibration_loader);
+    // Use a non-disruptive refresh first to avoid monitor-wide flicker.
+    lg_profile::refresh_display(false, true, false);
+    lg_profile::trigger_calibration_loader(true);
 
     if cfg.ddc_brightness_on_reapply {
         match lg_monitor::ddc::set_brightness_all(cfg.ddc_brightness_value) {

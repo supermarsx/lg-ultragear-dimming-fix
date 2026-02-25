@@ -830,7 +830,7 @@ fn is_profile_installed_default_path() {
 
 #[test]
 fn wcs_scope_system_wide_value() {
-    assert_eq!(WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE, 0);
+    assert_eq!(WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE.0, 0);
 }
 
 // ── Profile reapply ──────────────────────────────────────────────
@@ -880,13 +880,13 @@ fn trigger_calibration_loader_disabled_does_not_panic() {
 
 #[test]
 fn wcs_scope_current_user_value() {
-    assert_eq!(WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER, 1);
+    assert_eq!(WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER.0, 1);
 }
 
 #[test]
 fn wcs_cpt_and_cpst_constants() {
-    assert_eq!(CPT_ICC, 1);
-    assert_eq!(CPST_NONE, 1);
+    assert_eq!(CPT_ICC.0, 0);
+    assert_eq!(CPST_NONE.0, 4);
 }
 
 // ── Profile path validation ──────────────────────────────────────
@@ -1218,32 +1218,32 @@ fn wcs_scope_constants_are_distinct() {
 fn wcs_scope_values_are_small_integers() {
     // SYSTEM_WIDE = 0 is valid (first enum variant in the Windows SDK)
     const {
-        assert!(WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE < 256);
-        assert!(WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER > 0);
-        assert!(WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER < 256);
+        assert!(WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE.0 < 256);
+        assert!(WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER.0 > 0);
+        assert!(WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER.0 < 256);
     };
 }
 
 #[test]
 fn cpt_icc_is_one() {
-    assert_eq!(CPT_ICC, 1);
+    assert_eq!(CPT_ICC.0, 0);
 }
 
 #[test]
 fn cpst_none_is_one() {
-    assert_eq!(CPST_NONE, 1);
+    assert_eq!(CPST_NONE.0, 4);
 }
 
 // ── Display association constants ────────────────────────────────
 
 #[test]
-fn color_profile_type_sdr_is_zero() {
-    assert_eq!(COLOR_PROFILE_TYPE_SDR, 0);
+fn cpst_standard_display_color_mode_is_expected() {
+    assert_eq!(CPST_STANDARD_DISPLAY_COLOR_MODE.0, 7);
 }
 
 #[test]
-fn color_profile_subtype_sdr_is_zero() {
-    assert_eq!(COLOR_PROFILE_SUBTYPE_SDR, 0);
+fn cpst_extended_display_color_mode_is_expected() {
+    assert_eq!(CPST_EXTENDED_DISPLAY_COLOR_MODE.0, 8);
 }
 
 // ── register_color_profile ───────────────────────────────────────
@@ -1336,7 +1336,7 @@ fn add_hdr_display_association_per_user_does_not_panic() {
 #[test]
 fn wcs_scope_system_wide_is_zero() {
     assert_eq!(
-        WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE, 0,
+        WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE.0, 0,
         "SYSTEM_WIDE must be 0 per the Windows SDK enum"
     );
 }
@@ -1344,7 +1344,7 @@ fn wcs_scope_system_wide_is_zero() {
 #[test]
 fn wcs_scope_current_user_is_one() {
     assert_eq!(
-        WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER, 1,
+        WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER.0, 1,
         "CURRENT_USER must be 1 per the Windows SDK enum"
     );
 }
@@ -1353,7 +1353,8 @@ fn wcs_scope_current_user_is_one() {
 fn wcs_scope_system_wide_less_than_current_user() {
     const {
         assert!(
-            WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE < WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
+            WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE.0
+                < WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER.0,
             // enum order: SYSTEM_WIDE(0) < CURRENT_USER(1)
         );
     };
