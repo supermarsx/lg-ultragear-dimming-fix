@@ -754,6 +754,8 @@ fn build_trc_curve_points(
     let effective_gamma =
         sanitize_dynamic_gamma(gamma * sanitize_channel_gamma_multiplier(gamma_multiplier));
     let luminance_cd_m2 = sanitize_dynamic_luminance_cd_m2(luminance_cd_m2);
+    let luminance_ratio = (luminance_cd_m2 / DEFAULT_DYNAMIC_LUMINANCE_CD_M2).clamp(0.25, 5.0);
+    let luminance_bias = (luminance_ratio.log2() * 0.10).clamp(-0.18, 0.18);
     let black_lift = sanitize_black_lift(tuning.black_lift);
     let midtone_boost = sanitize_midtone_boost(tuning.midtone_boost);
     let white_compression = sanitize_white_compression(tuning.white_compression);
@@ -776,6 +778,14 @@ fn build_trc_curve_points(
 
         // Lift floor after gamma shaping.
         y = floor + (1.0 - floor) * y;
+
+        // Make white-luminance control affect perceived image brightness, not
+        // only metadata tags. Higher Yw lifts tones; lower Yw gently darkens.
+        if luminance_bias > 0.0 {
+            y += luminance_bias * (1.0 - y);
+        } else if luminance_bias < 0.0 {
+            y *= 1.0 + luminance_bias;
+        }
 
         // Compress highlights only near the top-end.
         let high = smoothstep((y - 0.70) / 0.30);

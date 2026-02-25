@@ -772,6 +772,11 @@ fn tuning_for_active_preset(cfg: &Config, active_preset: &str) -> lg_profile::Dy
     tuning_from_config(cfg)
 }
 
+fn sync_mode_presets_to_active(cfg: &mut Config) {
+    cfg.icc_sdr_preset = cfg.icc_active_preset.clone();
+    cfg.icc_hdr_preset = cfg.icc_active_preset.clone();
+}
+
 fn effective_preset_for_mode(cfg: &Config, hdr_mode: bool) -> String {
     lg_profile::select_effective_preset(
         &cfg.icc_active_preset,
@@ -2806,9 +2811,13 @@ fn cmd_icc(action: IccAction, dry_run: bool) -> Result<(), Box<dyn Error>> {
             }
             if let Some(g) = gamma {
                 cfg.icc_gamma = lg_profile::sanitize_dynamic_gamma(g);
+                cfg.icc_active_preset = "custom".to_string();
+                sync_mode_presets_to_active(&mut cfg);
             }
             if let Some(l) = luminance {
                 cfg.icc_luminance_cd_m2 = lg_profile::sanitize_dynamic_luminance_cd_m2(l);
+                cfg.icc_active_preset = "custom".to_string();
+                sync_mode_presets_to_active(&mut cfg);
             }
             if let Some(pat) = pattern {
                 cfg.monitor_match = pat;

@@ -690,6 +690,11 @@ fn run_inner(mut out: &mut impl Write) -> Result<(), Box<dyn std::error::Error>>
                     icc_cfg.icc_gamma,
                 )? {
                     icc_cfg.icc_gamma = lg_profile::sanitize_dynamic_gamma(value);
+                    // Manual gamma edits should use a truly dynamic profile.
+                    // Otherwise fixed presets (gamma22/gamma24/reader) override
+                    // this value during generation.
+                    icc_cfg.icc_active_preset = "custom".to_string();
+                    sync_mode_presets_to_active(&mut icc_cfg);
                     icc_dirty = true;
                 }
             }
@@ -697,11 +702,14 @@ fn run_inner(mut out: &mut impl Write) -> Result<(), Box<dyn std::error::Error>>
                 if let Some(value) = prompt_f64(
                     &mut out,
                     "ICC LUMINANCE",
-                    "Target white level used in ICC tags. Higher feels brighter. Range: 80..600 cd/m^2",
+                    "Target white level used for curve shaping + ICC luminance tags. Higher brightens, lower darkens. Range: 80..600 cd/m^2",
                     icc_cfg.icc_luminance_cd_m2,
                 )? {
                     icc_cfg.icc_luminance_cd_m2 =
                         lg_profile::sanitize_dynamic_luminance_cd_m2(value);
+                    // Luminance edits are part of the dynamic/custom pipeline.
+                    icc_cfg.icc_active_preset = "custom".to_string();
+                    sync_mode_presets_to_active(&mut icc_cfg);
                     icc_dirty = true;
                 }
             }

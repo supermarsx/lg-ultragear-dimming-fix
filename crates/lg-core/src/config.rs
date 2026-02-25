@@ -48,7 +48,7 @@ pub struct Config {
     /// Keep Gamma 2.2 and 2.4 specialized profiles generated and up to date.
     pub icc_generate_specialized_profiles: bool,
 
-    /// Luminance value (cd/m^2) encoded in generated ICC luminance tags.
+    /// Target white luminance (cd/m^2) used for TRC shaping and encoded in ICC tags.
     pub icc_luminance_cd_m2: f64,
 
     /// Anti-dimming tuning preset.
@@ -342,7 +342,7 @@ icc_active_preset = "{icc_active_preset}"
 # Keep both specialized Gamma 2.2 and 2.4 profiles generated in the color store.
 icc_generate_specialized_profiles = {icc_generate_specialized_profiles}
 
-# Luminance encoded in generated ICC luminance tags (cd/m^2).
+# Target white luminance used for curve shaping and encoded in ICC tags (cd/m^2).
 icc_luminance_cd_m2 = {icc_luminance_cd_m2}
 
 # Anti-dimming tuning preset:
