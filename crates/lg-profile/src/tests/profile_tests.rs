@@ -84,6 +84,50 @@ fn parse_dynamic_icc_tuning_preset_variants() {
         parse_dynamic_icc_tuning_preset("reader"),
         DynamicIccTuningPreset::ReaderBalanced
     );
+    assert_eq!(
+        parse_dynamic_icc_tuning_preset("ycbcr444"),
+        DynamicIccTuningPreset::ColorYcbcr444
+    );
+    assert_eq!(
+        parse_dynamic_icc_tuning_preset("color_ycbcr422"),
+        DynamicIccTuningPreset::ColorYcbcr422
+    );
+    assert_eq!(
+        parse_dynamic_icc_tuning_preset("color_ycbcr420"),
+        DynamicIccTuningPreset::ColorYcbcr420
+    );
+    assert_eq!(
+        parse_dynamic_icc_tuning_preset("rgb_full"),
+        DynamicIccTuningPreset::ColorRgbFull
+    );
+    assert_eq!(
+        parse_dynamic_icc_tuning_preset("rgb-limited"),
+        DynamicIccTuningPreset::ColorRgbLimited
+    );
+    assert_eq!(
+        parse_dynamic_icc_tuning_preset("bt2020-pq"),
+        DynamicIccTuningPreset::ColorBt2020Pq
+    );
+    assert_eq!(
+        parse_dynamic_icc_tuning_preset("unyellow_balanced"),
+        DynamicIccTuningPreset::UnyellowBalanced
+    );
+    assert_eq!(
+        parse_dynamic_icc_tuning_preset("deep_black"),
+        DynamicIccTuningPreset::BlackDepth
+    );
+    assert_eq!(
+        parse_dynamic_icc_tuning_preset("white_clarity"),
+        DynamicIccTuningPreset::WhiteClarity
+    );
+    assert_eq!(
+        parse_dynamic_icc_tuning_preset("anti_fade_punch"),
+        DynamicIccTuningPreset::AntiFadePunch
+    );
+    assert_eq!(
+        parse_dynamic_icc_tuning_preset("anti_fade_cinematic"),
+        DynamicIccTuningPreset::AntiFadeCinematic
+    );
 }
 
 #[test]
@@ -112,6 +156,22 @@ fn tuning_preset_names_include_reader_balanced() {
         dynamic_icc_tuning_preset_names().contains(&"reader_balanced"),
         "reader-balanced tuning should be selectable by name"
     );
+    assert!(
+        dynamic_icc_tuning_preset_names().contains(&"color_ycbcr444"),
+        "YCbCr444 tuning should be selectable by name"
+    );
+    assert!(
+        dynamic_icc_tuning_preset_names().contains(&"unyellow_balanced"),
+        "unyellow tuning should be selectable by name"
+    );
+    assert!(
+        dynamic_icc_tuning_preset_names().contains(&"black_depth"),
+        "black-depth tuning should be selectable by name"
+    );
+    assert!(
+        dynamic_icc_tuning_preset_names().contains(&"anti_fade_punch"),
+        "anti-fade tuning should be selectable by name"
+    );
 }
 
 #[test]
@@ -125,6 +185,22 @@ fn reader_balanced_preset_is_cooler_and_brighter_than_manual_defaults() {
         tuning.gamma_b > 1.0 && tuning.gamma_r < 1.0,
         "reader preset should cool white balance (reduce warm/yellow cast)"
     );
+}
+
+#[test]
+fn ycbcr444_preset_enables_video_signaling_tags() {
+    let tuning = dynamic_icc_tuning_for_preset(DynamicIccTuningPreset::ColorYcbcr444);
+    assert!(tuning.cicp_enabled);
+    assert_eq!(tuning.cicp_matrix_coefficients, 1);
+    assert!(!tuning.cicp_full_range);
+}
+
+#[test]
+fn unyellow_aggressive_is_cooler_than_manual_defaults() {
+    let tuning = dynamic_icc_tuning_for_preset(DynamicIccTuningPreset::UnyellowAggressive);
+    assert!(tuning.gamma_r < 1.0);
+    assert!(tuning.gamma_g < 1.0);
+    assert!(tuning.gamma_b > 1.0);
 }
 
 #[test]
@@ -257,6 +333,19 @@ fn all_non_manual_tuning_presets_change_generated_icm_bytes() {
         DynamicIccTuningPreset::AntiDimAggressive,
         DynamicIccTuningPreset::AntiDimNight,
         DynamicIccTuningPreset::ReaderBalanced,
+        DynamicIccTuningPreset::ColorRgbFull,
+        DynamicIccTuningPreset::ColorRgbLimited,
+        DynamicIccTuningPreset::ColorYcbcr444,
+        DynamicIccTuningPreset::ColorYcbcr422,
+        DynamicIccTuningPreset::ColorYcbcr420,
+        DynamicIccTuningPreset::ColorBt2020Pq,
+        DynamicIccTuningPreset::UnyellowSoft,
+        DynamicIccTuningPreset::UnyellowBalanced,
+        DynamicIccTuningPreset::UnyellowAggressive,
+        DynamicIccTuningPreset::BlackDepth,
+        DynamicIccTuningPreset::WhiteClarity,
+        DynamicIccTuningPreset::AntiFadePunch,
+        DynamicIccTuningPreset::AntiFadeCinematic,
     ];
 
     for preset in presets {

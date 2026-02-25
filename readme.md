@@ -375,7 +375,7 @@ The tool is built as a Rust workspace with six crates:
 
 - Uses WMI `WmiMonitorId` to enumerate connected displays
 - Matches by user-friendly name (case-insensitive substring, default: `"LG ULTRAGEAR"`)
-- Override with `--pattern` flag or `monitor_name_match` in config
+- Override with `--pattern` flag or `monitor_match` in config
 
 ### DDC/CI Monitor Control
 
@@ -406,7 +406,7 @@ icc_gamma = 2.05
 icc_active_preset = "gamma22" # gamma22 | gamma24 | reader | custom
 icc_generate_specialized_profiles = true
 icc_luminance_cd_m2 = 120.0
-icc_tuning_preset = "anti_dim_balanced" # manual | anti_dim_soft | anti_dim_balanced | anti_dim_aggressive | anti_dim_night | reader_balanced
+icc_tuning_preset = "anti_dim_balanced" # manual | anti_dim_soft | anti_dim_balanced | anti_dim_aggressive | anti_dim_night | reader_balanced | color_rgb_full | color_rgb_limited | color_ycbcr444 | color_ycbcr422 | color_ycbcr420 | color_bt2020_pq | unyellow_soft | unyellow_balanced | unyellow_aggressive | black_depth | white_clarity | anti_fade_punch | anti_fade_cinematic
 icc_tuning_overlay_manual = true
 icc_black_lift = 0.0
 icc_midtone_boost = 0.0
@@ -443,10 +443,10 @@ icc_schedule_night_preset = ""
 verbose = false
 toast_enabled = true
 toast_title = "LG UltraGear"
-toast_body = "Color profile reapplied"
-refresh_display_settings = true
+toast_body = "Color profile reapplied ✓"
+refresh_display_settings = false
 refresh_broadcast_color = true
-refresh_invalidate = true
+refresh_invalidate = false
 refresh_calibration_loader = true
 stabilize_delay_ms = 1500
 toggle_delay_ms = 100
@@ -456,6 +456,29 @@ ddc_brightness_value = 50
 ```
 
 In TUI mode, open `ICC Studio` from the main menu with `I` to edit/save all ICC tuning/tag settings and generate/apply an optimized ICC on the fly.
+
+### Preset System (Current Behavior)
+
+The tool resolves two independent preset layers:
+
+- **ICC profile preset** (`icc_active_preset`): `gamma22`, `gamma24`, `reader`, `custom`
+- **Tuning preset** (`icc_tuning_preset`): controls curve shaping, color balance, and optional signaling/tag behavior
+
+Tuning preset families:
+
+- Anti-dim: `anti_dim_soft`, `anti_dim_balanced`, `anti_dim_aggressive`, `anti_dim_night`
+- Reader/unyellow: `reader_balanced`, `unyellow_soft`, `unyellow_balanced`, `unyellow_aggressive`
+- Color-space style: `color_rgb_full`, `color_rgb_limited`, `color_ycbcr444`, `color_ycbcr422`, `color_ycbcr420`, `color_bt2020_pq`
+- Contrast/tonal: `black_depth`, `white_clarity`, `anti_fade_punch`, `anti_fade_cinematic`
+- Manual raw controls: `manual`
+
+Per-run preset resolution order:
+
+1. Day/night schedule (`icc_schedule_day_preset` + `icc_schedule_night_preset`) if both are set.
+2. Mode preset (`icc_sdr_preset` or `icc_hdr_preset`).
+3. Fallback to `icc_active_preset`.
+
+If `icc_tuning_overlay_manual = true`, changed manual `icc_*` tuning fields overlay on top of the selected tuning preset.
 
 ### ICC Utilities
 
@@ -470,6 +493,15 @@ lg-ultragear-dimming-fix.exe icc optimize --tuning-preset anti_dim_balanced --ap
 
 # Reader-focused preset (unyellow white balance + brighter text/background perception)
 lg-ultragear-dimming-fix.exe icc optimize --tuning-preset reader_balanced --luminance 160 --apply --save-config
+
+# YCbCr 4:4:4 style tuning preset
+lg-ultragear-dimming-fix.exe icc optimize --tuning-preset color_ycbcr444 --apply --save-config
+
+# Strong yellow-cast reduction preset
+lg-ultragear-dimming-fix.exe icc optimize --tuning-preset unyellow_aggressive --apply --save-config
+
+# Recover washed/faded look preset
+lg-ultragear-dimming-fix.exe icc optimize --tuning-preset anti_fade_punch --apply --save-config
 
 # Validate an ICC
 lg-ultragear-dimming-fix.exe icc validate --input out.icm

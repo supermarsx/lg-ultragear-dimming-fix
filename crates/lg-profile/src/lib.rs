@@ -126,7 +126,8 @@ pub enum DynamicIccPreset {
     Custom,
 }
 
-/// Curated anti-dimming and readability tuning presets for dynamic ICC generation.
+/// Curated anti-dimming, color-space, and readability tuning presets for
+/// dynamic ICC generation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DynamicIccTuningPreset {
     Manual,
@@ -135,6 +136,19 @@ pub enum DynamicIccTuningPreset {
     AntiDimAggressive,
     AntiDimNight,
     ReaderBalanced,
+    ColorRgbFull,
+    ColorRgbLimited,
+    ColorYcbcr444,
+    ColorYcbcr422,
+    ColorYcbcr420,
+    ColorBt2020Pq,
+    UnyellowSoft,
+    UnyellowBalanced,
+    UnyellowAggressive,
+    BlackDepth,
+    WhiteClarity,
+    AntiFadePunch,
+    AntiFadeCinematic,
 }
 
 /// Optional monitor identity used for per-display ICC naming and embedded metadata.
@@ -345,6 +359,39 @@ pub fn parse_dynamic_icc_tuning_preset(value: &str) -> DynamicIccTuningPreset {
         }
         "night" | "anti_dim_night" | "anti-dim-night" => DynamicIccTuningPreset::AntiDimNight,
         "reader" | "reader_balanced" | "reader-balanced" => DynamicIccTuningPreset::ReaderBalanced,
+        "color_rgb_full" | "rgb_full" | "rgb-full" => DynamicIccTuningPreset::ColorRgbFull,
+        "color_rgb_limited" | "rgb_limited" | "rgb-limited" => {
+            DynamicIccTuningPreset::ColorRgbLimited
+        }
+        "color_ycbcr444" | "colorspace_ycbcr444" | "ycbcr444" | "ycbcr_444" | "ycbcr-444" => {
+            DynamicIccTuningPreset::ColorYcbcr444
+        }
+        "color_ycbcr422" | "colorspace_ycbcr422" | "ycbcr422" | "ycbcr_422" | "ycbcr-422" => {
+            DynamicIccTuningPreset::ColorYcbcr422
+        }
+        "color_ycbcr420" | "colorspace_ycbcr420" | "ycbcr420" | "ycbcr_420" | "ycbcr-420" => {
+            DynamicIccTuningPreset::ColorYcbcr420
+        }
+        "color_bt2020_pq" | "colorspace_bt2020_pq" | "bt2020_pq" | "bt2020-pq" => {
+            DynamicIccTuningPreset::ColorBt2020Pq
+        }
+        "unyellow_soft" | "unyellow-soft" => DynamicIccTuningPreset::UnyellowSoft,
+        "unyellow_balanced" | "unyellow-balanced" => DynamicIccTuningPreset::UnyellowBalanced,
+        "unyellow_aggressive" | "unyellow-aggressive" => {
+            DynamicIccTuningPreset::UnyellowAggressive
+        }
+        "black_depth" | "black-depth" | "deep_black" | "deep-black" => {
+            DynamicIccTuningPreset::BlackDepth
+        }
+        "white_clarity" | "white-clarity" | "bright_whites" | "bright-whites" => {
+            DynamicIccTuningPreset::WhiteClarity
+        }
+        "anti_fade_punch" | "anti-fade-punch" | "fade_fix" | "fade-fix" => {
+            DynamicIccTuningPreset::AntiFadePunch
+        }
+        "anti_fade_cinematic" | "anti-fade-cinematic" => {
+            DynamicIccTuningPreset::AntiFadeCinematic
+        }
         _ => DynamicIccTuningPreset::AntiDimBalanced,
     }
 }
@@ -358,6 +405,19 @@ pub fn dynamic_icc_tuning_preset_names() -> &'static [&'static str] {
         "anti_dim_aggressive",
         "anti_dim_night",
         "reader_balanced",
+        "color_rgb_full",
+        "color_rgb_limited",
+        "color_ycbcr444",
+        "color_ycbcr422",
+        "color_ycbcr420",
+        "color_bt2020_pq",
+        "unyellow_soft",
+        "unyellow_balanced",
+        "unyellow_aggressive",
+        "black_depth",
+        "white_clarity",
+        "anti_fade_punch",
+        "anti_fade_cinematic",
     ]
 }
 
@@ -410,6 +470,166 @@ pub fn dynamic_icc_tuning_for_preset(preset: DynamicIccTuningPreset) -> DynamicI
             tuning.gamma_b = 1.12;
             tuning.vcgt_enabled = true;
             tuning.vcgt_strength = 0.58;
+        }
+        DynamicIccTuningPreset::ColorRgbFull => {
+            tuning.black_lift = 0.030;
+            tuning.midtone_boost = 0.10;
+            tuning.white_compression = 0.10;
+            tuning.target_black_cd_m2 = 0.30;
+            tuning.vcgt_enabled = true;
+            tuning.vcgt_strength = 0.35;
+            tuning.cicp_enabled = true;
+            tuning.cicp_color_primaries = 1;
+            tuning.cicp_transfer_characteristics = 13;
+            tuning.cicp_matrix_coefficients = 0;
+            tuning.cicp_full_range = true;
+        }
+        DynamicIccTuningPreset::ColorRgbLimited => {
+            tuning.black_lift = 0.022;
+            tuning.midtone_boost = 0.09;
+            tuning.white_compression = 0.18;
+            tuning.target_black_cd_m2 = 0.25;
+            tuning.vcgt_enabled = true;
+            tuning.vcgt_strength = 0.28;
+            tuning.cicp_enabled = true;
+            tuning.cicp_color_primaries = 1;
+            tuning.cicp_transfer_characteristics = 13;
+            tuning.cicp_matrix_coefficients = 0;
+            tuning.cicp_full_range = false;
+        }
+        DynamicIccTuningPreset::ColorYcbcr444 => {
+            tuning.black_lift = 0.035;
+            tuning.midtone_boost = 0.13;
+            tuning.white_compression = 0.18;
+            tuning.target_black_cd_m2 = 0.38;
+            tuning.vcgt_enabled = true;
+            tuning.vcgt_strength = 0.40;
+            tuning.gamma_r = 0.99;
+            tuning.gamma_b = 1.03;
+            tuning.cicp_enabled = true;
+            tuning.cicp_color_primaries = 1;
+            tuning.cicp_transfer_characteristics = 13;
+            tuning.cicp_matrix_coefficients = 1;
+            tuning.cicp_full_range = false;
+        }
+        DynamicIccTuningPreset::ColorYcbcr422 => {
+            tuning.black_lift = 0.050;
+            tuning.midtone_boost = 0.16;
+            tuning.white_compression = 0.24;
+            tuning.target_black_cd_m2 = 0.45;
+            tuning.vcgt_enabled = true;
+            tuning.vcgt_strength = 0.48;
+            tuning.gamma_r = 0.98;
+            tuning.gamma_b = 1.05;
+            tuning.cicp_enabled = true;
+            tuning.cicp_color_primaries = 1;
+            tuning.cicp_transfer_characteristics = 13;
+            tuning.cicp_matrix_coefficients = 1;
+            tuning.cicp_full_range = false;
+        }
+        DynamicIccTuningPreset::ColorYcbcr420 => {
+            tuning.black_lift = 0.065;
+            tuning.midtone_boost = 0.22;
+            tuning.white_compression = 0.30;
+            tuning.target_black_cd_m2 = 0.55;
+            tuning.vcgt_enabled = true;
+            tuning.vcgt_strength = 0.58;
+            tuning.gamma_r = 0.98;
+            tuning.gamma_b = 1.07;
+            tuning.cicp_enabled = true;
+            tuning.cicp_color_primaries = 1;
+            tuning.cicp_transfer_characteristics = 13;
+            tuning.cicp_matrix_coefficients = 1;
+            tuning.cicp_full_range = false;
+        }
+        DynamicIccTuningPreset::ColorBt2020Pq => {
+            tuning.black_lift = 0.030;
+            tuning.midtone_boost = 0.12;
+            tuning.white_compression = 0.20;
+            tuning.target_black_cd_m2 = 0.35;
+            tuning.vcgt_enabled = true;
+            tuning.vcgt_strength = 0.42;
+            tuning.metadata_enabled = true;
+            tuning.cicp_enabled = true;
+            tuning.cicp_color_primaries = 9;
+            tuning.cicp_transfer_characteristics = 16;
+            tuning.cicp_matrix_coefficients = 9;
+            tuning.cicp_full_range = false;
+        }
+        DynamicIccTuningPreset::UnyellowSoft => {
+            tuning.black_lift = 0.030;
+            tuning.midtone_boost = 0.12;
+            tuning.white_compression = 0.14;
+            tuning.target_black_cd_m2 = 0.32;
+            tuning.gamma_r = 0.96;
+            tuning.gamma_g = 0.99;
+            tuning.gamma_b = 1.05;
+            tuning.vcgt_enabled = true;
+            tuning.vcgt_strength = 0.45;
+        }
+        DynamicIccTuningPreset::UnyellowBalanced => {
+            tuning.black_lift = 0.040;
+            tuning.midtone_boost = 0.18;
+            tuning.white_compression = 0.18;
+            tuning.target_black_cd_m2 = 0.34;
+            tuning.gamma_r = 0.92;
+            tuning.gamma_g = 0.96;
+            tuning.gamma_b = 1.10;
+            tuning.vcgt_enabled = true;
+            tuning.vcgt_strength = 0.58;
+        }
+        DynamicIccTuningPreset::UnyellowAggressive => {
+            tuning.black_lift = 0.050;
+            tuning.midtone_boost = 0.23;
+            tuning.white_compression = 0.24;
+            tuning.target_black_cd_m2 = 0.38;
+            tuning.gamma_r = 0.88;
+            tuning.gamma_g = 0.93;
+            tuning.gamma_b = 1.16;
+            tuning.vcgt_enabled = true;
+            tuning.vcgt_strength = 0.72;
+        }
+        DynamicIccTuningPreset::BlackDepth => {
+            tuning.black_lift = 0.005;
+            tuning.midtone_boost = 0.05;
+            tuning.white_compression = 0.08;
+            tuning.target_black_cd_m2 = 0.12;
+            tuning.gamma_r = 1.05;
+            tuning.gamma_g = 1.05;
+            tuning.gamma_b = 1.05;
+            tuning.vcgt_enabled = true;
+            tuning.vcgt_strength = 0.22;
+        }
+        DynamicIccTuningPreset::WhiteClarity => {
+            tuning.black_lift = 0.020;
+            tuning.midtone_boost = 0.14;
+            tuning.white_compression = 0.08;
+            tuning.target_black_cd_m2 = 0.22;
+            tuning.gamma_r = 0.99;
+            tuning.gamma_b = 1.03;
+            tuning.vcgt_enabled = true;
+            tuning.vcgt_strength = 0.46;
+        }
+        DynamicIccTuningPreset::AntiFadePunch => {
+            tuning.black_lift = 0.055;
+            tuning.midtone_boost = 0.24;
+            tuning.white_compression = 0.20;
+            tuning.target_black_cd_m2 = 0.40;
+            tuning.gamma_r = 0.98;
+            tuning.gamma_b = 1.04;
+            tuning.vcgt_enabled = true;
+            tuning.vcgt_strength = 0.62;
+        }
+        DynamicIccTuningPreset::AntiFadeCinematic => {
+            tuning.black_lift = 0.030;
+            tuning.midtone_boost = 0.17;
+            tuning.white_compression = 0.28;
+            tuning.target_black_cd_m2 = 0.28;
+            tuning.gamma_r = 1.03;
+            tuning.gamma_g = 1.03;
+            tuning.gamma_b = 1.03;
+            tuning.vcgt_enabled = true;
+            tuning.vcgt_strength = 0.50;
         }
     }
     tuning

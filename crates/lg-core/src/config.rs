@@ -52,8 +52,13 @@ pub struct Config {
     pub icc_luminance_cd_m2: f64,
 
     /// Anti-dimming tuning preset.
-    /// Supported values: `manual`, `anti_dim_soft`, `anti_dim_balanced`,
-    /// `anti_dim_aggressive`, `anti_dim_night`, `reader_balanced`.
+    /// Supported values include:
+    /// `manual`, `anti_dim_soft`, `anti_dim_balanced`, `anti_dim_aggressive`,
+    /// `anti_dim_night`, `reader_balanced`, `color_rgb_full`,
+    /// `color_rgb_limited`, `color_ycbcr444`, `color_ycbcr422`,
+    /// `color_ycbcr420`, `color_bt2020_pq`, `unyellow_soft`,
+    /// `unyellow_balanced`, `unyellow_aggressive`, `black_depth`,
+    /// `white_clarity`, `anti_fade_punch`, `anti_fade_cinematic`.
     pub icc_tuning_preset: String,
 
     /// When true, manually configured ICC tuning fields override a selected
@@ -352,6 +357,16 @@ icc_luminance_cd_m2 = {icc_luminance_cd_m2}
 # - "anti_dim_aggressive": strongest anti-dim lift
 # - "anti_dim_night": aggressive lift tuned for dark-room use
 # - "reader_balanced": unyellow + brighter preset for reading/text-heavy use
+# - "color_rgb_full": RGB/full-range oriented curve + CICP tags
+# - "color_rgb_limited": RGB/limited-range style with highlight protection
+# - "color_ycbcr444": YCbCr 4:4:4 style tuning
+# - "color_ycbcr422": YCbCr 4:2:2 style tuning
+# - "color_ycbcr420": YCbCr 4:2:0 style tuning (strong anti-fade compensation)
+# - "color_bt2020_pq": BT.2020 + PQ signaling-oriented tuning
+# - "unyellow_soft|unyellow_balanced|unyellow_aggressive": progressively cooler whites
+# - "black_depth": deeper black floor / contrast-oriented
+# - "white_clarity": cleaner whites with limited highlight compression
+# - "anti_fade_punch|anti_fade_cinematic": contrast/saturation recovery profiles
 icc_tuning_preset = "{icc_tuning_preset}"
 
 # If true, explicitly changed manual icc_* tuning fields override the preset.

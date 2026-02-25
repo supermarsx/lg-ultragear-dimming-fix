@@ -523,7 +523,7 @@ enum IccAction {
         /// Optional TOML config path (defaults to app config.toml)
         #[arg(short, long)]
         input: Option<String>,
-        /// Override tuning preset (manual|anti_dim_soft|anti_dim_balanced|anti_dim_aggressive|anti_dim_night|reader_balanced)
+        /// Override tuning preset (manual|anti_dim_soft|anti_dim_balanced|anti_dim_aggressive|anti_dim_night|reader_balanced|color_rgb_full|color_rgb_limited|color_ycbcr444|color_ycbcr422|color_ycbcr420|color_bt2020_pq|unyellow_soft|unyellow_balanced|unyellow_aggressive|black_depth|white_clarity|anti_fade_punch|anti_fade_cinematic)
         #[arg(long)]
         tuning_preset: Option<String>,
         /// Optional gamma override
