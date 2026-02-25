@@ -369,7 +369,7 @@ pub fn restore_profile_snapshot(
     Ok(dst)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct RecoveryState {
     pub created_at: String,
@@ -377,18 +377,6 @@ pub struct RecoveryState {
     pub profile_name: String,
     pub ddc_brightness: Option<u32>,
     pub notes: String,
-}
-
-impl Default for RecoveryState {
-    fn default() -> Self {
-        Self {
-            created_at: String::new(),
-            snapshot_id: String::new(),
-            profile_name: String::new(),
-            ddc_brightness: None,
-            notes: String::new(),
-        }
-    }
 }
 
 pub fn save_recovery_state(state: &RecoveryState) -> Result<(), Box<dyn std::error::Error>> {

@@ -946,9 +946,13 @@ fn build_chromaticity_tag_payload() -> Vec<u8> {
     append_u32_be(&mut payload, 0);
     append_u16_be(&mut payload, 3); // channels
     append_u16_be(&mut payload, 1); // ITU-R BT.709-2 primaries
-    for (x, y) in [(0.640, 0.330), (0.300, 0.600), (0.150, 0.060)] {
-        append_u32_be(&mut payload, ((x as f64) * 65535.0).round() as u32);
-        append_u32_be(&mut payload, ((y as f64) * 65535.0).round() as u32);
+    for (x, y) in [
+        (0.640_f64, 0.330_f64),
+        (0.300_f64, 0.600_f64),
+        (0.150_f64, 0.060_f64),
+    ] {
+        append_u32_be(&mut payload, (x * 65535.0).round() as u32);
+        append_u32_be(&mut payload, (y * 65535.0).round() as u32);
     }
     payload
 }
@@ -2255,6 +2259,7 @@ pub fn ensure_active_profile_installed_tuned(
 }
 
 /// Ensure a monitor-scoped active profile exists with advanced tuning and identity metadata.
+#[allow(clippy::too_many_arguments)]
 pub fn ensure_active_profile_installed_tuned_for_monitor(
     color_dir: &Path,
     active_preset: &str,
@@ -2292,6 +2297,7 @@ pub fn ensure_active_profile_installed_tuned_for_monitor(
 }
 
 /// Ensure both SDR and HDR mode profiles exist and return their full paths.
+#[allow(clippy::too_many_arguments)]
 pub fn ensure_mode_profiles_installed_tuned(
     color_dir: &Path,
     sdr_preset: &str,
@@ -2328,6 +2334,7 @@ pub fn ensure_mode_profiles_installed_tuned(
 }
 
 /// Ensure both SDR and HDR monitor-scoped mode profiles exist and return their full paths.
+#[allow(clippy::too_many_arguments)]
 pub fn ensure_mode_profiles_installed_tuned_for_monitor(
     color_dir: &Path,
     sdr_preset: &str,
@@ -3280,7 +3287,7 @@ fn parse_vcgt_gamma_ramp(
 
     let mut channel_data: [Vec<u16>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut cursor = table_offset + 10;
-    for chan in 0..3 {
+    for channel in &mut channel_data {
         let mut values = Vec::with_capacity(entries);
         for _ in 0..entries {
             let Some(slice) = tag_payload.get(cursor..cursor + 2) else {
@@ -3289,7 +3296,7 @@ fn parse_vcgt_gamma_ramp(
             values.push(u16::from_be_bytes([slice[0], slice[1]]));
             cursor += 2;
         }
-        channel_data[chan] = values;
+        *channel = values;
     }
 
     let sample = |values: &[u16], idx256: usize| -> u16 {

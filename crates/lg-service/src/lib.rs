@@ -785,8 +785,7 @@ fn maybe_run_self_heal(config: &Config, effective_preset: &str, trigger: &str, e
     if health.verify_profile_presence
         && !lg_profile::is_profile_installed(&profile_path)
         && health.regenerate_if_missing
-    {
-        if lg_profile::ensure_active_profile_installed_tuned(
+        && lg_profile::ensure_active_profile_installed_tuned(
             &color_dir,
             effective_preset,
             &config.profile_name,
@@ -796,18 +795,17 @@ fn maybe_run_self_heal(config: &Config, effective_preset: &str, trigger: &str, e
             tuning_from_config(config),
         )
         .is_ok()
-        {
-            repaired = true;
-            app_state::append_diagnostic_event(
-                "service",
-                "WARN",
-                "self_heal",
-                &format!(
-                    "regenerated_missing_profile preset={} trigger={}",
-                    effective_preset, trigger
-                ),
-            );
-        }
+    {
+        repaired = true;
+        app_state::append_diagnostic_event(
+            "service",
+            "WARN",
+            "self_heal",
+            &format!(
+                "regenerated_missing_profile preset={} trigger={}",
+                effective_preset, trigger
+            ),
+        );
     }
 
     if health.cleanup_stale_profiles {
@@ -1045,10 +1043,8 @@ fn run_event_loop(
     // Shutdown debounce worker: drop sender to close channel, then join thread
     EVENT_SENDER.with(|s| *s.borrow_mut() = None);
     let _ = debounce_handle.join();
-    if let Some(handle) = automation_poller {
-        if let Ok(join_handle) = handle {
-            let _ = join_handle.join();
-        }
+    if let Some(Ok(join_handle)) = automation_poller {
+        let _ = join_handle.join();
     }
 
     // Cleanup

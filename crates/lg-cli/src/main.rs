@@ -977,10 +977,9 @@ fn set_vcp_with_safety(pattern: &str, vcp_code: u8, value: u32) -> Result<(), Bo
     if risky
         && automation_cfg.ddc_safety.require_confirm_before_risky
         && std::io::stdout().is_terminal()
+        && !prompt_confirm_risky_write(vcp_code, value)?
     {
-        if !prompt_confirm_risky_write(vcp_code, value)? {
-            return Err("risky write cancelled by user".into());
-        }
+        return Err("risky write cancelled by user".into());
     }
 
     let previous_value = if risky && automation_cfg.ddc_safety.rollback_timer_enabled {
@@ -2234,12 +2233,9 @@ fn cmd_uninstall(full: bool, profile: bool, dry_run: bool) -> Result<(), Box<dyn
 
         let mut removed_any = false;
         for profile_path in targets {
-            match lg_profile::remove_profile(&profile_path)? {
-                true => {
-                    println!("[OK] ICC profile removed from {}", profile_path.display());
-                    removed_any = true;
-                }
-                false => {}
+            if lg_profile::remove_profile(&profile_path)? {
+                println!("[OK] ICC profile removed from {}", profile_path.display());
+                removed_any = true;
             }
         }
         if !removed_any {

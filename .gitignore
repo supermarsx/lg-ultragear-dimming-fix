@@ -4,3 +4,4 @@ dist/
 /service/target/
 /target
 /target-tmp
+/target-codex-ci
