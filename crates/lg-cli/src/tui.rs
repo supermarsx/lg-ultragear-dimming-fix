@@ -163,6 +163,7 @@ pub(crate) struct Status {
     pub(crate) sdr_enabled: bool,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) enum Page {
     Main,
     Maintenance,
@@ -231,6 +232,8 @@ fn run_inner(mut out: &mut impl Write) -> Result<(), Box<dyn std::error::Error>>
             vec![('1', "Color profiles", color_dir.clone())];
         let service_folder: Vec<(char, &str, std::path::PathBuf)> =
             vec![('1', "Program / config", program_dir.clone())];
+        let page_before_key = page;
+        let icc_cfg_before_key = icc_cfg.clone();
 
         match (&page, ch) {
             // ── Main menu ──────────────────────────────────
@@ -732,6 +735,10 @@ fn run_inner(mut out: &mut impl Write) -> Result<(), Box<dyn std::error::Error>>
                 log_ok("Opened Color Management control panel.");
                 Ok(())
             })?,
+            (Page::IccStudio, 'f') => {
+                icc_cfg.icc_auto_apply_on_change = !icc_cfg.icc_auto_apply_on_change;
+                icc_dirty = true;
+            }
             (Page::IccStudio, 'r') => {
                 icc_cfg = Config::load();
                 icc_dirty = false;
@@ -1073,6 +1080,49 @@ fn run_inner(mut out: &mut impl Write) -> Result<(), Box<dyn std::error::Error>>
             (Page::IccTags2, 'q') => break,
 
             _ => {} // ignore unknown keys
+        }
+
+        let icc_cfg_changed = icc_cfg != icc_cfg_before_key;
+        let in_icc_editor_before_key = matches!(
+            page_before_key,
+            Page::IccStudio | Page::IccStudioTuning | Page::IccTags | Page::IccTags2
+        );
+        let excluded_auto_apply_key = matches!(
+            (page_before_key, ch),
+            (Page::IccStudio, 'a')
+                | (Page::IccStudio, 'b')
+                | (Page::IccStudio, 'c')
+                | (Page::IccStudio, 'd')
+                | (Page::IccStudio, 'e')
+                | (Page::IccStudio, 'r')
+                | (Page::IccStudio, 's')
+                | (Page::IccStudio, 'z')
+                | (Page::IccStudio, 'q')
+                | (Page::IccStudio, '8')
+                | (Page::IccStudio, '9')
+                | (Page::IccStudioTuning, 'a')
+                | (Page::IccStudioTuning, 's')
+                | (Page::IccStudioTuning, 'z')
+                | (Page::IccStudioTuning, 'q')
+                | (Page::IccTags, 'p')
+                | (Page::IccTags, 's')
+                | (Page::IccTags, 'z')
+                | (Page::IccTags, 'q')
+                | (Page::IccTags2, 'p')
+                | (Page::IccTags2, 's')
+                | (Page::IccTags2, 'z')
+                | (Page::IccTags2, 'q')
+        );
+        if icc_cfg_changed
+            && in_icc_editor_before_key
+            && icc_cfg.icc_auto_apply_on_change
+            && !excluded_auto_apply_key
+        {
+            run_action(
+                &mut out,
+                "Auto-applying optimized ICC from ICC Studio...",
+                || action_icc_generate_and_apply(&icc_cfg, &opts),
+            )?;
         }
     }
 
@@ -1751,6 +1801,12 @@ pub(crate) fn draw_icc_studio(
     draw_item(out, "C", "Profile Snapshots (Save/Restore/Diff)")?;
     draw_item(out, "D", "A/B Compare Toggle (Current vs Baseline)")?;
     draw_item(out, "E", "Open Color Management (ColorCPL)")?;
+    draw_toggle(
+        out,
+        "F",
+        "Auto Apply On Parameter Change",
+        cfg.icc_auto_apply_on_change,
+    )?;
     draw_item(out, "R", "Reload ICC settings from disk")?;
     draw_item(out, "S", "Save ICC settings to config.toml")?;
     draw_empty(out)?;
@@ -3336,8 +3392,10 @@ fn run_snapshot_manager(
                                 opts.per_user,
                             )?;
                         }
+                        // Keep post-apply refresh non-disruptive; hard refresh
+                        // is only used by profile-layer fallback retries.
                         lg_profile::refresh_display(
-                            cfg.refresh_display_settings,
+                            false,
                             cfg.refresh_broadcast_color,
                             cfg.refresh_invalidate,
                         );
@@ -3536,11 +3594,7 @@ fn action_safe_recovery(opts: &Options) -> Result<(), Box<dyn std::error::Error>
                 opts.per_user,
             )?;
         }
-        lg_profile::refresh_display(
-            cfg.refresh_display_settings,
-            cfg.refresh_broadcast_color,
-            cfg.refresh_invalidate,
-        );
+        lg_profile::refresh_display(false, cfg.refresh_broadcast_color, cfg.refresh_invalidate);
         lg_profile::trigger_calibration_loader(cfg.refresh_calibration_loader);
         if let Some(level) = recovery_state.ddc_brightness {
             let _ = lg_monitor::ddc::set_brightness_all(level);
@@ -3724,11 +3778,7 @@ fn action_refresh(opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
                 log_ok(&format!("Generic default set for {}", device.name));
             }
         }
-        lg_profile::refresh_display(
-            cfg.refresh_display_settings,
-            cfg.refresh_broadcast_color,
-            cfg.refresh_invalidate,
-        );
+        lg_profile::refresh_display(false, cfg.refresh_broadcast_color, cfg.refresh_invalidate);
         lg_profile::trigger_calibration_loader(cfg.refresh_calibration_loader);
 
         // DDC/CI brightness (if enabled)

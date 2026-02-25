@@ -25,7 +25,7 @@ pub fn install_path() -> PathBuf {
 }
 
 /// Service configuration with defaults for every field.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Config {
     /// Display name pattern to match (case-insensitive contains).
@@ -144,6 +144,10 @@ pub struct Config {
     /// Optional night preset (used when both day and night presets are set).
     pub icc_schedule_night_preset: String,
 
+    /// Automatically regenerate and apply optimized ICC after each ICC Studio
+    /// parameter edit. Intended for rapid testing/tuning workflows.
+    pub icc_auto_apply_on_change: bool,
+
     /// Show a Windows toast notification after each successful reapply.
     pub toast_enabled: bool,
 
@@ -233,15 +237,16 @@ impl Default for Config {
             icc_sdr_preset: "gamma22".to_string(),
             icc_schedule_day_preset: "".to_string(),
             icc_schedule_night_preset: "".to_string(),
+            icc_auto_apply_on_change: false,
             toast_enabled: true,
             toast_title: "LG UltraGear".to_string(),
             toast_body: "Color profile reapplied ✓".to_string(),
             stabilize_delay_ms: 1500,
             toggle_delay_ms: 100,
             reapply_delay_ms: 12000,
-            refresh_display_settings: true,
+            refresh_display_settings: false,
             refresh_broadcast_color: true,
-            refresh_invalidate: true,
+            refresh_invalidate: false,
             refresh_calibration_loader: true,
             ddc_brightness_on_reapply: false,
             ddc_brightness_value: 50,
@@ -404,6 +409,10 @@ icc_sdr_preset = "{icc_sdr_preset}"
 icc_schedule_day_preset = "{icc_schedule_day_preset}"
 icc_schedule_night_preset = "{icc_schedule_night_preset}"
 
+# ICC Studio behavior.
+# When enabled, every parameter edit auto-runs optimized ICC generate+apply.
+icc_auto_apply_on_change = {icc_auto_apply_on_change}
+
 # ─── Toast Notifications ─────────────────────────────────────────────
 # Show a Windows notification after each successful profile reapply.
 toast_enabled = {toast_enabled}
@@ -426,10 +435,11 @@ reapply_delay_ms = {reapply_delay_ms}
 
 # ─── Refresh Methods ─────────────────────────────────────────────────
 # Which display refresh methods to use after toggling the profile.
-# All enabled by default for maximum reliability.
-refresh_display_settings = {refresh_display_settings}    # ChangeDisplaySettingsExW (full display refresh)
-refresh_broadcast_color = {refresh_broadcast_color}     # WM_SETTINGCHANGE "Color" broadcast
-refresh_invalidate = {refresh_invalidate}          # InvalidateRect (force repaint)
+# Defaults favor no-flicker apply (soft refresh).
+# Enable refresh_display_settings only if your driver ignores soft refresh.
+refresh_display_settings = {refresh_display_settings}    # ChangeDisplaySettingsExW + CCD reapply (can flicker)
+refresh_broadcast_color = {refresh_broadcast_color}     # WM_SETTINGCHANGE "Color" broadcast (soft)
+refresh_invalidate = {refresh_invalidate}          # InvalidateRect repaint nudge (soft)
 refresh_calibration_loader = {refresh_calibration_loader} # Trigger Calibration Loader task (ICC reload)
 
 # ─── DDC/CI Brightness ───────────────────────────────────────────────
@@ -486,6 +496,7 @@ verbose = {verbose}
             icc_sdr_preset = escape_toml_string(&cfg.icc_sdr_preset),
             icc_schedule_day_preset = escape_toml_string(&cfg.icc_schedule_day_preset),
             icc_schedule_night_preset = escape_toml_string(&cfg.icc_schedule_night_preset),
+            icc_auto_apply_on_change = cfg.icc_auto_apply_on_change,
             toast_enabled = cfg.toast_enabled,
             toast_title = escape_toml_string(&cfg.toast_title),
             toast_body = escape_toml_string(&cfg.toast_body),

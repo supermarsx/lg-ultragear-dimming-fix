@@ -5,8 +5,18 @@
 //! validation, and config management.
 
 use std::process::Command;
+use std::sync::Once;
+
+fn enable_no_flicker_test_mode() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        std::env::set_var("LG_TEST_NO_FLICKER_REFRESH", "1");
+        lg_profile::set_test_no_flicker_mode(true);
+    });
+}
 
 fn generated_icm_size() -> usize {
+    enable_no_flicker_test_mode();
     lg_profile::dynamic_profile_size().expect("dynamic ICC size")
 }
 
@@ -16,6 +26,7 @@ fn generated_icm_size() -> usize {
 
 /// Get the path to the built binary.
 fn binary_path() -> std::path::PathBuf {
+    enable_no_flicker_test_mode();
     let mut path = std::env::current_exe()
         .unwrap()
         .parent()
@@ -1392,12 +1403,14 @@ fn reapply_profile_fails_with_nonexistent_profile() {
 
 #[test]
 fn refresh_display_all_disabled_is_noop() {
+    enable_no_flicker_test_mode();
     // Calling with all methods disabled should be a complete no-op
     lg_profile::refresh_display(false, false, false);
 }
 
 #[test]
 fn calibration_loader_disabled_is_noop() {
+    enable_no_flicker_test_mode();
     lg_profile::trigger_calibration_loader(false);
 }
 
@@ -1954,11 +1967,13 @@ fn toast_enabled_with_very_long_text_does_not_panic() {
 
 #[test]
 fn refresh_display_all_enabled_from_integration() {
+    enable_no_flicker_test_mode();
     lg_profile::refresh_display(true, true, true);
 }
 
 #[test]
 fn calibration_loader_enabled_from_integration() {
+    enable_no_flicker_test_mode();
     lg_profile::trigger_calibration_loader(true);
 }
 

@@ -1465,8 +1465,10 @@ fn handle_profile_reapply(config: &Config, trigger: &str, event_flags: u8) {
                         last_applied_profile = Some(active_profile_path.clone());
                     }
                 }
+                // Keep periodic/event-driven reapply refresh non-disruptive.
+                // Hard refresh is escalated internally only when verification fails.
                 lg_profile::refresh_display(
-                    effective_cfg.refresh_display_settings,
+                    false,
                     effective_cfg.refresh_broadcast_color,
                     effective_cfg.refresh_invalidate,
                 );

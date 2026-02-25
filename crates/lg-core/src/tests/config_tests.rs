@@ -83,11 +83,11 @@ fn default_config_reapply_delay() {
 }
 
 #[test]
-fn default_config_all_refresh_methods_enabled() {
+fn default_config_uses_soft_refresh_defaults() {
     let cfg = Config::default();
-    assert!(cfg.refresh_display_settings);
+    assert!(!cfg.refresh_display_settings);
     assert!(cfg.refresh_broadcast_color);
-    assert!(cfg.refresh_invalidate);
+    assert!(!cfg.refresh_invalidate);
     assert!(cfg.refresh_calibration_loader);
 }
 
@@ -157,7 +157,11 @@ fn parse_partial_toml_fills_defaults() {
     assert!(cfg.toast_enabled);
     assert_eq!(cfg.stabilize_delay_ms, 1500);
     assert_eq!(cfg.toggle_delay_ms, 100);
-    assert!(cfg.refresh_display_settings);
+    assert!(!cfg.refresh_display_settings);
+    assert!(cfg.refresh_broadcast_color);
+    assert!(!cfg.refresh_invalidate);
+    assert!(cfg.refresh_calibration_loader);
+    assert!(!cfg.icc_auto_apply_on_change);
     assert!(!cfg.verbose);
 }
 
@@ -254,6 +258,7 @@ fn serialize_roundtrip() {
         icc_sdr_preset: "gamma22".to_string(),
         icc_schedule_day_preset: "gamma22".to_string(),
         icc_schedule_night_preset: "gamma24".to_string(),
+        icc_auto_apply_on_change: true,
         toast_enabled: false,
         toast_title: "T".to_string(),
         toast_body: "B".to_string(),
@@ -419,6 +424,10 @@ fn serialize_roundtrip() {
     assert_eq!(
         parsed.icc_schedule_night_preset,
         original.icc_schedule_night_preset
+    );
+    assert_eq!(
+        parsed.icc_auto_apply_on_change,
+        original.icc_auto_apply_on_change
     );
     assert_eq!(parsed.toast_enabled, original.toast_enabled);
     assert_eq!(parsed.toast_title, original.toast_title);
@@ -636,6 +645,7 @@ fn to_toml_commented_roundtrip_preserves_values() {
         icc_sdr_preset: "custom".to_string(),
         icc_schedule_day_preset: "".to_string(),
         icc_schedule_night_preset: "".to_string(),
+        icc_auto_apply_on_change: true,
         toast_enabled: false,
         toast_title: "Custom".to_string(),
         toast_body: "Applied".to_string(),
@@ -689,6 +699,10 @@ fn to_toml_commented_roundtrip_preserves_values() {
     assert_eq!(
         parsed.icc_schedule_night_preset,
         original.icc_schedule_night_preset
+    );
+    assert_eq!(
+        parsed.icc_auto_apply_on_change,
+        original.icc_auto_apply_on_change
     );
     assert_eq!(parsed.toast_enabled, original.toast_enabled);
     assert_eq!(parsed.stabilize_delay_ms, original.stabilize_delay_ms);

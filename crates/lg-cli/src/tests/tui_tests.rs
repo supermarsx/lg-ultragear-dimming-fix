@@ -1,6 +1,14 @@
 use super::*;
 use std::sync::{Mutex, OnceLock};
 
+fn enable_no_flicker_test_mode() {
+    static ONCE: OnceLock<()> = OnceLock::new();
+    ONCE.get_or_init(|| {
+        std::env::set_var("LG_TEST_NO_FLICKER_REFRESH", "1");
+        lg_profile::set_test_no_flicker_mode(true);
+    });
+}
+
 // ── Helper: create a test Status ─────────────────────────────
 
 fn test_status(
@@ -2787,6 +2795,7 @@ fn action_check_applicability_succeeds() {
 
 #[test]
 fn action_force_refresh_color_mgmt_succeeds() {
+    enable_no_flicker_test_mode();
     let result = action_force_refresh_color_mgmt();
     assert!(
         result.is_ok(),
@@ -2919,6 +2928,7 @@ fn pipeline_dry_run_profile_service_separate() {
 
 #[test]
 fn pipeline_dry_run_maintenance_sequence() {
+    enable_no_flicker_test_mode();
     let opts = Options {
         dry_run: true,
         ..default_opts()

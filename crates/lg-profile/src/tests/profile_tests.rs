@@ -2,6 +2,15 @@ use super::*;
 use cmx::profile::RawProfile;
 use cmx::tag::TagSignature;
 use std::path::PathBuf;
+use std::sync::Once;
+
+fn enable_no_flicker_test_mode() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        std::env::set_var("LG_TEST_NO_FLICKER_REFRESH", "1");
+        set_test_no_flicker_mode(true);
+    });
+}
 
 fn generated_icm_bytes() -> Vec<u8> {
     generate_dynamic_profile_bytes(DEFAULT_DYNAMIC_GAMMA)
@@ -867,12 +876,14 @@ fn reapply_profile_per_user_fails_with_missing_profile() {
 
 #[test]
 fn refresh_display_with_all_methods_disabled_does_not_panic() {
+    enable_no_flicker_test_mode();
     // All false = complete no-op
     refresh_display(false, false, false);
 }
 
 #[test]
 fn trigger_calibration_loader_disabled_does_not_panic() {
+    enable_no_flicker_test_mode();
     trigger_calibration_loader(false);
 }
 
@@ -1179,21 +1190,25 @@ fn reapply_profile_very_long_device_key_fails_on_missing_profile() {
 
 #[test]
 fn refresh_display_all_enabled_does_not_panic() {
+    enable_no_flicker_test_mode();
     refresh_display(true, true, true);
 }
 
 #[test]
 fn refresh_display_only_settings_does_not_panic() {
+    enable_no_flicker_test_mode();
     refresh_display(true, false, false);
 }
 
 #[test]
 fn refresh_display_only_broadcast_does_not_panic() {
+    enable_no_flicker_test_mode();
     refresh_display(false, true, false);
 }
 
 #[test]
 fn refresh_display_only_invalidate_does_not_panic() {
+    enable_no_flicker_test_mode();
     refresh_display(false, false, true);
 }
 
@@ -1201,6 +1216,7 @@ fn refresh_display_only_invalidate_does_not_panic() {
 
 #[test]
 fn trigger_calibration_loader_enabled_does_not_panic() {
+    enable_no_flicker_test_mode();
     trigger_calibration_loader(true);
 }
 

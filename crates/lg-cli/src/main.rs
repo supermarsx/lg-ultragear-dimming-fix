@@ -1276,11 +1276,9 @@ fn cmd_apply(opts: ApplyOpts) -> Result<(), Box<dyn Error>> {
             println!("[OK]   SDR/HDR profiles associated for {}", device.name);
         }
 
-        lg_profile::refresh_display(
-            cfg.refresh_display_settings,
-            cfg.refresh_broadcast_color,
-            cfg.refresh_invalidate,
-        );
+        // Keep post-apply refresh non-disruptive; hard refresh is handled as
+        // an internal fallback inside lg_profile when verification fails.
+        lg_profile::refresh_display(false, cfg.refresh_broadcast_color, cfg.refresh_invalidate);
         lg_profile::trigger_calibration_loader(cfg.refresh_calibration_loader);
 
         if cfg.toast_enabled {
@@ -1444,6 +1442,10 @@ fn cmd_config(action: Option<ConfigAction>) -> Result<(), Box<dyn Error>> {
             println!(
                 "  icc_per_monitor_profiles = {}",
                 cfg.icc_per_monitor_profiles
+            );
+            println!(
+                "  icc_auto_apply_on_change = {}",
+                cfg.icc_auto_apply_on_change
             );
             println!(
                 "  active_profile_path      = \"{}\"",

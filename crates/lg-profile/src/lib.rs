@@ -27,6 +27,7 @@ use std::hash::{Hash, Hasher};
 use std::io;
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{ptr, thread, time::Duration};
 use windows::core::{BSTR, HSTRING, PCWSTR, PWSTR};
 use windows::Win32::Devices::Display::{
@@ -113,6 +114,8 @@ const NIGHT_PRESET_START_HOUR: u32 = 19;
 /// Legacy profile names that should be removed when the dynamic profile is active.
 const LEGACY_PROFILE_NAMES: &[&str] = &["lg-ultragear-full-cal.icm"];
 const CLASS_MONITOR_SIGNATURE: u32 = 0x6D6E_7472; // 'mntr'
+const TEST_NO_FLICKER_ENV: &str = "LG_TEST_NO_FLICKER_REFRESH";
+static TEST_NO_FLICKER_MODE: AtomicBool = AtomicBool::new(false);
 
 /// Dynamic ICC presets used by auto-generation and apply flows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2466,16 +2469,28 @@ pub fn reapply_profile_with_mode_associations(
             }
         }
 
-        // Fallback path: force the display pipeline refresh and trigger
-        // Calibration Loader so Windows re-reads color associations.
-        refresh_display(true, true, true);
-        match run_calibration_loader_task() {
-            Ok(()) => info!("Calibration Loader fallback triggered"),
-            Err(e) => warn!("Calibration Loader fallback failed: {}", e),
-        }
+        if attempt < MAX_APPLY_ATTEMPTS {
+            // Fallback refresh before retrying. Start with a soft, non-flicker
+            // refresh and only escalate to a full mode-level refresh before
+            // the final retry.
+            let use_hard_refresh = attempt + 1 == MAX_APPLY_ATTEMPTS;
+            if use_hard_refresh {
+                warn!(
+                    "Escalating to full display refresh before final retry for {}",
+                    device_key
+                );
+                refresh_display(true, true, true);
+            } else {
+                refresh_display(false, true, false);
+            }
+            match run_calibration_loader_task() {
+                Ok(()) => info!("Calibration Loader fallback triggered"),
+                Err(e) => warn!("Calibration Loader fallback failed: {}", e),
+            }
 
-        // Give WCS a short window to settle before retrying.
-        thread::sleep(Duration::from_millis(250 * attempt as u64));
+            // Give WCS a short window to settle before retrying.
+            thread::sleep(Duration::from_millis(250 * attempt as u64));
+        }
     }
 
     Err(last_verification_error
@@ -3819,6 +3834,18 @@ fn reapply_display_topology_via_ccd() -> Result<&'static str, Box<dyn Error>> {
     Err(attempts.join("; ").into())
 }
 
+fn no_flicker_test_mode_enabled() -> bool {
+    TEST_NO_FLICKER_MODE.load(Ordering::Relaxed) || std::env::var_os(TEST_NO_FLICKER_ENV).is_some()
+}
+
+/// Test helper to disable all display-refresh side effects.
+///
+/// When enabled, `refresh_display` and `trigger_calibration_loader` become
+/// no-ops. This is intended for test processes only.
+pub fn set_test_no_flicker_mode(enabled: bool) {
+    TEST_NO_FLICKER_MODE.store(enabled, Ordering::Relaxed);
+}
+
 /// Force display refresh using the specified Windows APIs.
 ///
 /// # Arguments
@@ -3826,6 +3853,11 @@ fn reapply_display_topology_via_ccd() -> Result<&'static str, Box<dyn Error>> {
 /// * `broadcast_color` — Broadcast `WM_SETTINGCHANGE` with "Color" parameter
 /// * `invalidate` — Call `InvalidateRect` to force window repaint
 pub fn refresh_display(display_settings: bool, broadcast_color: bool, invalidate: bool) {
+    if no_flicker_test_mode_enabled() {
+        info!("No-flicker test mode: skipping display refresh operations");
+        return;
+    }
+
     if display_settings {
         match reapply_display_topology_via_ccd() {
             Ok(method) => info!("CCD display reapply succeeded via {}", method),
@@ -3875,6 +3907,11 @@ pub fn refresh_display(display_settings: bool, broadcast_color: bool, invalidate
 /// If `enabled` is false, returns immediately.
 pub fn trigger_calibration_loader(enabled: bool) {
     if !enabled {
+        return;
+    }
+
+    if no_flicker_test_mode_enabled() {
+        info!("No-flicker test mode: skipping calibration loader trigger");
         return;
     }
 
