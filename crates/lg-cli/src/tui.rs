@@ -727,6 +727,11 @@ fn run_inner(mut out: &mut impl Write) -> Result<(), Box<dyn std::error::Error>>
             (Page::IccStudio, 'd') => run_action(&mut out, "Toggling A/B compare...", || {
                 action_toggle_ab_compare(&opts, &icc_cfg)
             })?,
+            (Page::IccStudio, 'e') => run_action(&mut out, "Opening Color Management...", || {
+                open_color_management_panel()?;
+                log_ok("Opened Color Management control panel.");
+                Ok(())
+            })?,
             (Page::IccStudio, 'r') => {
                 icc_cfg = Config::load();
                 icc_dirty = false;
@@ -1745,6 +1750,7 @@ pub(crate) fn draw_icc_studio(
     draw_item(out, "B", "Guided Reader Calibration Wizard")?;
     draw_item(out, "C", "Profile Snapshots (Save/Restore/Diff)")?;
     draw_item(out, "D", "A/B Compare Toggle (Current vs Baseline)")?;
+    draw_item(out, "E", "Open Color Management (ColorCPL)")?;
     draw_item(out, "R", "Reload ICC settings from disk")?;
     draw_item(out, "S", "Save ICC settings to config.toml")?;
     draw_empty(out)?;
@@ -1857,16 +1863,18 @@ pub(crate) fn draw_icc_studio_tuning(
     )?;
     draw_empty(out)?;
     if !cfg.icc_tuning_overlay_manual {
-        draw_line(
-            out,
-            "  Manual overlay is OFF: effective values are coming from the selected tuning preset.",
-            Color::DarkGrey,
-        )?;
-        draw_line(
-            out,
-            "  Editing any field here will automatically enable manual overlay.",
-            Color::DarkGrey,
-        )?;
+        for line in wrap_text(
+            "Manual overlay is OFF: effective values are coming from the selected tuning preset.",
+            INNER.saturating_sub(2),
+        ) {
+            draw_line(out, &format!("  {}", line), Color::DarkGrey)?;
+        }
+        for line in wrap_text(
+            "Editing any field here will automatically enable manual overlay.",
+            INNER.saturating_sub(2),
+        ) {
+            draw_line(out, &format!("  {}", line), Color::DarkGrey)?;
+        }
         draw_empty(out)?;
     }
 
@@ -2853,6 +2861,18 @@ fn action_open_state_folder() -> Result<(), Box<dyn std::error::Error>> {
         .arg(&state_dir)
         .spawn()?;
     log_ok(&format!("Opened {}", state_dir.display()));
+    Ok(())
+}
+
+fn open_color_management_panel() -> Result<(), Box<dyn std::error::Error>> {
+    if std::process::Command::new("colorcpl.exe").spawn().is_ok() {
+        return Ok(());
+    }
+
+    std::process::Command::new("control.exe")
+        .arg("/name")
+        .arg("Microsoft.ColorManagement")
+        .spawn()?;
     Ok(())
 }
 

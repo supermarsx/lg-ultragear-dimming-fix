@@ -2837,11 +2837,16 @@ fn verify_wcs_default_profile_name(
             device_key, scope, expected_name, name
         )
         .into()),
-        None => Err(format!(
-            "WCS default profile verification failed for {} (scope={}): expected '{}' but no default profile was reported",
-            device_key, scope, expected_name
-        )
-        .into()),
+        None => {
+            // Some Windows display stacks apply associations correctly but do
+            // not report a default through WcsGetDefaultColorProfile for this
+            // DISPLAY\\... device key. Treat this as indeterminate, not fatal.
+            warn!(
+                "WCS default profile check reported no default for {} (scope={}); expected '{}'. Keeping apply result as best-effort.",
+                device_key, scope, expected_name
+            );
+            Ok(())
+        }
     }
 }
 

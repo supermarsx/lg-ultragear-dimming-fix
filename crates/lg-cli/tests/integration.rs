@@ -405,7 +405,11 @@ fn ddc_help_lists_map_subcommand() {
 #[test]
 fn automation_help_lists_subcommands() {
     let (stdout, stderr, success) = run_binary(&["automation", "--help"]);
-    assert!(success, "automation --help should succeed. stderr: {}", stderr);
+    assert!(
+        success,
+        "automation --help should succeed. stderr: {}",
+        stderr
+    );
     let lower = stdout.to_lowercase();
     assert!(lower.contains("show"));
     assert!(lower.contains("path"));
@@ -494,8 +498,13 @@ fn tray_run_dry_run_succeeds() {
 
 #[test]
 fn bundle_export_dry_run_succeeds() {
-    let (stdout, stderr, success) =
-        run_binary(&["--dry-run", "bundle", "export", "--output", "C:\\temp\\lgbundle"]);
+    let (stdout, stderr, success) = run_binary(&[
+        "--dry-run",
+        "bundle",
+        "export",
+        "--output",
+        "C:\\temp\\lgbundle",
+    ]);
     assert!(
         success,
         "dry-run bundle export should succeed. stderr: {}",
@@ -506,8 +515,7 @@ fn bundle_export_dry_run_succeeds() {
 
 #[test]
 fn bundle_import_dry_run_succeeds() {
-    let (stdout, stderr, success) =
-        run_binary(&["--dry-run", "bundle", "import", "--input", "."]);
+    let (stdout, stderr, success) = run_binary(&["--dry-run", "bundle", "import", "--input", "."]);
     assert!(
         success,
         "dry-run bundle import should succeed. stderr: {}",
