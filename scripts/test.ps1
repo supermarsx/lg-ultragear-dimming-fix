@@ -9,11 +9,15 @@
     Optional test name filter passed to cargo test.
 .PARAMETER Release
     Run tests with the release profile.
+.PARAMETER Jobs
+    Maximum parallel compilation jobs for cargo (defaults to 2).
 #>
 [CmdletBinding()]
 param(
     [string]$Filter,
-    [switch]$Release
+    [switch]$Release,
+    [ValidateRange(1, 64)]
+    [int]$Jobs = 2
 )
 
 Set-StrictMode -Version Latest
@@ -21,7 +25,7 @@ $ErrorActionPreference = 'Stop'
 
 Push-Location (Split-Path $PSScriptRoot -Parent)
 try {
-    $args_ = @('test', '--all-targets')
+    $args_ = @('test', '--all-targets', '--jobs', "$Jobs")
     if ($Release) { $args_ += '--release' }
     if ($Filter)  { $args_ += @('--', $Filter) }
 

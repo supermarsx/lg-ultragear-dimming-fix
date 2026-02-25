@@ -377,9 +377,7 @@ pub fn parse_dynamic_icc_tuning_preset(value: &str) -> DynamicIccTuningPreset {
         }
         "unyellow_soft" | "unyellow-soft" => DynamicIccTuningPreset::UnyellowSoft,
         "unyellow_balanced" | "unyellow-balanced" => DynamicIccTuningPreset::UnyellowBalanced,
-        "unyellow_aggressive" | "unyellow-aggressive" => {
-            DynamicIccTuningPreset::UnyellowAggressive
-        }
+        "unyellow_aggressive" | "unyellow-aggressive" => DynamicIccTuningPreset::UnyellowAggressive,
         "black_depth" | "black-depth" | "deep_black" | "deep-black" => {
             DynamicIccTuningPreset::BlackDepth
         }
@@ -389,9 +387,7 @@ pub fn parse_dynamic_icc_tuning_preset(value: &str) -> DynamicIccTuningPreset {
         "anti_fade_punch" | "anti-fade-punch" | "fade_fix" | "fade-fix" => {
             DynamicIccTuningPreset::AntiFadePunch
         }
-        "anti_fade_cinematic" | "anti-fade-cinematic" => {
-            DynamicIccTuningPreset::AntiFadeCinematic
-        }
+        "anti_fade_cinematic" | "anti-fade-cinematic" => DynamicIccTuningPreset::AntiFadeCinematic,
         _ => DynamicIccTuningPreset::AntiDimBalanced,
     }
 }
